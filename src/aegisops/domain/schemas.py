@@ -3,6 +3,7 @@
 from typing import Any
 
 from aegisops.actions.catalog import ActionCatalog, ActionDefinition, ParameterRule
+from aegisops.audit.reader import AuditEntry
 from aegisops.domain.common import DTO
 from aegisops.domain.models import (
     ActionProposal,
@@ -19,6 +20,7 @@ from aegisops.domain.models import (
     Incident,
     KubernetesEvent,
     LLMMetadata,
+    NoIncidentObservation,
     Owner,
     PodSnapshot,
     PolicyDecision,
@@ -26,7 +28,9 @@ from aegisops.domain.models import (
     Recommendation,
     RecommendationDraft,
 )
+from aegisops.evaluation.suite import EvaluationReport
 from aegisops.llm.base import AnalysisDraft
+from aegisops.pipeline.models import PipelineResult
 from aegisops.sources.synthetic import ScenarioSpec
 
 CONTRACTS: tuple[type[DTO], ...] = (
@@ -55,6 +59,10 @@ CONTRACTS: tuple[type[DTO], ...] = (
     ActionCatalog,
     ScenarioSpec,
     AnalysisDraft,
+    NoIncidentObservation,
+    PipelineResult,
+    EvaluationReport,
+    AuditEntry,
 )
 
 

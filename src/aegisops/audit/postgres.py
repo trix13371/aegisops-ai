@@ -3,6 +3,7 @@
 from types import TracebackType
 
 from sqlalchemy import create_engine, insert
+from sqlalchemy.engine import Engine
 
 from aegisops.audit.base import AuditStoreError
 from aegisops.audit.validation import prepare_record
@@ -12,18 +13,20 @@ from aegisops.db.models import AuditRun
 from aegisops.domain.models import AuditRecord
 
 
+def create_audit_engine(database_url: str | None = None) -> Engine:
+    try:
+        url = load_database_url() if database_url is None else validate_database_url(database_url)
+        check_database(url)
+        return create_engine(
+            url, connect_args={"connect_timeout": 3}, hide_parameters=True, echo=False
+        )
+    except Exception:
+        raise AuditStoreError() from None
+
+
 class PostgresAuditStore:
     def __init__(self, database_url: str | None = None) -> None:
-        try:
-            url = (
-                load_database_url() if database_url is None else validate_database_url(database_url)
-            )
-            check_database(url)
-            self._engine = create_engine(
-                url, connect_args={"connect_timeout": 3}, hide_parameters=True, echo=False
-            )
-        except Exception:
-            raise AuditStoreError() from None
+        self._engine = create_audit_engine(database_url)
 
     def append(self, record: AuditRecord) -> None:
         try:

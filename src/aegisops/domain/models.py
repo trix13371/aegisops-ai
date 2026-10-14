@@ -47,6 +47,7 @@ __all__ = [
     "IncidentType",
     "KubernetesEvent",
     "LLMMetadata",
+    "NoIncidentObservation",
     "Origin",
     "Owner",
     "PodSnapshot",
@@ -410,6 +411,19 @@ class AuditError(DTO):
     message: ShortText
 
 
+class NoIncidentObservation(DTO):
+    source: Literal["synthetic", "local-kind"]
+    snapshot_count: int = Field(strict=True, ge=0, le=200)
+    detected_incidents: Literal[0] = 0
+
+    @field_validator("detected_incidents", mode="before")
+    @classmethod
+    def _integer_zero(cls, value: object) -> int:
+        if type(value) is not int or value != 0:
+            raise ValueError("zero incidents required")
+        return value
+
+
 class AuditRecord(DTO):
     schema_version: Literal[1] = 1
     run_id: UUID
@@ -418,6 +432,7 @@ class AuditRecord(DTO):
     status: RunStatus
     autonomy_level: AutonomyLevel = AutonomyLevel.L0
     origin: Origin
+    observation: NoIncidentObservation | None = None
     incident: Incident | None = None
     context: DiagnosisContext | None = None
     diagnosis: Diagnosis | None = None
@@ -442,6 +457,34 @@ class AuditRecord(DTO):
 
         if self.incident is not None and self.incident.origin != self.origin:
             raise ValueError("incident origin does not match record origin")
+
+        if self.observation is not None:
+            if self.status is not RunStatus.COMPLETED or self.incident is not None:
+                raise ValueError("observation requires completed scan without incident")
+            expected_origin = (
+                Origin.SYNTHETIC_FIXTURE
+                if self.observation.source == "synthetic"
+                else Origin.LOCAL_KIND
+            )
+            if self.origin is not expected_origin:
+                raise ValueError("observation origin mismatch")
+            if self.errors or any(
+                value is not None
+                for value in (
+                    self.context,
+                    self.diagnosis,
+                    self.recommendation,
+                    self.policy_decision,
+                    self.dry_run_result,
+                    self.llm,
+                    self.context_hash,
+                )
+            ):
+                raise ValueError("no-incident scan must not contain analysis stages or errors")
+        if self.status is RunStatus.COMPLETED and self.incident is None:
+            if self.observation is None:
+                raise ValueError("completed scan requires observation")
+            return self
 
         if self.context is not None and self.incident is None:
             raise ValueError("context requires incident")

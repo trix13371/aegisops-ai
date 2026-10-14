@@ -1,0 +1,32 @@
+{
+  "origin": "synthetic_fixture",
+  "snapshot_count": 1,
+  "incident_count": 0,
+  "records": [
+    {
+      "schema_version": 1,
+      "run_id": "11111111-2222-4333-8444-555555555555",
+      "started_at": "2026-10-15T00:00:00Z",
+      "completed_at": "2026-10-15T00:00:00Z",
+      "status": "completed",
+      "autonomy_level": "L0",
+      "origin": "synthetic_fixture",
+      "observation": {
+        "source": "synthetic",
+        "snapshot_count": 1,
+        "detected_incidents": 0
+      },
+      "incident": null,
+      "context": null,
+      "diagnosis": null,
+      "recommendation": null,
+      "policy_decision": null,
+      "dry_run_result": null,
+      "llm": null,
+      "context_hash": null,
+      "errors": []
+    }
+  ],
+  "status": "completed",
+  "execution_performed": false
+}

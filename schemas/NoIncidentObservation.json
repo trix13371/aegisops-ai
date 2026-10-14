@@ -1,0 +1,33 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/NoIncidentObservation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "detected_incidents": {
+      "const": 0,
+      "default": 0,
+      "title": "Detected Incidents",
+      "type": "integer"
+    },
+    "snapshot_count": {
+      "maximum": 200,
+      "minimum": 0,
+      "title": "Snapshot Count",
+      "type": "integer"
+    },
+    "source": {
+      "enum": [
+        "synthetic",
+        "local-kind"
+      ],
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "snapshot_count"
+  ],
+  "title": "NoIncidentObservation",
+  "type": "object"
+}

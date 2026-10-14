@@ -17,7 +17,7 @@ AuditRecord дополнительно сверяет связи вложенн�
 actions/catalog.py проверяет четыре определения и параметры. sources/synthetic.py
 читает фиксированные файлы, не обращаясь к кластеру. CLI scenario list/show
 не требует БД или API-ключа. source наблюдения не выполняет детекцию.
-JSON Schema и эталоны проверяются контрактными тестами (25 после S0-06).
+JSON Schema и эталоны проверяются контрактными тестами (29 после S0-08).
 Валидация DTO не означает, что строка санитизирована: это отдельный механизм.
 
 S0-03: env_guard принимает только project reader config и проверяет loopback,
@@ -62,8 +62,18 @@ DryRunEngine → PostgresAuditStore.append. CLI review выбирает один
 Summary строится шаблоном приложения, эффекты не проверяются. AuditStore
 санитизирует и сверяет контекст, evidence, policy и dry-run; транзакционный
 INSERT под app-ролью, без update/delete API. completed возвращается только
-после записи. Ошибка БД прерывает CLI. Полный сбор источника, ранний отказ
-среды, run и eval остаются S0-08 (ADR-008).
+после записи. Ошибка БД прерывает CLI (ADR-008).
+
+S0-08: Pipeline → ObservationSource → DetectionEngine → ReviewService → AuditStore.
+SyntheticBatchSource или LocalKindSource владеют чтением и закрытием reader;
+весь батч проверяется до анализа. Один общий LLM-бюджет, отдельные транзакции
+аудита. NoIncidentObservation фиксирует успешную проверку без инцидента и
+не создаёт фиктивных diagnosis/policy/dry-run. PipelineResult связывает итог
+с аудитами, ошибки записи не превращаются в успешный батч.
+PostgresAuditReader отделён от writer: метаданные ограничены, show проверяет
+UUID/JSONB/контекст без переоценки исторической политики. CLI run/audit/eval
+покрывает полный прототип. EvaluationReport содержит метрики десяти фикстур
+и отдельно шесть ручных probes; model quality не оценивается (ADR-009).
 
 Планируемый конвейер S0-02…S0-08: ObservationSource → DetectionEngine →
 ContextBuilder/sanitizer → DiagnosisEngine → RecommendationEngine →

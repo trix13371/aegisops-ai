@@ -10,7 +10,7 @@ from aegisops.policy.checker import PolicyChecker
 MAX_AUDIT_BYTES = 512 * 1024
 
 
-def prepare_record(record: AuditRecord) -> AuditRecord:
+def sanitize_record(record: object) -> AuditRecord:
     try:
         validated = AuditRecord.model_validate(record)
         clean = AuditRecord.model_validate(sanitize_data(validated.model_dump(mode="json")))
@@ -36,6 +36,18 @@ def prepare_record(record: AuditRecord) -> AuditRecord:
                 or clean.llm.parameters.get("context_hash") != clean.context_hash
             ):
                 raise AuditStoreError()
+        if clean.status is RunStatus.COMPLETED and clean.incident is not None and clean.llm is None:
+            raise AuditStoreError()
+        if clean.status is RunStatus.BLOCKED and clean.policy_decision is None and not clean.errors:
+            raise AuditStoreError()
+        return clean
+    except Exception:
+        raise AuditStoreError() from None
+
+
+def prepare_record(record: AuditRecord) -> AuditRecord:
+    try:
+        clean = sanitize_record(record)
         if clean.policy_decision is not None:
             if clean.incident is None or clean.recommendation is None:
                 raise AuditStoreError()
@@ -54,10 +66,6 @@ def prepare_record(record: AuditRecord) -> AuditRecord:
             )
             if clean.dry_run_result != expected_dry:
                 raise AuditStoreError()
-        if clean.status is RunStatus.COMPLETED and clean.llm is None:
-            raise AuditStoreError()
-        if clean.status is RunStatus.BLOCKED and clean.policy_decision is None and not clean.errors:
-            raise AuditStoreError()
         return clean
     except Exception:
         raise AuditStoreError() from None

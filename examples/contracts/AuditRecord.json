@@ -73,6 +73,7 @@
   },
   "llm": null,
   "origin": "synthetic_fixture",
+  "observation": null,
   "policy_decision": {
     "allowed_for_dry_run": true,
     "autonomy_level": "L0",

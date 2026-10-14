@@ -1,0 +1,205 @@
+{
+  "$defs": {
+    "Ratio": {
+      "additionalProperties": false,
+      "properties": {
+        "denominator": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Denominator",
+          "type": "integer"
+        },
+        "numerator": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Numerator",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "title": "Ratio",
+      "type": "object"
+    },
+    "ScenarioEvaluation": {
+      "additionalProperties": false,
+      "properties": {
+        "action_allowed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Action Allowed"
+        },
+        "audit_run_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Audit Run Ids",
+          "type": "array"
+        },
+        "cause_matches": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cause Matches"
+        },
+        "completed": {
+          "title": "Completed",
+          "type": "boolean"
+        },
+        "detected": {
+          "title": "Detected",
+          "type": "boolean"
+        },
+        "expected_detected": {
+          "title": "Expected Detected",
+          "type": "boolean"
+        },
+        "scenario_id": {
+          "pattern": "^[a-z0-9-]{1,64}$",
+          "title": "Scenario Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "expected_detected",
+        "detected",
+        "cause_matches",
+        "action_allowed",
+        "completed",
+        "audit_run_ids"
+      ],
+      "title": "ScenarioEvaluation",
+      "type": "object"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/EvaluationReport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adversarial_policy_probe_denials": {
+      "$ref": "#/$defs/Ratio"
+    },
+    "allowed_actions": {
+      "$ref": "#/$defs/Ratio"
+    },
+    "canary_leaks": {
+      "minimum": 0,
+      "title": "Canary Leaks",
+      "type": "integer"
+    },
+    "cause_matches": {
+      "$ref": "#/$defs/Ratio"
+    },
+    "detection_precision": {
+      "$ref": "#/$defs/Ratio"
+    },
+    "detection_recall": {
+      "$ref": "#/$defs/Ratio"
+    },
+    "execution_count": {
+      "minimum": 0,
+      "title": "Execution Count",
+      "type": "integer"
+    },
+    "fake_calls": {
+      "maximum": 12,
+      "minimum": 0,
+      "title": "Fake Calls",
+      "type": "integer"
+    },
+    "false_negatives": {
+      "maximum": 10,
+      "minimum": 0,
+      "title": "False Negatives",
+      "type": "integer"
+    },
+    "false_positives": {
+      "maximum": 10,
+      "minimum": 0,
+      "title": "False Positives",
+      "type": "integer"
+    },
+    "injection_fixture_policy_denials": {
+      "$ref": "#/$defs/Ratio"
+    },
+    "mode": {
+      "const": "fixture_mechanics_not_model_quality",
+      "default": "fixture_mechanics_not_model_quality",
+      "title": "Mode",
+      "type": "string"
+    },
+    "model": {
+      "const": "fixture-v1",
+      "default": "fixture-v1",
+      "title": "Model",
+      "type": "string"
+    },
+    "passed": {
+      "title": "Passed",
+      "type": "boolean"
+    },
+    "scenarios": {
+      "items": {
+        "$ref": "#/$defs/ScenarioEvaluation"
+      },
+      "maxItems": 10,
+      "minItems": 10,
+      "title": "Scenarios",
+      "type": "array"
+    },
+    "suite": {
+      "const": "synthetic-crashloop-v1",
+      "default": "synthetic-crashloop-v1",
+      "title": "Suite",
+      "type": "string"
+    },
+    "true_negatives": {
+      "maximum": 10,
+      "minimum": 0,
+      "title": "True Negatives",
+      "type": "integer"
+    },
+    "true_positives": {
+      "maximum": 10,
+      "minimum": 0,
+      "title": "True Positives",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "passed",
+    "scenarios",
+    "true_positives",
+    "false_positives",
+    "true_negatives",
+    "false_negatives",
+    "detection_precision",
+    "detection_recall",
+    "cause_matches",
+    "allowed_actions",
+    "injection_fixture_policy_denials",
+    "adversarial_policy_probe_denials",
+    "canary_leaks",
+    "execution_count",
+    "fake_calls"
+  ],
+  "title": "EvaluationReport",
+  "type": "object"
+}

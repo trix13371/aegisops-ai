@@ -1,0 +1,10 @@
+{
+  "run_id": "11111111-2222-4333-8444-555555555555",
+  "started_at": "2026-10-15T00:00:00Z",
+  "completed_at": "2026-10-15T00:00:00Z",
+  "status": "completed",
+  "origin": "synthetic_fixture",
+  "incident_id": null,
+  "model_name": null,
+  "policy_version": null
+}

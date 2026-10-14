@@ -6,25 +6,30 @@ import json
 import os
 import sys
 from io import TextIOWrapper
+from uuid import UUID
 
 import typer
 from pydantic import SecretStr
 
 from aegisops.audit.base import AuditStoreError
 from aegisops.audit.postgres import PostgresAuditStore
+from aegisops.audit.reader import PostgresAuditReader
 from aegisops.config import ConfigurationError, load_database_url
 from aegisops.context.builder import ContextBuilder, ContextError
 from aegisops.context.sanitizer import SanitizationError, sanitize_data
 from aegisops.db.health import DatabaseHealthError, check_database
 from aegisops.detection.engine import DetectionEngine, DetectionError
-from aegisops.domain.models import PodSnapshot
+from aegisops.domain.models import Origin, PodSnapshot
+from aegisops.evaluation.suite import EvaluationError, evaluate_suite
 from aegisops.llm.base import LLMClient, LLMError
 from aegisops.llm.engine import AnalysisEngine
 from aegisops.llm.fake import FakeLLMClient, UnavailableLLMClient
 from aegisops.llm.transport import DEFAULT_MODEL, OpenAICompatibleClient
+from aegisops.pipeline.engine import Pipeline, PipelineError
 from aegisops.review.service import ReviewError, ReviewService
 from aegisops.sources.env_guard import EnvironmentGuardError, load_reader_identity
 from aegisops.sources.kubernetes_readonly import CollectionError, KubernetesReadOnlySource
+from aegisops.sources.pipeline import LocalKindSource, SyntheticBatchSource
 from aegisops.sources.safe_client import ReadOnlyClient, ReadOnlyError
 from aegisops.sources.synthetic import ScenarioError, ScenarioRepository, SyntheticSource
 
@@ -38,6 +43,82 @@ app = typer.Typer(
 _OK_MESSAGE = "doctor: OK (synthetic mode; database ready; no LLM or Kubernetes required)"
 scenario_app = typer.Typer(help="List handcrafted scenarios; never execute actions.")
 app.add_typer(scenario_app, name="scenario")
+audit_app = typer.Typer(help="Read bounded local audit records; no mutation commands.")
+app.add_typer(audit_app, name="audit")
+
+
+@app.command("run")
+def run_pipeline(
+    source: str = typer.Option("synthetic", "--source"),
+    scenario: str | None = typer.Option(None, "--scenario"),
+    llm: str = typer.Option("fake", "--llm"),
+    model: str | None = typer.Option(None, "--model"),
+    local_url: str | None = typer.Option(None, "--local-url"),
+) -> None:
+    """Run collection through durable audit; execution is unavailable."""
+    try:
+        if (
+            source not in {"synthetic", "local-kind"}
+            or source == "local-kind"
+            and scenario is not None
+        ):
+            raise PipelineError()
+        with PostgresAuditStore() as store:
+            observation_source = (
+                SyntheticBatchSource(scenario) if source == "synthetic" else LocalKindSource()
+            )
+            origin = Origin.SYNTHETIC_FIXTURE if source == "synthetic" else Origin.LOCAL_KIND
+            pipeline = Pipeline(AnalysisEngine(_analysis_client(llm, model, local_url)), store)
+            result = pipeline.run(observation_source, origin=origin)
+        output = result.model_dump_json(indent=2)
+    except (AuditStoreError, PipelineError, ReviewError, LLMError):
+        typer.echo("run: FAILED (configuration, input or durable audit rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
+    if result.status.value != "completed":
+        raise typer.Exit(code=1)
+
+
+@app.command("eval")
+def evaluate() -> None:
+    """Evaluate ten fixture runs and policy probes; fake model only."""
+    try:
+        with PostgresAuditStore() as store:
+            result = evaluate_suite(store)
+        output = result.model_dump_json(indent=2)
+    except (AuditStoreError, EvaluationError, PipelineError, ReviewError, ScenarioError, LLMError):
+        typer.echo("eval: FAILED (fixture or durable audit rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
+    if not result.passed:
+        raise typer.Exit(code=1)
+
+
+@audit_app.command("list")
+def audit_list(limit: int = typer.Option(25, "--limit", min=1, max=100)) -> None:
+    try:
+        with PostgresAuditReader() as reader:
+            entries = reader.list(limit)
+        output = json.dumps(
+            [entry.model_dump(mode="json") for entry in entries], ensure_ascii=False, indent=2
+        )
+    except AuditStoreError:
+        typer.echo("audit: FAILED (local audit read rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
+
+
+@audit_app.command("show")
+def audit_show(run_id: str) -> None:
+    try:
+        identifier = UUID(run_id)
+        with PostgresAuditReader() as reader:
+            record = reader.show(identifier)
+        output = record.model_dump_json(indent=2)
+    except (ValueError, AuditStoreError):
+        typer.echo("audit: FAILED (record missing, invalid or local audit read rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
 
 
 def _analysis_client(mode: str, model: str | None, local_url: str | None) -> LLMClient:

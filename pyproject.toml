@@ -96,3 +96,9 @@ forbidden_modules = [
   "aegisops.sources", "aegisops.db", "aegisops.config", "aegisops.llm",
   "http", "socket", "kubernetes", "requests", "urllib3", "subprocess", "pty",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Offline evaluation cannot import paid model transport"
+type = "forbidden"
+source_modules = ["aegisops.evaluation"]
+forbidden_modules = ["aegisops.llm.transport"]
