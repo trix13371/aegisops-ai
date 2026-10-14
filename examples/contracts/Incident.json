@@ -1,0 +1,23 @@
+{
+  "cluster_id": "kind-aegisops-demo",
+  "container_name": "app",
+  "evidence": [
+    {
+      "attributes": {
+        "exit_code": 1
+      },
+      "evidence_id": "ev-001",
+      "observed_at": "2026-10-10T12:00:00Z",
+      "source": "pod_status",
+      "summary": "CrashLoopBackOff"
+    }
+  ],
+  "incident_id": "incident-fixed",
+  "incident_type": "crash_loop_back_off",
+  "namespace": "aegisops-demo",
+  "observed_at": "2026-10-10T12:00:00Z",
+  "origin": "synthetic_fixture",
+  "pod_name": "demo-pod",
+  "severity": "medium",
+  "workload_name": "demo"
+}

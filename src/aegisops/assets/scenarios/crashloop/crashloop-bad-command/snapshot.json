@@ -1,0 +1,24 @@
+{
+  "snapshot_id": "synthetic-crashloop-bad-command",
+  "origin": "synthetic_fixture",
+  "cluster_id": "kind-aegisops-demo",
+  "namespace": "aegisops-demo",
+  "pod_name": "crashloop-bad-command-pod",
+  "owner": {
+    "kind": "Deployment",
+    "name": "crashloop-bad-command"
+  },
+  "containers": [
+    {
+      "name": "app",
+      "is_init": false,
+      "waiting_reason": "CrashLoopBackOff",
+      "last_terminated_reason": "StartError",
+      "last_exit_code": 127,
+      "restart_count": 3
+    }
+  ],
+  "events": [],
+  "log_tail": "Executable demo-missing was not found",
+  "observed_at": "2026-10-10T12:00:00Z"
+}

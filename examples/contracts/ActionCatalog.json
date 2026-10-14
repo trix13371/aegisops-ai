@@ -1,0 +1,85 @@
+{
+  "actions": [
+    {
+      "id": "escalate_to_human",
+      "params": {},
+      "postconditions": [],
+      "preconditions": [],
+      "rate_limit": null,
+      "reversibility": "R1",
+      "rollback": null
+    },
+    {
+      "id": "collect_more_evidence",
+      "params": {
+        "scope": {
+          "const": null,
+          "enum": [
+            "events",
+            "previous_logs",
+            "pod_spec_summary"
+          ],
+          "max_length": 63,
+          "type": "string"
+        }
+      },
+      "postconditions": [],
+      "preconditions": [],
+      "rate_limit": null,
+      "reversibility": "R1",
+      "rollback": null
+    },
+    {
+      "id": "restart_workload",
+      "params": {
+        "namespace": {
+          "const": "aegisops-demo",
+          "enum": null,
+          "max_length": 63,
+          "type": "string"
+        },
+        "workload": {
+          "const": null,
+          "enum": null,
+          "max_length": 63,
+          "type": "string"
+        }
+      },
+      "postconditions": [
+        "pods Ready within timeout"
+      ],
+      "preconditions": [
+        "workload exists",
+        "no active lease by human"
+      ],
+      "rate_limit": "1 per target per hour",
+      "reversibility": "R2",
+      "rollback": "not_applicable"
+    },
+    {
+      "id": "rollback_deployment",
+      "params": {
+        "deployment": {
+          "const": null,
+          "enum": null,
+          "max_length": 63,
+          "type": "string"
+        },
+        "namespace": {
+          "const": "aegisops-demo",
+          "enum": null,
+          "max_length": 63,
+          "type": "string"
+        }
+      },
+      "postconditions": [
+        "previous revision Ready"
+      ],
+      "preconditions": [],
+      "rate_limit": null,
+      "reversibility": "R1",
+      "rollback": null
+    }
+  ],
+  "catalog_version": "0.1.0"
+}

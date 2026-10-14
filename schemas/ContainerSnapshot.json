@@ -1,0 +1,72 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/ContainerSnapshot.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "is_init": {
+      "default": false,
+      "title": "Is Init",
+      "type": "boolean"
+    },
+    "last_exit_code": {
+      "anyOf": [
+        {
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Exit Code"
+    },
+    "last_terminated_reason": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Terminated Reason"
+    },
+    "name": {
+      "maxLength": 63,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "restart_count": {
+      "default": 0,
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Restart Count",
+      "type": "integer"
+    },
+    "waiting_reason": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Waiting Reason"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "ContainerSnapshot",
+  "type": "object"
+}

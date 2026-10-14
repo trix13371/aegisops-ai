@@ -1,13 +1,36 @@
 # AegisOps AI — локальный прототип
 
-Реализована задача **S0-01: репозиторий и среда разработки** из части B документа
-«Stage −1: ревью и исправленная редакция», редакция 2.1. Python 3.12,
-PostgreSQL, Alembic и CLI `aegisops doctor`. Это отдельный трек прототипа,
+Реализованы **S0-01: среда разработки** и **S0-02: контракты и синтетический источник**
+из части B документа «Stage −1: ревью и исправленная редакция», редакция 2.1.
+Python 3.12, PostgreSQL, Alembic и CLI. Это отдельный трек прототипа,
 не Shadow Mode и не завершённый MVP-A.
 
 Сейчас нет Kubernetes-адаптера, детектора, рекомендаций, executor или сетевых
-вызовов LLM в приложении. Следующая задача S0-02 добавляет DTO, JSON Schema,
-каталог действий и синтетические снапшоты. Уровень приложения — L0.
+вызовов LLM в приложении. Контракты Pydantic, 24 JSON Schema, каталог четырёх
+действий и 10 синтетических сценариев готовы. Уровень приложения — L0.
+Следующая задача S0-03 — локальный kind, read-only доступ и живые сценарии.
+
+## Сценарии без БД и LLM
+
+```powershell
+uv run aegisops scenario list
+uv run aegisops scenario show crashloop-exit-1
+uv run python scripts/export-schemas.py --check
+uv run python scripts/sync-assets.py --check
+```
+
+`scenario show` показывает метаданные и статусы, скрывая сырой текст логов и Events.
+Это просмотр фикстуры, не диагноз или исполнение. Все snapshot.json созданы
+вручную; захват данных из kind ещё не выполнялся. Ожидания в expected.yaml
+будут использоваться для проверки детектора и рекомендаций позднее.
+
+Входы каталога/сценариев находятся в actions/ и scenarios/. Их копии внутри
+src/aegisops/assets/ включены в wheel. После изменения канонических входов
+выполните `uv run python scripts/sync-assets.py`; CI проверяет равенство.
+schemas/ и examples/contracts/ содержат контракты и эталонные JSON.
+После изменения DTO экспортируйте схемы через scripts/export-schemas.py и
+пересмотрите эталоны. Связи ID, UTC и лимиты байтов проверяет runtime:
+JSON Schema не заменяет эти проверки, санитизацию и политику.
 
 ## Установка с нуля
 
@@ -54,7 +77,7 @@ uv run pip-audit
 gitleaks git --redact --no-banner
 ```
 
-Для unit/safety без PostgreSQL: `uv run pytest -m 'unit or safety'`.
+Для unit/contract/safety без PostgreSQL: `uv run pytest -m 'unit or contract or safety'`.
 Интеграционные тесты пропускаются без конфигурации БД; полный приёмочный прогон
 обязательно выполняется с БД. Тесты проверяют реальные запреты INSERT/SELECT
 против UPDATE/DELETE/TRUNCATE/DDL, ограничения таблицы, дрейф схемы, повышение
@@ -92,3 +115,4 @@ Compose-проект `aegisops-prototype-s001` публикует PostgreSQL т�
 подписанный аудит, WORM и production-защита относятся к последующим этапам.
 Секреты, kubeconfig, `.venv` и локальные отчёты исключены из Git.
 Политика безопасности: docs/security/threat-model-prototype.md.
+Результат S0-02 и учёт расходов: [VERIFICATION-S0-02.md](VERIFICATION-S0-02.md).

@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "ActionID": {
+      "enum": [
+        "escalate_to_human",
+        "collect_more_evidence",
+        "restart_workload",
+        "rollback_deployment"
+      ],
+      "title": "ActionID",
+      "type": "string"
+    },
+    "CauseCategory": {
+      "enum": [
+        "application_exit_nonzero",
+        "missing_runtime_config",
+        "invalid_command",
+        "oom_killed",
+        "unknown"
+      ],
+      "title": "CauseCategory",
+      "type": "string"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/ScenarioSpec.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Declarative description of a handcrafted synthetic scenario.",
+  "properties": {
+    "allowed_actions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ActionID"
+      },
+      "maxItems": 4,
+      "title": "Allowed Actions",
+      "type": "array"
+    },
+    "cause_category": {
+      "$ref": "#/$defs/CauseCategory"
+    },
+    "description": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Description",
+      "type": "string"
+    },
+    "fixture_kind": {
+      "const": "handcrafted_synthetic",
+      "default": "handcrafted_synthetic",
+      "title": "Fixture Kind",
+      "type": "string"
+    },
+    "forbidden_actions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ActionID"
+      },
+      "maxItems": 4,
+      "title": "Forbidden Actions",
+      "type": "array"
+    },
+    "scenario_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "should_detect": {
+      "title": "Should Detect",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "scenario_id",
+    "should_detect",
+    "cause_category",
+    "description"
+  ],
+  "title": "ScenarioSpec",
+  "type": "object"
+}

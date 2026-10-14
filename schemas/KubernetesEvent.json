@@ -1,0 +1,47 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/KubernetesEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "count": {
+      "default": 1,
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Count",
+      "type": "integer"
+    },
+    "last_seen": {
+      "format": "date-time",
+      "title": "Last Seen",
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Message",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "Normal",
+        "Warning"
+      ],
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reason",
+    "type",
+    "message",
+    "last_seen"
+  ],
+  "title": "KubernetesEvent",
+  "type": "object"
+}

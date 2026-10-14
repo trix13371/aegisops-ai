@@ -1,0 +1,883 @@
+{
+  "$defs": {
+    "ActionID": {
+      "enum": [
+        "escalate_to_human",
+        "collect_more_evidence",
+        "restart_workload",
+        "rollback_deployment"
+      ],
+      "title": "ActionID",
+      "type": "string"
+    },
+    "ActionProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/ActionID"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxProperties": 16,
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "action_id"
+      ],
+      "title": "ActionProposal",
+      "type": "object"
+    },
+    "AuditError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "AuditError",
+      "type": "object"
+    },
+    "AutonomyLevel": {
+      "enum": [
+        "L0"
+      ],
+      "title": "AutonomyLevel",
+      "type": "string"
+    },
+    "BlockedCapability": {
+      "enum": [
+        "k8s_write",
+        "shell_exec",
+        "network_egress",
+        "secret_read",
+        "delete_data",
+        "modify_policy_or_audit"
+      ],
+      "title": "BlockedCapability",
+      "type": "string"
+    },
+    "CauseCategory": {
+      "enum": [
+        "application_exit_nonzero",
+        "missing_runtime_config",
+        "invalid_command",
+        "oom_killed",
+        "unknown"
+      ],
+      "title": "CauseCategory",
+      "type": "string"
+    },
+    "Confidence": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "ContextLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_events": {
+          "default": 64,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Max Events",
+          "type": "integer"
+        },
+        "max_evidence": {
+          "default": 32,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Max Evidence",
+          "type": "integer"
+        },
+        "max_log_bytes": {
+          "default": 16384,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Max Log Bytes",
+          "type": "integer"
+        },
+        "max_log_lines": {
+          "default": 100,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Max Log Lines",
+          "type": "integer"
+        }
+      },
+      "title": "ContextLimits",
+      "type": "object"
+    },
+    "Diagnosis": {
+      "additionalProperties": false,
+      "properties": {
+        "diagnosis_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Diagnosis Id",
+          "type": "string"
+        },
+        "hypotheses": {
+          "items": {
+            "$ref": "#/$defs/DiagnosisHypothesis"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Hypotheses",
+          "type": "array"
+        },
+        "incident_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Incident Id",
+          "type": "string"
+        },
+        "missing_evidence": {
+          "default": [],
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Missing Evidence",
+          "type": "array"
+        },
+        "summary": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "diagnosis_id",
+        "incident_id",
+        "summary",
+        "hypotheses"
+      ],
+      "title": "Diagnosis",
+      "type": "object"
+    },
+    "DiagnosisContext": {
+      "additionalProperties": false,
+      "properties": {
+        "context_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Context Hash",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "incident_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Incident Id",
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/ContextLimits"
+        }
+      },
+      "required": [
+        "incident_id",
+        "context_hash",
+        "evidence"
+      ],
+      "title": "DiagnosisContext",
+      "type": "object"
+    },
+    "DiagnosisHypothesis": {
+      "additionalProperties": false,
+      "properties": {
+        "cause": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Cause",
+          "type": "string"
+        },
+        "cause_category": {
+          "$ref": "#/$defs/CauseCategory"
+        },
+        "confidence": {
+          "$ref": "#/$defs/Confidence"
+        },
+        "rationale": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "supporting_evidence_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Supporting Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cause_category",
+        "cause",
+        "rationale",
+        "confidence",
+        "supporting_evidence_ids"
+      ],
+      "title": "DiagnosisHypothesis",
+      "type": "object"
+    },
+    "DryRunResult": {
+      "additionalProperties": false,
+      "properties": {
+        "execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Performed",
+          "type": "boolean"
+        },
+        "incident_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Incident Id",
+          "type": "string"
+        },
+        "recommendation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Recommendation Id",
+          "type": "string"
+        },
+        "simulated": {
+          "const": true,
+          "default": true,
+          "title": "Simulated",
+          "type": "boolean"
+        },
+        "summary": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "incident_id",
+        "recommendation_id",
+        "summary"
+      ],
+      "title": "DryRunResult",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxProperties": 16,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "evidence_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/EvidenceSource"
+        },
+        "summary": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "source",
+        "summary",
+        "observed_at"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "EvidenceSource": {
+      "enum": [
+        "pod_status",
+        "k8s_event",
+        "container_log",
+        "synthetic_fixture"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
+    },
+    "Incident": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Cluster Id",
+          "type": "string"
+        },
+        "container_name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Container Name",
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        },
+        "incident_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Incident Id",
+          "type": "string"
+        },
+        "incident_type": {
+          "$ref": "#/$defs/IncidentType"
+        },
+        "namespace": {
+          "const": "aegisops-demo",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "pod_name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Pod Name",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "workload_name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Workload Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "incident_id",
+        "incident_type",
+        "origin",
+        "cluster_id",
+        "namespace",
+        "workload_name",
+        "pod_name",
+        "container_name",
+        "severity",
+        "observed_at",
+        "evidence"
+      ],
+      "title": "Incident",
+      "type": "object"
+    },
+    "IncidentType": {
+      "enum": [
+        "crash_loop_back_off"
+      ],
+      "title": "IncidentType",
+      "type": "string"
+    },
+    "LLMMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {
+          "default": 0,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Input Tokens",
+          "type": "integer"
+        },
+        "model_name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Model Name",
+          "type": "string"
+        },
+        "output_tokens": {
+          "default": 0,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Output Tokens",
+          "type": "integer"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxProperties": 16,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "prompt_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prompt Hash",
+          "type": "string"
+        },
+        "prompt_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Prompt Id",
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model_name",
+        "prompt_id",
+        "prompt_hash"
+      ],
+      "title": "LLMMetadata",
+      "type": "object"
+    },
+    "Origin": {
+      "enum": [
+        "synthetic_fixture",
+        "local_kind"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "PolicyDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_for_dry_run": {
+          "title": "Allowed For Dry Run",
+          "type": "boolean"
+        },
+        "autonomy_level": {
+          "$ref": "#/$defs/AutonomyLevel",
+          "default": "L0"
+        },
+        "blocked_capabilities": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/BlockedCapability"
+          },
+          "maxItems": 6,
+          "title": "Blocked Capabilities",
+          "type": "array"
+        },
+        "incident_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Incident Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Policy Version",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "$ref": "#/$defs/PolicyReason"
+          },
+          "maxItems": 32,
+          "title": "Reasons",
+          "type": "array"
+        },
+        "recommendation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Recommendation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "incident_id",
+        "recommendation_id",
+        "policy_version",
+        "allowed_for_dry_run",
+        "reasons"
+      ],
+      "title": "PolicyDecision",
+      "type": "object"
+    },
+    "PolicyReason": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "PolicyReason",
+      "type": "object"
+    },
+    "Recommendation": {
+      "additionalProperties": false,
+      "properties": {
+        "diagnosis_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Diagnosis Id",
+          "type": "string"
+        },
+        "execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Performed",
+          "type": "boolean"
+        },
+        "explanation_steps": {
+          "default": [],
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Explanation Steps",
+          "type": "array"
+        },
+        "incident_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Incident Id",
+          "type": "string"
+        },
+        "proposed_action": {
+          "$ref": "#/$defs/ActionProposal"
+        },
+        "rationale": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "recommendation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Recommendation Id",
+          "type": "string"
+        },
+        "requires_human_approval": {
+          "const": true,
+          "default": true,
+          "title": "Requires Human Approval",
+          "type": "boolean"
+        },
+        "reversibility_class": {
+          "$ref": "#/$defs/ReversibilityClass"
+        },
+        "title": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "rationale",
+        "proposed_action",
+        "recommendation_id",
+        "incident_id",
+        "diagnosis_id",
+        "reversibility_class"
+      ],
+      "title": "Recommendation",
+      "type": "object"
+    },
+    "ReversibilityClass": {
+      "enum": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "title": "ReversibilityClass",
+      "type": "string"
+    },
+    "RunStatus": {
+      "enum": [
+        "completed",
+        "failed",
+        "blocked"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/AuditRecord.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "autonomy_level": {
+      "$ref": "#/$defs/AutonomyLevel",
+      "default": "L0"
+    },
+    "completed_at": {
+      "format": "date-time",
+      "title": "Completed At",
+      "type": "string"
+    },
+    "context": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DiagnosisContext"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "context_hash": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Context Hash"
+    },
+    "diagnosis": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Diagnosis"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "dry_run_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DryRunResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "errors": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/AuditError"
+      },
+      "maxItems": 16,
+      "title": "Errors",
+      "type": "array"
+    },
+    "incident": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Incident"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "llm": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LLMMetadata"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "origin": {
+      "$ref": "#/$defs/Origin"
+    },
+    "policy_decision": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PolicyDecision"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "recommendation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Recommendation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus"
+    }
+  },
+  "required": [
+    "run_id",
+    "started_at",
+    "completed_at",
+    "status",
+    "origin"
+  ],
+  "title": "AuditRecord",
+  "type": "object"
+}

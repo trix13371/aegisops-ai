@@ -1,0 +1,9 @@
+{
+  "explanation_steps": [],
+  "proposed_action": {
+    "action_id": "escalate_to_human",
+    "params": {}
+  },
+  "rationale": "Synthetic prototype",
+  "title": "Human review"
+}

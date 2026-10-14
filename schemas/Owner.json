@@ -1,0 +1,30 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/Owner.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "enum": [
+        "Deployment",
+        "StatefulSet",
+        "DaemonSet",
+        "Job",
+        "Pod"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 63,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "name"
+  ],
+  "title": "Owner",
+  "type": "object"
+}

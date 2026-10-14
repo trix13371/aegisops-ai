@@ -7,6 +7,19 @@
 S0-01: CLI → проверка локального URL → read-only doctor → PostgreSQL.
 Миграции и создание среды выполняются отдельно от приложения.
 
+S0-02: domain/common+models задают ограниченные frozen DTO; bind_diagnosis
+связывает вывод с известным инцидентом и evidence, bind_recommendation
+проверяет каталог и ставит ID, класс обратимости и поля безопасности.
+Standalone Diagnosis проверяет структуру: на границе недоверенного вывода
+обязательно использовать bind_diagnosis/validate_diagnosis с инцидентом.
+AuditRecord дополнительно сверяет связи вложенных сущностей.
+
+actions/catalog.py проверяет четыре определения и параметры. sources/synthetic.py
+читает фиксированные файлы, не обращаясь к кластеру. CLI scenario list/show
+не требует БД или API-ключа. source наблюдения не выполняет детекцию.
+JSON Schema и 24 эталона проверяются контрактными тестами. Валидация DTO
+не означает, что строка санитизирована: этот механизм появляется в S0-05.
+
 Планируемый конвейер S0-02…S0-08: ObservationSource → DetectionEngine →
 ContextBuilder/sanitizer → DiagnosisEngine → RecommendationEngine →
 PolicyChecker → DryRunEngine → AuditStore. Контракты — Pydantic/JSON Schema.

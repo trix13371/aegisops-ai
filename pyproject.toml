@@ -9,7 +9,7 @@ description = "Local L0 AegisOps prototype: S0-01 foundation"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "pydantic>=2.10,<3", "typer>=0.15,<1", "SQLAlchemy>=2.0,<2.1",
-  "alembic>=1.14,<2", "psycopg[binary]>=3.2,<4",
+  "alembic>=1.14,<2", "psycopg[binary]>=3.2,<4", "PyYAML>=6,<7",
 ]
 
 [project.scripts]
@@ -19,6 +19,7 @@ aegisops = "aegisops.cli.app:app"
 dev = [
   "pytest>=8.3,<10", "pytest-cov>=6,<8", "ruff>=0.9,<1", "mypy>=1.15,<2",
   "import-linter>=2.2,<3", "pip-audit>=2.8,<3", "pre-commit>=4,<5",
+  "types-PyYAML>=6,<7", "jsonschema>=4.23,<5", "types-jsonschema>=4,<5",
 ]
 
 [tool.pytest.ini_options]

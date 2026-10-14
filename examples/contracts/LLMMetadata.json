@@ -1,0 +1,9 @@
+{
+  "input_tokens": 0,
+  "model_name": "fixture",
+  "output_tokens": 0,
+  "parameters": {},
+  "prompt_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "prompt_id": "diagnosis-v1",
+  "provider": "fake"
+}

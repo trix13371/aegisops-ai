@@ -1,0 +1,44 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/DryRunResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "execution_performed": {
+      "const": false,
+      "default": false,
+      "title": "Execution Performed",
+      "type": "boolean"
+    },
+    "incident_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "recommendation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Recommendation Id",
+      "type": "string"
+    },
+    "simulated": {
+      "const": true,
+      "default": true,
+      "title": "Simulated",
+      "type": "boolean"
+    },
+    "summary": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "incident_id",
+    "recommendation_id",
+    "summary"
+  ],
+  "title": "DryRunResult",
+  "type": "object"
+}

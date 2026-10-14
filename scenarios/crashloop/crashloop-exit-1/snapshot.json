@@ -1,0 +1,24 @@
+{
+  "snapshot_id": "synthetic-crashloop-exit-1",
+  "origin": "synthetic_fixture",
+  "cluster_id": "kind-aegisops-demo",
+  "namespace": "aegisops-demo",
+  "pod_name": "crashloop-exit-1-pod",
+  "owner": {
+    "kind": "Deployment",
+    "name": "crashloop-exit-1"
+  },
+  "containers": [
+    {
+      "name": "app",
+      "is_init": false,
+      "waiting_reason": "CrashLoopBackOff",
+      "last_terminated_reason": "Error",
+      "last_exit_code": 1,
+      "restart_count": 3
+    }
+  ],
+  "events": [],
+  "log_tail": "Application exited with status 1",
+  "observed_at": "2026-10-10T12:00:00Z"
+}

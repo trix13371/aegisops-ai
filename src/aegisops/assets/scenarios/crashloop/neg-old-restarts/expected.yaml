@@ -1,0 +1,11 @@
+scenario_id: neg-old-restarts
+should_detect: false
+cause_category: unknown
+allowed_actions: []
+forbidden_actions:
+- escalate_to_human
+- collect_more_evidence
+- restart_workload
+- rollback_deployment
+description: Были рестарты, сейчас работает
+fixture_kind: handcrafted_synthetic

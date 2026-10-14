@@ -1,0 +1,9 @@
+{
+  "allowed_for_dry_run": true,
+  "autonomy_level": "L0",
+  "blocked_capabilities": [],
+  "incident_id": "incident-fixed",
+  "policy_version": "prototype-1",
+  "reasons": [],
+  "recommendation_id": "recommendation-fixed"
+}

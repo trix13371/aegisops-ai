@@ -1,0 +1,52 @@
+{
+  "$defs": {
+    "ActionID": {
+      "enum": [
+        "escalate_to_human",
+        "collect_more_evidence",
+        "restart_workload",
+        "rollback_deployment"
+      ],
+      "title": "ActionID",
+      "type": "string"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/ActionProposal.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action_id": {
+      "$ref": "#/$defs/ActionID"
+    },
+    "params": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "maxLength": 512,
+            "type": "string"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "maxProperties": 16,
+      "title": "Params",
+      "type": "object"
+    }
+  },
+  "required": [
+    "action_id"
+  ],
+  "title": "ActionProposal",
+  "type": "object"
+}

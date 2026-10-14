@@ -1,0 +1,55 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/ParameterRule.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Rule constraining a single action parameter value.",
+  "properties": {
+    "const": {
+      "anyOf": [
+        {
+          "maxLength": 63,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Const"
+    },
+    "enum": {
+      "anyOf": [
+        {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Enum"
+    },
+    "max_length": {
+      "default": 63,
+      "maximum": 63,
+      "minimum": 1,
+      "title": "Max Length",
+      "type": "integer"
+    },
+    "type": {
+      "const": "string",
+      "default": "string",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "ParameterRule",
+  "type": "object"
+}

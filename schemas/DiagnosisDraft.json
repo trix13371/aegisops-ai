@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "CauseCategory": {
+      "enum": [
+        "application_exit_nonzero",
+        "missing_runtime_config",
+        "invalid_command",
+        "oom_killed",
+        "unknown"
+      ],
+      "title": "CauseCategory",
+      "type": "string"
+    },
+    "Confidence": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "DiagnosisHypothesis": {
+      "additionalProperties": false,
+      "properties": {
+        "cause": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Cause",
+          "type": "string"
+        },
+        "cause_category": {
+          "$ref": "#/$defs/CauseCategory"
+        },
+        "confidence": {
+          "$ref": "#/$defs/Confidence"
+        },
+        "rationale": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "supporting_evidence_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Supporting Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cause_category",
+        "cause",
+        "rationale",
+        "confidence",
+        "supporting_evidence_ids"
+      ],
+      "title": "DiagnosisHypothesis",
+      "type": "object"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/DiagnosisDraft.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "hypotheses": {
+      "items": {
+        "$ref": "#/$defs/DiagnosisHypothesis"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Hypotheses",
+      "type": "array"
+    },
+    "missing_evidence": {
+      "default": [],
+      "items": {
+        "maxLength": 512,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Missing Evidence",
+      "type": "array"
+    },
+    "summary": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "summary",
+    "hypotheses"
+  ],
+  "title": "DiagnosisDraft",
+  "type": "object"
+}

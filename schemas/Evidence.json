@@ -1,0 +1,72 @@
+{
+  "$defs": {
+    "EvidenceSource": {
+      "enum": [
+        "pod_status",
+        "k8s_event",
+        "container_log",
+        "synthetic_fixture"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/Evidence.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "attributes": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "maxLength": 512,
+            "type": "string"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "maxProperties": 16,
+      "title": "Attributes",
+      "type": "object"
+    },
+    "evidence_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Evidence Id",
+      "type": "string"
+    },
+    "observed_at": {
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/EvidenceSource"
+    },
+    "summary": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "evidence_id",
+    "source",
+    "summary",
+    "observed_at"
+  ],
+  "title": "Evidence",
+  "type": "object"
+}

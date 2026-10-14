@@ -1,0 +1,142 @@
+{
+  "$defs": {
+    "ContextLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_events": {
+          "default": 64,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Max Events",
+          "type": "integer"
+        },
+        "max_evidence": {
+          "default": 32,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Max Evidence",
+          "type": "integer"
+        },
+        "max_log_bytes": {
+          "default": 16384,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Max Log Bytes",
+          "type": "integer"
+        },
+        "max_log_lines": {
+          "default": 100,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Max Log Lines",
+          "type": "integer"
+        }
+      },
+      "title": "ContextLimits",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxProperties": 16,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "evidence_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/EvidenceSource"
+        },
+        "summary": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "source",
+        "summary",
+        "observed_at"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "EvidenceSource": {
+      "enum": [
+        "pod_status",
+        "k8s_event",
+        "container_log",
+        "synthetic_fixture"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/DiagnosisContext.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "context_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Context Hash",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Evidence",
+      "type": "array"
+    },
+    "incident_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "limits": {
+      "$ref": "#/$defs/ContextLimits"
+    }
+  },
+  "required": [
+    "incident_id",
+    "context_hash",
+    "evidence"
+  ],
+  "title": "DiagnosisContext",
+  "type": "object"
+}

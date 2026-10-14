@@ -1,0 +1,9 @@
+{
+  "id": "escalate_to_human",
+  "params": {},
+  "postconditions": [],
+  "preconditions": [],
+  "rate_limit": null,
+  "reversibility": "R1",
+  "rollback": null
+}

@@ -1,0 +1,104 @@
+{
+  "autonomy_level": "L0",
+  "completed_at": "2026-10-10T12:00:01Z",
+  "context": {
+    "context_hash": "9a74947625633d8c5dcceb7c3000aaf76d31a26e617f3956f9ff0ff96596ff0f",
+    "evidence": [
+      {
+        "attributes": {
+          "exit_code": 1
+        },
+        "evidence_id": "ev-001",
+        "observed_at": "2026-10-10T12:00:00Z",
+        "source": "pod_status",
+        "summary": "CrashLoopBackOff"
+      }
+    ],
+    "incident_id": "incident-fixed",
+    "limits": {
+      "max_events": 64,
+      "max_evidence": 32,
+      "max_log_bytes": 16384,
+      "max_log_lines": 100
+    }
+  },
+  "context_hash": "9a74947625633d8c5dcceb7c3000aaf76d31a26e617f3956f9ff0ff96596ff0f",
+  "diagnosis": {
+    "diagnosis_id": "diagnosis-fixed",
+    "hypotheses": [
+      {
+        "cause": "Nonzero exit",
+        "cause_category": "application_exit_nonzero",
+        "confidence": "medium",
+        "rationale": "Observed status",
+        "supporting_evidence_ids": [
+          "ev-001"
+        ]
+      }
+    ],
+    "incident_id": "incident-fixed",
+    "missing_evidence": [],
+    "summary": "Application exited"
+  },
+  "dry_run_result": {
+    "execution_performed": false,
+    "incident_id": "incident-fixed",
+    "recommendation_id": "recommendation-fixed",
+    "simulated": true,
+    "summary": "Only simulated"
+  },
+  "errors": [],
+  "incident": {
+    "cluster_id": "kind-aegisops-demo",
+    "container_name": "app",
+    "evidence": [
+      {
+        "attributes": {
+          "exit_code": 1
+        },
+        "evidence_id": "ev-001",
+        "observed_at": "2026-10-10T12:00:00Z",
+        "source": "pod_status",
+        "summary": "CrashLoopBackOff"
+      }
+    ],
+    "incident_id": "incident-fixed",
+    "incident_type": "crash_loop_back_off",
+    "namespace": "aegisops-demo",
+    "observed_at": "2026-10-10T12:00:00Z",
+    "origin": "synthetic_fixture",
+    "pod_name": "demo-pod",
+    "severity": "medium",
+    "workload_name": "demo"
+  },
+  "llm": null,
+  "origin": "synthetic_fixture",
+  "policy_decision": {
+    "allowed_for_dry_run": true,
+    "autonomy_level": "L0",
+    "blocked_capabilities": [],
+    "incident_id": "incident-fixed",
+    "policy_version": "prototype-1",
+    "reasons": [],
+    "recommendation_id": "recommendation-fixed"
+  },
+  "recommendation": {
+    "diagnosis_id": "diagnosis-fixed",
+    "execution_performed": false,
+    "explanation_steps": [],
+    "incident_id": "incident-fixed",
+    "proposed_action": {
+      "action_id": "escalate_to_human",
+      "params": {}
+    },
+    "rationale": "Prototype only",
+    "recommendation_id": "recommendation-fixed",
+    "requires_human_approval": true,
+    "reversibility_class": "R1",
+    "title": "Ask human"
+  },
+  "run_id": "12345678-1234-5678-1234-567812345678",
+  "schema_version": 1,
+  "started_at": "2026-10-10T12:00:00Z",
+  "status": "completed"
+}

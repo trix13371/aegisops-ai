@@ -1,0 +1,7 @@
+{
+  "count": 1,
+  "last_seen": "2026-10-10T12:00:00Z",
+  "message": "Synthetic status",
+  "reason": "BackOff",
+  "type": "Warning"
+}

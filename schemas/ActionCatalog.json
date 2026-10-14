@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "ActionDefinition": {
+      "additionalProperties": false,
+      "description": "A single catalogued action.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ActionID"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ParameterRule"
+          },
+          "maxProperties": 8,
+          "title": "Params",
+          "type": "object"
+        },
+        "postconditions": {
+          "default": [],
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Postconditions",
+          "type": "array"
+        },
+        "preconditions": {
+          "default": [],
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Preconditions",
+          "type": "array"
+        },
+        "rate_limit": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rate Limit"
+        },
+        "reversibility": {
+          "$ref": "#/$defs/ReversibilityClass"
+        },
+        "rollback": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rollback"
+        }
+      },
+      "required": [
+        "id",
+        "reversibility"
+      ],
+      "title": "ActionDefinition",
+      "type": "object"
+    },
+    "ActionID": {
+      "enum": [
+        "escalate_to_human",
+        "collect_more_evidence",
+        "restart_workload",
+        "rollback_deployment"
+      ],
+      "title": "ActionID",
+      "type": "string"
+    },
+    "ParameterRule": {
+      "additionalProperties": false,
+      "description": "Rule constraining a single action parameter value.",
+      "properties": {
+        "const": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Const"
+        },
+        "enum": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enum"
+        },
+        "max_length": {
+          "default": 63,
+          "maximum": 63,
+          "minimum": 1,
+          "title": "Max Length",
+          "type": "integer"
+        },
+        "type": {
+          "const": "string",
+          "default": "string",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "ParameterRule",
+      "type": "object"
+    },
+    "ReversibilityClass": {
+      "enum": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "title": "ReversibilityClass",
+      "type": "string"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/ActionCatalog.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Validated catalog of exactly four actions.",
+  "properties": {
+    "actions": {
+      "items": {
+        "$ref": "#/$defs/ActionDefinition"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "title": "Actions",
+      "type": "array"
+    },
+    "catalog_version": {
+      "maxLength": 32,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "title": "Catalog Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "catalog_version",
+    "actions"
+  ],
+  "title": "ActionCatalog",
+  "type": "object"
+}

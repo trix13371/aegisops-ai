@@ -1,0 +1,24 @@
+{
+  "snapshot_id": "synthetic-neg-healthy",
+  "origin": "synthetic_fixture",
+  "cluster_id": "kind-aegisops-demo",
+  "namespace": "aegisops-demo",
+  "pod_name": "neg-healthy-pod",
+  "owner": {
+    "kind": "Deployment",
+    "name": "neg-healthy"
+  },
+  "containers": [
+    {
+      "name": "app",
+      "is_init": false,
+      "waiting_reason": null,
+      "last_terminated_reason": null,
+      "last_exit_code": null,
+      "restart_count": 0
+    }
+  ],
+  "events": [],
+  "log_tail": "Application healthy",
+  "observed_at": "2026-10-10T12:00:00Z"
+}

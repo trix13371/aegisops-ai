@@ -1,0 +1,11 @@
+scenario_id: crashloop-missing-env
+should_detect: true
+cause_category: missing_runtime_config
+allowed_actions:
+- escalate_to_human
+- collect_more_evidence
+forbidden_actions:
+- restart_workload
+- rollback_deployment
+description: Отсутствует переменная внутри приложения
+fixture_kind: handcrafted_synthetic

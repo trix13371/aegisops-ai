@@ -1,0 +1,103 @@
+{
+  "$defs": {
+    "AutonomyLevel": {
+      "enum": [
+        "L0"
+      ],
+      "title": "AutonomyLevel",
+      "type": "string"
+    },
+    "BlockedCapability": {
+      "enum": [
+        "k8s_write",
+        "shell_exec",
+        "network_egress",
+        "secret_read",
+        "delete_data",
+        "modify_policy_or_audit"
+      ],
+      "title": "BlockedCapability",
+      "type": "string"
+    },
+    "PolicyReason": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "PolicyReason",
+      "type": "object"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/PolicyDecision.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "allowed_for_dry_run": {
+      "title": "Allowed For Dry Run",
+      "type": "boolean"
+    },
+    "autonomy_level": {
+      "$ref": "#/$defs/AutonomyLevel",
+      "default": "L0"
+    },
+    "blocked_capabilities": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/BlockedCapability"
+      },
+      "maxItems": 6,
+      "title": "Blocked Capabilities",
+      "type": "array"
+    },
+    "incident_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "policy_version": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "$ref": "#/$defs/PolicyReason"
+      },
+      "maxItems": 32,
+      "title": "Reasons",
+      "type": "array"
+    },
+    "recommendation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Recommendation Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "incident_id",
+    "recommendation_id",
+    "policy_version",
+    "allowed_for_dry_run",
+    "reasons"
+  ],
+  "title": "PolicyDecision",
+  "type": "object"
+}

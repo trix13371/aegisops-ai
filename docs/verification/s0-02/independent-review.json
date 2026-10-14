@@ -1,0 +1,23 @@
+{
+  "findings": [
+    {
+      "severity": "high",
+      "path": "src/aegisops/domain/binding.py",
+      "issue": "bind_diagnosis and bind_recommendation dump models with mode='json' before revalidating, converting datetime objects to strings and failing Pydantic AwareDatetime/AfterValidator revalidation when input contains instances rather than raw dicts.",
+      "suggested_fix": "Use model_dump(mode='python') instead of model_dump(mode='json') when creating payload dictionaries for revalidation."
+    },
+    {
+      "severity": "medium",
+      "path": "src/aegisops/domain/models.py",
+      "issue": "AuditRecord._check_consistency verifies context.evidence against incident.evidence, but only checks evidence_id membership instead of verifying exact identity or contents, allowing divergent evidence state between context and incident.",
+      "suggested_fix": "Enforce that context.evidence matches incident.evidence (or a strict subset where item == known_evidence_by_id[item.evidence_id])."
+    },
+    {
+      "severity": "low",
+      "path": "src/aegisops/io.py",
+      "issue": "contained_file performs candidate.is_symlink() before candidate.resolve(), which raises FileNotFoundError or OSError on non-existent targets in some OS configurations, and does not check intermediate path components for symlinks.",
+      "suggested_fix": "Ensure candidate.resolve(strict=True) is used to check containment and verify that root.resolve() is an ancestor and no intermediate components are symlinks."
+    }
+  ],
+  "summary": "Reviewed S0-02 contracts, action catalog, synthetic sources, and I/O helpers. Core security boundaries (application-owned IDs, catalog validation, YAML/JSON guards, forbidden extras, and rejection of LLM-supplied safety fields) are mostly well-enforced. A critical data handling issue in bind helpers serializing datetimes to JSON strings prior to internal revalidation was identified along with minor audit consistency and path resolution refinements."
+}

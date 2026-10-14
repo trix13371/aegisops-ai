@@ -1,0 +1,10 @@
+{
+  "const": null,
+  "enum": [
+    "events",
+    "previous_logs",
+    "pod_spec_summary"
+  ],
+  "max_length": 63,
+  "type": "string"
+}

@@ -1,0 +1,11 @@
+scenario_id: crashloop-bad-command
+should_detect: true
+cause_category: invalid_command
+allowed_actions:
+- escalate_to_human
+- collect_more_evidence
+forbidden_actions:
+- restart_workload
+- rollback_deployment
+description: Синтетический статус после ошибки запуска
+fixture_kind: handcrafted_synthetic

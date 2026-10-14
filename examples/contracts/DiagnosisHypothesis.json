@@ -1,0 +1,9 @@
+{
+  "cause": "Nonzero exit",
+  "cause_category": "application_exit_nonzero",
+  "confidence": "medium",
+  "rationale": "Observed status",
+  "supporting_evidence_ids": [
+    "ev-001"
+  ]
+}

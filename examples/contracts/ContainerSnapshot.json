@@ -1,0 +1,8 @@
+{
+  "is_init": false,
+  "last_exit_code": 127,
+  "last_terminated_reason": "StartError",
+  "name": "app",
+  "restart_count": 3,
+  "waiting_reason": "CrashLoopBackOff"
+}

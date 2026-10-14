@@ -37,6 +37,8 @@ jobs:
       - run: uv run --frozen ruff format --check .
       - run: uv run --frozen mypy
       - run: uv run --frozen lint-imports
+      - run: uv run --frozen python scripts/sync-assets.py --check
+      - run: uv run --frozen python scripts/export-schemas.py --check
       - run: uv run --frozen pytest --junitxml=.local/pytest.xml
       - run: uv run --frozen aegisops doctor
       - run: uv run --frozen pip-audit

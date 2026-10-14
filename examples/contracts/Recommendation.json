@@ -1,0 +1,15 @@
+{
+  "diagnosis_id": "diagnosis-fixed",
+  "execution_performed": false,
+  "explanation_steps": [],
+  "incident_id": "incident-fixed",
+  "proposed_action": {
+    "action_id": "escalate_to_human",
+    "params": {}
+  },
+  "rationale": "Prototype only",
+  "recommendation_id": "recommendation-fixed",
+  "requires_human_approval": true,
+  "reversibility_class": "R1",
+  "title": "Ask human"
+}

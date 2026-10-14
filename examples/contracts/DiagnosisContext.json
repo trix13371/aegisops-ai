@@ -1,0 +1,21 @@
+{
+  "context_hash": "9a74947625633d8c5dcceb7c3000aaf76d31a26e617f3956f9ff0ff96596ff0f",
+  "evidence": [
+    {
+      "attributes": {
+        "exit_code": 1
+      },
+      "evidence_id": "ev-001",
+      "observed_at": "2026-10-10T12:00:00Z",
+      "source": "pod_status",
+      "summary": "CrashLoopBackOff"
+    }
+  ],
+  "incident_id": "incident-fixed",
+  "limits": {
+    "max_events": 64,
+    "max_evidence": 32,
+    "max_log_bytes": 16384,
+    "max_log_lines": 100
+  }
+}

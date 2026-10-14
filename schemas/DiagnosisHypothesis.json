@@ -1,0 +1,67 @@
+{
+  "$defs": {
+    "CauseCategory": {
+      "enum": [
+        "application_exit_nonzero",
+        "missing_runtime_config",
+        "invalid_command",
+        "oom_killed",
+        "unknown"
+      ],
+      "title": "CauseCategory",
+      "type": "string"
+    },
+    "Confidence": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/DiagnosisHypothesis.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cause": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Cause",
+      "type": "string"
+    },
+    "cause_category": {
+      "$ref": "#/$defs/CauseCategory"
+    },
+    "confidence": {
+      "$ref": "#/$defs/Confidence"
+    },
+    "rationale": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Rationale",
+      "type": "string"
+    },
+    "supporting_evidence_ids": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Supporting Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "cause_category",
+    "cause",
+    "rationale",
+    "confidence",
+    "supporting_evidence_ids"
+  ],
+  "title": "DiagnosisHypothesis",
+  "type": "object"
+}

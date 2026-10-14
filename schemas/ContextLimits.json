@@ -1,0 +1,37 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/ContextLimits.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "max_events": {
+      "default": 64,
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Max Events",
+      "type": "integer"
+    },
+    "max_evidence": {
+      "default": 32,
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Max Evidence",
+      "type": "integer"
+    },
+    "max_log_bytes": {
+      "default": 16384,
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Max Log Bytes",
+      "type": "integer"
+    },
+    "max_log_lines": {
+      "default": 100,
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Max Log Lines",
+      "type": "integer"
+    }
+  },
+  "title": "ContextLimits",
+  "type": "object"
+}

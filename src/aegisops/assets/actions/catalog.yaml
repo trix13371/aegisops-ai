@@ -1,0 +1,24 @@
+catalog_version: "0.1.0"
+actions:
+  - id: escalate_to_human
+    reversibility: R1
+    params: {}
+  - id: collect_more_evidence
+    reversibility: R1
+    params:
+      scope: {enum: [events, previous_logs, pod_spec_summary]}
+  - id: restart_workload
+    reversibility: R2
+    params:
+      namespace: {const: aegisops-demo}
+      workload: {type: string, max_length: 63}
+    preconditions: ["workload exists", "no active lease by human"]
+    postconditions: ["pods Ready within timeout"]
+    rollback: "not_applicable"
+    rate_limit: "1 per target per hour"
+  - id: rollback_deployment
+    reversibility: R1
+    params:
+      namespace: {const: aegisops-demo}
+      deployment: {type: string, max_length: 63}
+    postconditions: ["previous revision Ready"]

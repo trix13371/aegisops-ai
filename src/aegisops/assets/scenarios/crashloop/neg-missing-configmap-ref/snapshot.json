@@ -1,0 +1,24 @@
+{
+  "snapshot_id": "synthetic-neg-missing-configmap-ref",
+  "origin": "synthetic_fixture",
+  "cluster_id": "kind-aegisops-demo",
+  "namespace": "aegisops-demo",
+  "pod_name": "neg-missing-configmap-ref-pod",
+  "owner": {
+    "kind": "Deployment",
+    "name": "neg-missing-configmap-ref"
+  },
+  "containers": [
+    {
+      "name": "app",
+      "is_init": false,
+      "waiting_reason": "CreateContainerConfigError",
+      "last_terminated_reason": null,
+      "last_exit_code": null,
+      "restart_count": 0
+    }
+  ],
+  "events": [],
+  "log_tail": "Synthetic reference unavailable",
+  "observed_at": "2026-10-10T12:00:00Z"
+}
