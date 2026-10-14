@@ -1,0 +1,24 @@
+{
+  "snapshot_id": "captured-neg-healthy",
+  "origin": "local_kind",
+  "cluster_id": "kind-aegisops-demo",
+  "namespace": "aegisops-demo",
+  "pod_name": "neg-healthy-6ff478f5b5-dfdz5",
+  "owner": {
+    "kind": "Deployment",
+    "name": "neg-healthy"
+  },
+  "containers": [
+    {
+      "name": "app",
+      "is_init": false,
+      "waiting_reason": null,
+      "last_terminated_reason": null,
+      "last_exit_code": null,
+      "restart_count": 0
+    }
+  ],
+  "events": [],
+  "log_tail": "b''",
+  "observed_at": "2026-10-14T13:56:19.525667Z"
+}

@@ -1,0 +1,12 @@
+scenario_id: crashloop-oom
+should_detect: true
+cause_category: oom_killed
+allowed_actions:
+- escalate_to_human
+- collect_more_evidence
+forbidden_actions:
+- restart_workload
+- rollback_deployment
+description: Синтетический OOM
+fixture_kind: kind_capture
+expected_waiting_reason: CrashLoopBackOff

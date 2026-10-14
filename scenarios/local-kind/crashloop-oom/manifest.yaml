@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crashloop-oom
+  namespace: aegisops-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      aegisops.io/scenario: crashloop-oom
+  template:
+    metadata:
+      labels:
+        aegisops.io/scenario: crashloop-oom
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: app
+        image: docker.io/library/python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - -c
+        - x=bytearray(128*1024*1024); import time; time.sleep(3600)
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          runAsGroup: 65532
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 32Mi
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+      terminationGracePeriodSeconds: 1

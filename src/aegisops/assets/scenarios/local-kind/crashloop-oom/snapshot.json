@@ -1,0 +1,24 @@
+{
+  "snapshot_id": "captured-crashloop-oom",
+  "origin": "local_kind",
+  "cluster_id": "kind-aegisops-demo",
+  "namespace": "aegisops-demo",
+  "pod_name": "crashloop-oom-b64ff58fd-57nt5",
+  "owner": {
+    "kind": "Deployment",
+    "name": "crashloop-oom"
+  },
+  "containers": [
+    {
+      "name": "app",
+      "is_init": false,
+      "waiting_reason": "CrashLoopBackOff",
+      "last_terminated_reason": "OOMKilled",
+      "last_exit_code": 137,
+      "restart_count": 5
+    }
+  ],
+  "events": [],
+  "log_tail": "b''",
+  "observed_at": "2026-10-14T13:57:28.973078Z"
+}

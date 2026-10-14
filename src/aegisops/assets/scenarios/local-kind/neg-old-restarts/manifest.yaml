@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neg-old-restarts
+  namespace: aegisops-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      aegisops.io/scenario: neg-old-restarts
+  template:
+    metadata:
+      labels:
+        aegisops.io/scenario: neg-old-restarts
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: app
+        image: docker.io/library/python@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+        imagePullPolicy: IfNotPresent
+        command:
+        - python
+        - -c
+        - from pathlib import Path; import time; p=Path('/work/once'); first=not p.exists();
+          p.write_text('started'); raise SystemExit(1) if first else time.sleep(3600)
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          runAsGroup: 65532
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        volumeMounts:
+        - name: state
+          mountPath: /work
+      securityContext:
+        fsGroup: 65532
+        runAsNonRoot: true
+      terminationGracePeriodSeconds: 1
+      volumes:
+      - name: state
+        emptyDir: {}

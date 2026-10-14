@@ -1,0 +1,24 @@
+{
+  "snapshot_id": "captured-crashloop-bad-command",
+  "origin": "local_kind",
+  "cluster_id": "kind-aegisops-demo",
+  "namespace": "aegisops-demo",
+  "pod_name": "crashloop-bad-command-86f55849f9-k8crd",
+  "owner": {
+    "kind": "Deployment",
+    "name": "crashloop-bad-command"
+  },
+  "containers": [
+    {
+      "name": "app",
+      "is_init": false,
+      "waiting_reason": "CrashLoopBackOff",
+      "last_terminated_reason": "StartError",
+      "last_exit_code": 128,
+      "restart_count": 5
+    }
+  ],
+  "events": [],
+  "log_tail": "b''",
+  "observed_at": "2026-10-14T13:57:25.147058Z"
+}

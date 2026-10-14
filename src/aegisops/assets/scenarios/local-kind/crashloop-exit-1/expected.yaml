@@ -1,0 +1,12 @@
+scenario_id: crashloop-exit-1
+should_detect: true
+cause_category: application_exit_nonzero
+allowed_actions:
+- escalate_to_human
+- collect_more_evidence
+forbidden_actions:
+- restart_workload
+- rollback_deployment
+description: Процесс завершился с ошибкой
+fixture_kind: kind_capture
+expected_waiting_reason: CrashLoopBackOff

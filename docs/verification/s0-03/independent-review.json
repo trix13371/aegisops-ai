@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "severity": "medium",
+      "path": "src/aegisops/sources/safe_client.py",
+      "issue": "In _GuardedPoolManager.request, port defaulting to 443 when parts.port is None mismatches localhost/loopback origins which use non-standard ports, and comparing (parts.scheme, parts.hostname, port) directly against self._origin can cause false-positive rejections or bypass subtle port checks if scheme default differs from origin port.",
+      "suggested_fix": "Extract request origin using the same helper function `_origin(url)` and ensure origin matching strictly matches `self._origin` without assuming default port 443."
+    },
+    {
+      "severity": "low",
+      "path": "scripts/local_kind.py",
+      "issue": "In cluster_down, verify_cluster() is executed before deleting the cluster; if the cluster is in an unhealthy state or namespace marker is deleted, cluster_down will raise LocalClusterError and fail to clean up the cluster and sensitive admin files.",
+      "suggested_fix": "Allow cluster_down to proceed with deletion and local file removal even if verify_cluster() fails or check container existence before calling verify_cluster."
+    }
+  ],
+  "summary": "The substrate implementation strictly enforces isolated local-kind paths, origin and method guards, fixed configuration parsing, and minimal RBAC boundaries without leaking credentials."
+}

@@ -20,6 +20,15 @@ actions/catalog.py проверяет четыре определения и п�
 JSON Schema и 24 эталона проверяются контрактными тестами. Валидация DTO
 не означает, что строка санитизирована: этот механизм появляется в S0-05.
 
+S0-03: env_guard принимает только project reader config и проверяет loopback,
+CA pin, регистрацию, контекст, SA subject и TTL. safe_client вручную создаёт
+SDK Configuration, разрешает только GET по списку путей и точному origin,
+отключает redirects и проверяет expiry/namespace marker при каждом чтении.
+Kubernetes SDK импортируется только этим модулем.
+
+Developer scripts создают/удаляют собственный kind, настраивают RBAC и capture.
+Они не являются интерфейсом исполнения приложения. Collector — S0-04.
+
 Планируемый конвейер S0-02…S0-08: ObservationSource → DetectionEngine →
 ContextBuilder/sanitizer → DiagnosisEngine → RecommendationEngine →
 PolicyChecker → DryRunEngine → AuditStore. Контракты — Pydantic/JSON Schema.

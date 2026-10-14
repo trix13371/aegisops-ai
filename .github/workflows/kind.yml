@@ -1,0 +1,37 @@
+name: Local kind integration
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  kind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AEGISOPS_KIND_LIVE: "1"
+      AEGISOPS_KIND_BIN: /tmp/kind
+      AEGISOPS_KUBECTL_BIN: /tmp/kubectl
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          version: "0.13.1"
+      - run: uv sync --frozen --python 3.12
+      - name: Install pinned kind
+        run: |
+          curl -fsSL https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64 -o /tmp/kind
+          echo "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  /tmp/kind" | sha256sum --check
+          chmod +x /tmp/kind
+          curl -fsSL https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl -o /tmp/kubectl
+          echo "629d3f410e09bf49b64ae7079f7f0bda1191efed311f7d37fdbab0ad5b0ec2b7  /tmp/kubectl" | sha256sum --check
+          chmod +x /tmp/kubectl
+      - name: Start isolated local cluster
+        run: uv run --frozen python scripts/cluster-local.py up
+      - name: Apply local scenarios
+        run: uv run --frozen python scripts/kind-scenarios.py apply
+      - name: Capture real local observations
+        run: uv run --frozen python scripts/kind-scenarios.py capture --timeout 300
+      - name: Verify RBAC and guards
+        run: uv run --frozen pytest tests/integration/test_kind.py tests/unit/test_kind_guard.py tests/unit/test_readonly_transport.py
+      - name: Cleanup owned cluster only
+        if: always()
+        run: uv run --frozen python scripts/cluster-local.py down

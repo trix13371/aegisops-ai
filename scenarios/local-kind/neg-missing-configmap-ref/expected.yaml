@@ -1,0 +1,12 @@
+scenario_id: neg-missing-configmap-ref
+should_detect: false
+cause_category: unknown
+allowed_actions: []
+forbidden_actions:
+- escalate_to_human
+- collect_more_evidence
+- restart_workload
+- rollback_deployment
+description: Отсутствует ConfigMap на уровне Kubernetes
+fixture_kind: kind_capture
+expected_waiting_reason: CreateContainerConfigError

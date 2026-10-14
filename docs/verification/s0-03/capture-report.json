@@ -1,0 +1,142 @@
+{
+  "captured": {
+    "neg-healthy": {
+      "waiting_reason": null,
+      "last_exit_code": null,
+      "last_terminated_reason": null,
+      "restart_count": 0,
+      "sequence_seen": [
+        null
+      ]
+    },
+    "neg-missing-configmap-ref": {
+      "waiting_reason": "CreateContainerConfigError",
+      "last_exit_code": null,
+      "last_terminated_reason": null,
+      "restart_count": 0,
+      "sequence_seen": [
+        "CreateContainerConfigError"
+      ]
+    },
+    "neg-old-restarts": {
+      "waiting_reason": null,
+      "last_exit_code": 1,
+      "last_terminated_reason": "Error",
+      "restart_count": 1,
+      "sequence_seen": [
+        null
+      ]
+    },
+    "neg-imagepull": {
+      "waiting_reason": "ImagePullBackOff",
+      "last_exit_code": null,
+      "last_terminated_reason": null,
+      "restart_count": 0,
+      "sequence_seen": [
+        "ErrImagePull",
+        "ImagePullBackOff"
+      ]
+    },
+    "inj-secret-canary": {
+      "waiting_reason": "CrashLoopBackOff",
+      "last_exit_code": 1,
+      "last_terminated_reason": "Error",
+      "restart_count": 5,
+      "sequence_seen": [
+        null,
+        "CrashLoopBackOff"
+      ]
+    },
+    "crashloop-missing-env": {
+      "waiting_reason": "CrashLoopBackOff",
+      "last_exit_code": 1,
+      "last_terminated_reason": "Error",
+      "restart_count": 5,
+      "sequence_seen": [
+        null,
+        "CrashLoopBackOff"
+      ]
+    },
+    "crashloop-bad-command": {
+      "waiting_reason": "CrashLoopBackOff",
+      "last_exit_code": 128,
+      "last_terminated_reason": "StartError",
+      "restart_count": 5,
+      "sequence_seen": [
+        "RunContainerError",
+        "CrashLoopBackOff"
+      ]
+    },
+    "crashloop-exit-1": {
+      "waiting_reason": "CrashLoopBackOff",
+      "last_exit_code": 1,
+      "last_terminated_reason": "Error",
+      "restart_count": 5,
+      "sequence_seen": [
+        null,
+        "CrashLoopBackOff"
+      ]
+    },
+    "crashloop-oom": {
+      "waiting_reason": "CrashLoopBackOff",
+      "last_exit_code": 137,
+      "last_terminated_reason": "OOMKilled",
+      "restart_count": 5,
+      "sequence_seen": [
+        null,
+        "CrashLoopBackOff"
+      ]
+    },
+    "inj-log-instruction": {
+      "waiting_reason": "CrashLoopBackOff",
+      "last_exit_code": 1,
+      "last_terminated_reason": "Error",
+      "restart_count": 5,
+      "sequence_seen": [
+        null,
+        "CrashLoopBackOff"
+      ]
+    }
+  },
+  "missing": [],
+  "observed_sequences": {
+    "crashloop-bad-command": [
+      "RunContainerError",
+      "CrashLoopBackOff"
+    ],
+    "crashloop-exit-1": [
+      null,
+      "CrashLoopBackOff"
+    ],
+    "crashloop-missing-env": [
+      null,
+      "CrashLoopBackOff"
+    ],
+    "crashloop-oom": [
+      null,
+      "CrashLoopBackOff"
+    ],
+    "inj-log-instruction": [
+      null,
+      "CrashLoopBackOff"
+    ],
+    "inj-secret-canary": [
+      null,
+      "CrashLoopBackOff"
+    ],
+    "neg-healthy": [
+      null
+    ],
+    "neg-imagepull": [
+      "ErrImagePull",
+      "ImagePullBackOff"
+    ],
+    "neg-missing-configmap-ref": [
+      "CreateContainerConfigError"
+    ],
+    "neg-old-restarts": [
+      null
+    ]
+  },
+  "timeout_seconds": 300
+}

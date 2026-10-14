@@ -1,0 +1,24 @@
+{
+  "snapshot_id": "captured-neg-imagepull",
+  "origin": "local_kind",
+  "cluster_id": "kind-aegisops-demo",
+  "namespace": "aegisops-demo",
+  "pod_name": "neg-imagepull-6576c864d7-vthlp",
+  "owner": {
+    "kind": "Deployment",
+    "name": "neg-imagepull"
+  },
+  "containers": [
+    {
+      "name": "app",
+      "is_init": false,
+      "waiting_reason": "ImagePullBackOff",
+      "last_terminated_reason": null,
+      "last_exit_code": null,
+      "restart_count": 0
+    }
+  ],
+  "events": [],
+  "log_tail": null,
+  "observed_at": "2026-10-14T13:56:32.028748Z"
+}

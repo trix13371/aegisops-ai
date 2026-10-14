@@ -47,3 +47,11 @@ def test_cli_has_no_execution_options() -> None:
     for sub in ["apply", "execute", "fix", "cluster"]:
         res = runner.invoke(app, [sub])
         assert res.exit_code != 0
+
+
+def test_doctor_has_no_cluster_override_options() -> None:
+    help_text = runner.invoke(app, ["doctor", "--help"]).output
+    for option in ("--kubeconfig", "--context", "--server"):
+        assert option not in help_text
+    result = runner.invoke(app, ["doctor", "--source", "production"])
+    assert result.exit_code == 1

@@ -9,7 +9,7 @@ description = "Local L0 AegisOps prototype: S0-01 foundation"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "pydantic>=2.10,<3", "typer>=0.15,<1", "SQLAlchemy>=2.0,<2.1",
-  "alembic>=1.14,<2", "psycopg[binary]>=3.2,<4", "PyYAML>=6,<7",
+  "alembic>=1.14,<2", "psycopg[binary]>=3.2,<4", "PyYAML>=6,<7", "kubernetes>=36,<37",
 ]
 
 [project.scripts]
@@ -29,6 +29,7 @@ markers = [
   "unit: no external services", "integration: local PostgreSQL or kind",
   "safety: enforcement of prototype boundaries", "contract: stable data contracts",
   "e2e: complete synthetic pipeline", "llm_live: explicit paid provider tests",
+  "kind_live: explicitly enabled local Kubernetes tests",
 ]
 
 [tool.ruff]
@@ -51,6 +52,10 @@ select = ["E", "F", "I", "UP", "S", "TID251"]
 python_version = "3.12"
 strict = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["kubernetes.*"]
+ignore_missing_imports = true
 
 [tool.importlinter]
 root_package = "aegisops"

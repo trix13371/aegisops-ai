@@ -14,6 +14,8 @@ import typer
 
 from aegisops.config import ConfigurationError, load_database_url
 from aegisops.db.health import DatabaseHealthError, check_database
+from aegisops.sources.env_guard import EnvironmentGuardError, load_reader_identity
+from aegisops.sources.safe_client import ReadOnlyClient, ReadOnlyError
 from aegisops.sources.synthetic import ScenarioError, ScenarioRepository
 
 app = typer.Typer(
@@ -36,20 +38,36 @@ def _root() -> None:
 
 
 @app.command()
-def doctor() -> None:
+def doctor(source: str = typer.Option("synthetic", "--source")) -> None:
     """Run read-only local database health checks."""
 
+    if source not in {"synthetic", "local-kind"}:
+        typer.echo("doctor: unsupported source")
+        raise typer.Exit(code=1)
     try:
         url = load_database_url()
         check_database(url)
+        if source == "local-kind":
+            reader = ReadOnlyClient(load_reader_identity())
+            try:
+                reader.verify_environment()
+            finally:
+                reader.close()
     except ConfigurationError as exc:
         typer.echo(f"doctor: FAILED ({exc})")
         raise typer.Exit(code=1)
     except DatabaseHealthError as exc:
         typer.echo(f"doctor: FAILED ({exc})")
         raise typer.Exit(code=1)
+    except (EnvironmentGuardError, ReadOnlyError):
+        typer.echo("doctor: FAILED (local kind environment rejected)")
+        raise typer.Exit(code=1) from None
 
-    typer.echo(_OK_MESSAGE)
+    typer.echo(
+        _OK_MESSAGE
+        if source == "synthetic"
+        else "doctor: OK (local-kind; marker verified; read-only identity)"
+    )
 
 
 @scenario_app.command("list")

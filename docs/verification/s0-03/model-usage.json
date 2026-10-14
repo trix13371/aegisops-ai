@@ -1,0 +1,147 @@
+[
+  {
+    "Attempt": "deepseek-guard-first",
+    "Model": "deepseek/deepseek-v4.1-flash",
+    "FinishReason": "length",
+    "ElapsedSeconds": 26.8388591,
+    "Usage": {
+      "prompt_tokens": 1176,
+      "completion_tokens": 7500,
+      "total_tokens": 8676,
+      "cost": 0.0045263424,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0045263424,
+        "upstream_inference_prompt_cost": 2.63424E-05,
+        "upstream_inference_completions_cost": 0.0045
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  {
+    "Attempt": "deepseek-environment",
+    "Model": "deepseek/deepseek-v4.1-flash",
+    "FinishReason": "stop",
+    "ElapsedSeconds": 12.332655899999999,
+    "Usage": {
+      "prompt_tokens": 1229,
+      "completion_tokens": 4077,
+      "total_tokens": 5306,
+      "cost": 0.0024626704,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 768,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0024626704,
+        "upstream_inference_prompt_cost": 1.64704E-05,
+        "upstream_inference_completions_cost": 0.0024462
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  {
+    "Attempt": "deepseek-safe-client",
+    "Model": "deepseek/deepseek-v4.1-flash",
+    "FinishReason": "stop",
+    "ElapsedSeconds": 7.1864294,
+    "Usage": {
+      "prompt_tokens": 1440,
+      "completion_tokens": 2704,
+      "total_tokens": 4144,
+      "cost": 0.0016435968,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 768,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0016435968,
+        "upstream_inference_prompt_cost": 2.11968E-05,
+        "upstream_inference_completions_cost": 0.0016224
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  {
+    "Attempt": "gemini-guard-tests",
+    "Model": "google/gemini-3.8-flash",
+    "FinishReason": "stop",
+    "ElapsedSeconds": 20.3304582,
+    "Usage": {
+      "prompt_tokens": 4589,
+      "completion_tokens": 2758,
+      "total_tokens": 7347,
+      "cost": 0.01378425,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.01378425,
+        "upstream_inference_prompt_cost": 0.00344175,
+        "upstream_inference_completions_cost": 0.0103425
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  {
+    "Attempt": "gemini-review-final",
+    "Model": "google/gemini-3.8-flash",
+    "FinishReason": "stop",
+    "ElapsedSeconds": 4.5236633,
+    "Usage": {
+      "prompt_tokens": 10124,
+      "completion_tokens": 276,
+      "total_tokens": 10400,
+      "cost": 0.008628,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.008628,
+        "upstream_inference_prompt_cost": 0.007593,
+        "upstream_inference_completions_cost": 0.001035
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+]
