@@ -1,0 +1,147 @@
+[
+  {
+    "Attempt": "deepseek-first",
+    "Model": "deepseek/deepseek-v4.1-flash",
+    "FinishReason": "stop",
+    "ElapsedSeconds": 13.908021499999998,
+    "Usage": {
+      "prompt_tokens": 1070,
+      "completion_tokens": 4464,
+      "total_tokens": 5534,
+      "cost": 0.0054225,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0054225,
+        "upstream_inference_prompt_cost": 0.0002889,
+        "upstream_inference_completions_cost": 0.0051336
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  {
+    "Attempt": "deepseek-repair",
+    "Model": "deepseek/deepseek-v4.1-flash",
+    "FinishReason": "stop",
+    "ElapsedSeconds": 15.066669399999999,
+    "Usage": {
+      "prompt_tokens": 5763,
+      "completion_tokens": 4808,
+      "total_tokens": 10571,
+      "cost": 0.006817946,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 1024,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.006817946,
+        "upstream_inference_prompt_cost": 0.001288746,
+        "upstream_inference_completions_cost": 0.0055292
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  {
+    "Attempt": "gemini-review-third",
+    "Model": "google/gemini-3.8-flash",
+    "FinishReason": "length",
+    "ElapsedSeconds": 27.3462045,
+    "Usage": {
+      "prompt_tokens": 4114,
+      "completion_tokens": 5996,
+      "total_tokens": 10110,
+      "cost": 0.0255705,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.0255705,
+        "upstream_inference_prompt_cost": 0.0030855,
+        "upstream_inference_completions_cost": 0.022485
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 5761,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  {
+    "Attempt": "gemini-review-focused",
+    "Model": "google/gemini-3.8-flash",
+    "FinishReason": "stop",
+    "ElapsedSeconds": 9.4565772,
+    "Usage": {
+      "prompt_tokens": 1487,
+      "completion_tokens": 1470,
+      "total_tokens": 2957,
+      "cost": 0.00662775,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.00662775,
+        "upstream_inference_prompt_cost": 0.00111525,
+        "upstream_inference_completions_cost": 0.0055125
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  },
+  {
+    "Attempt": "gemini-review-final",
+    "Model": "google/gemini-3.8-flash",
+    "FinishReason": "stop",
+    "ElapsedSeconds": 4.8931905,
+    "Usage": {
+      "prompt_tokens": 6280,
+      "completion_tokens": 320,
+      "total_tokens": 6600,
+      "cost": 0.00591,
+      "is_byok": false,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "cache_write_tokens": 0,
+        "audio_tokens": 0,
+        "video_tokens": 0
+      },
+      "cost_details": {
+        "upstream_inference_cost": 0.00591,
+        "upstream_inference_prompt_cost": 0.00471,
+        "upstream_inference_completions_cost": 0.0012
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "image_tokens": 0,
+        "audio_tokens": 0
+      }
+    }
+  }
+]

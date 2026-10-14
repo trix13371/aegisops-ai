@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aegisops-ai"
+version = "0.1.0"
+description = "Local L0 AegisOps prototype: S0-01 foundation"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "pydantic>=2.10,<3", "typer>=0.15,<1", "SQLAlchemy>=2.0,<2.1",
+  "alembic>=1.14,<2", "psycopg[binary]>=3.2,<4",
+]
+
+[project.scripts]
+aegisops = "aegisops.cli.app:app"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<10", "pytest-cov>=6,<8", "ruff>=0.9,<1", "mypy>=1.15,<2",
+  "import-linter>=2.2,<3", "pip-audit>=2.8,<3", "pre-commit>=4,<5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers -m 'not llm_live'"
+markers = [
+  "unit: no external services", "integration: local PostgreSQL or kind",
+  "safety: enforcement of prototype boundaries", "contract: stable data contracts",
+  "e2e: complete synthetic pipeline", "llm_live: explicit paid provider tests",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "S", "TID251"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+"scripts/**" = ["S603", "S607", "TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"subprocess" = { msg = "Application must not execute commands." }
+"os.system" = { msg = "Application must not invoke a shell." }
+"pty" = { msg = "Application must not spawn terminals." }
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+
+[tool.importlinter]
+root_package = "aegisops"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Application cannot invoke external commands"
+type = "forbidden"
+source_modules = ["aegisops"]
+forbidden_modules = ["subprocess", "pty"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aegisops"]

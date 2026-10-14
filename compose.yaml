@@ -1,0 +1,22 @@
+name: aegisops-prototype-s001
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: aegisops_local
+      POSTGRES_USER: aegisops_bootstrap
+      POSTGRES_PASSWORD: ${AEGISOPS_BOOTSTRAP_PASSWORD:?Generate local .env first}
+      AEGISOPS_OWNER_PASSWORD: ${AEGISOPS_OWNER_PASSWORD:?Generate local .env first}
+      AEGISOPS_APP_PASSWORD: ${AEGISOPS_APP_PASSWORD:?Generate local .env first}
+    ports:
+      - "127.0.0.1:${AEGISOPS_PG_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/local/init-db.sh:/docker-entrypoint-initdb.d/01-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aegisops_bootstrap -d aegisops_local"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+volumes:
+  postgres-data:

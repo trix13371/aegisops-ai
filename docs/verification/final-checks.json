@@ -1,0 +1,30 @@
+[
+  {
+    "Check": "ruff",
+    "ExitCode": 0
+  },
+  {
+    "Check": "format",
+    "ExitCode": 0
+  },
+  {
+    "Check": "types",
+    "ExitCode": 0
+  },
+  {
+    "Check": "imports",
+    "ExitCode": 0
+  },
+  {
+    "Check": "migration",
+    "ExitCode": 0
+  },
+  {
+    "Check": "tests",
+    "ExitCode": 0
+  },
+  {
+    "Check": "doctor",
+    "ExitCode": 0
+  }
+]

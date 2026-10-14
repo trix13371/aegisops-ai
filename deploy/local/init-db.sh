@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  --set=owner_password="$AEGISOPS_OWNER_PASSWORD" \
+  --set=app_password="$AEGISOPS_APP_PASSWORD" <<'SQL'
+CREATE ROLE aegisops_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS PASSWORD :'owner_password';
+CREATE ROLE aegisops_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS PASSWORD :'app_password';
+REVOKE ALL ON DATABASE aegisops_local FROM PUBLIC;
+GRANT CONNECT ON DATABASE aegisops_local TO aegisops_owner, aegisops_app;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+ALTER SCHEMA public OWNER TO aegisops_owner;
+GRANT USAGE ON SCHEMA public TO aegisops_app;
+SQL

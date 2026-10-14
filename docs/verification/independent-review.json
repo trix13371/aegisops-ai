@@ -1,0 +1,23 @@
+{
+  "findings": [
+    {
+      "severity": "medium",
+      "path": "migrations/versions/0001_audit_runs.py",
+      "issue": "Downgrade migration drops audit_runs table but does not revoke or clean up the SELECT grant on alembic_version granted to aegisops_app.",
+      "suggested_fix": "In downgrade(), execute 'REVOKE SELECT ON TABLE public.alembic_version FROM aegisops_app;' prior to or alongside table teardown."
+    },
+    {
+      "severity": "low",
+      "path": "scripts/with-local-env.py",
+      "issue": "The script crashes with unhandled FileNotFoundError / ValueError if .env does not exist or contains lines without '='.",
+      "suggested_fix": "Check if .env exists before reading, provide a clean error message, and ignore blank lines or lines without '=' when parsing."
+    },
+    {
+      "severity": "low",
+      "path": "migrations/env.py",
+      "issue": "Host check strictly matches '127.0.0.1' and '::1' but does not support bracketed IPv6 literals (e.g. '[::1]') which make_url may normalize or parse depending on input formatting.",
+      "suggested_fix": "Normalize parsed.host by stripping square brackets or include '[::1]' in the host allowlist matching set."
+    }
+  ],
+  "summary": "S0-01 prototype implementation strictly adheres to local-only L0 scope, connection hardening, least privilege isolation between owner and app, and credentials safety. Minor findings relate to Alembic downgrade grant symmetry, developer script error handling, and URL host bracket parsing."
+}
