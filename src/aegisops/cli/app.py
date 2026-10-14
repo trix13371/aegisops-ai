@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from io import TextIOWrapper
 
 import typer
+from pydantic import SecretStr
 
 from aegisops.config import ConfigurationError, load_database_url
 from aegisops.context.builder import ContextBuilder, ContextError
@@ -14,6 +16,10 @@ from aegisops.context.sanitizer import SanitizationError, sanitize_data
 from aegisops.db.health import DatabaseHealthError, check_database
 from aegisops.detection.engine import DetectionEngine, DetectionError
 from aegisops.domain.models import PodSnapshot
+from aegisops.llm.base import LLMClient, LLMError
+from aegisops.llm.engine import AnalysisEngine
+from aegisops.llm.fake import FakeLLMClient, UnavailableLLMClient
+from aegisops.llm.transport import DEFAULT_MODEL, OpenAICompatibleClient
 from aegisops.sources.env_guard import EnvironmentGuardError, load_reader_identity
 from aegisops.sources.kubernetes_readonly import CollectionError, KubernetesReadOnlySource
 from aegisops.sources.safe_client import ReadOnlyClient, ReadOnlyError
@@ -29,6 +35,83 @@ app = typer.Typer(
 _OK_MESSAGE = "doctor: OK (synthetic mode; database ready; no LLM or Kubernetes required)"
 scenario_app = typer.Typer(help="List handcrafted scenarios; never execute actions.")
 app.add_typer(scenario_app, name="scenario")
+
+
+def _analysis_client(mode: str, model: str | None, local_url: str | None) -> LLMClient:
+    if local_url is not None and mode != "local":
+        raise LLMError()
+    if mode == "fake":
+        return FakeLLMClient()
+    if mode == "none":
+        return UnavailableLLMClient()
+    if mode == "openrouter":
+        raw_key = os.environ.get("AEGISOPS_LLM_API_KEY")
+        if not raw_key:
+            return UnavailableLLMClient()
+        return OpenAICompatibleClient(model_name=model or DEFAULT_MODEL, api_key=SecretStr(raw_key))
+    if mode == "local" and model:
+        local_key = os.environ.get("AEGISOPS_LOCAL_LLM_API_KEY")
+        return OpenAICompatibleClient(
+            provider="local",
+            model_name=model,
+            endpoint=local_url or "http://127.0.0.1:11434/v1/chat/completions",
+            api_key=SecretStr(local_key) if local_key else None,
+        )
+    raise LLMError()
+
+
+@app.command()
+def analyze(
+    source: str = typer.Option("synthetic", "--source"),
+    scenario: str | None = typer.Option(None, "--scenario"),
+    llm: str = typer.Option("fake", "--llm"),
+    model: str | None = typer.Option(None, "--model"),
+    local_url: str | None = typer.Option(None, "--local-url"),
+) -> None:
+    """Produce advisory diagnoses and recommendations; fake replies are the default."""
+    try:
+        snapshots = _detection_snapshots(source, scenario)
+        incidents = DetectionEngine().detect(snapshots)
+        engine = AnalysisEngine(_analysis_client(llm, model, local_url))
+        rows = []
+        for incident in incidents:
+            result = engine.analyze(incident, ContextBuilder().build(incident))
+            rows.append(
+                {
+                    "incident_id": incident.incident_id,
+                    "diagnosis": result.diagnosis.model_dump(mode="json"),
+                    "recommendation": result.recommendation.model_dump(mode="json"),
+                    "llm": result.metadata.model_dump(mode="json"),
+                    "used_fallback": result.used_fallback,
+                    "fallback_reason": result.fallback_reason,
+                }
+            )
+        output = json.dumps(
+            sanitize_data(
+                {
+                    "stage": "analysis",
+                    "source": source,
+                    "results": rows,
+                    "execution_available": False,
+                }
+            ),
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+        )
+    except (
+        LLMError,
+        ScenarioError,
+        EnvironmentGuardError,
+        ReadOnlyError,
+        CollectionError,
+        DetectionError,
+        ContextError,
+        SanitizationError,
+    ):
+        typer.echo("analyze: FAILED (input or provider configuration rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
 
 
 def _detection_snapshots(source: str, scenario: str | None) -> list[PodSnapshot]:

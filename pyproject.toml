@@ -78,3 +78,12 @@ forbidden_modules = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aegisops"]
+
+[[tool.importlinter.contracts]]
+name = "Model processing cannot reach infrastructure or the HTTP adapter"
+type = "forbidden"
+source_modules = ["aegisops.llm.engine", "aegisops.llm.fallback", "aegisops.llm.prompt"]
+forbidden_modules = [
+  "aegisops.sources", "aegisops.db", "aegisops.config", "aegisops.llm.transport",
+  "http", "socket", "kubernetes", "subprocess", "pty",
+]

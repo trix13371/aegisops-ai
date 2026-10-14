@@ -1,0 +1,26 @@
+{
+  "recommendation": {
+    "explanation_steps": [],
+    "proposed_action": {
+      "action_id": "escalate_to_human",
+      "params": {}
+    },
+    "rationale": "Synthetic prototype",
+    "title": "Human review"
+  },
+  "diagnosis": {
+    "hypotheses": [
+      {
+        "cause": "Nonzero exit",
+        "cause_category": "application_exit_nonzero",
+        "confidence": "medium",
+        "rationale": "Observed status",
+        "supporting_evidence_ids": [
+          "ev-001"
+        ]
+      }
+    ],
+    "missing_evidence": [],
+    "summary": "Application exited"
+  }
+}

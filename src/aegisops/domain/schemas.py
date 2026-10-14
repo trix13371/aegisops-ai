@@ -26,6 +26,7 @@ from aegisops.domain.models import (
     Recommendation,
     RecommendationDraft,
 )
+from aegisops.llm.base import AnalysisDraft
 from aegisops.sources.synthetic import ScenarioSpec
 
 CONTRACTS: tuple[type[DTO], ...] = (
@@ -53,6 +54,7 @@ CONTRACTS: tuple[type[DTO], ...] = (
     ActionDefinition,
     ActionCatalog,
     ScenarioSpec,
+    AnalysisDraft,
 )
 
 

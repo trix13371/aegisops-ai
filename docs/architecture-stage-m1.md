@@ -17,8 +17,8 @@ AuditRecord дополнительно сверяет связи вложенн�
 actions/catalog.py проверяет четыре определения и параметры. sources/synthetic.py
 читает фиксированные файлы, не обращаясь к кластеру. CLI scenario list/show
 не требует БД или API-ключа. source наблюдения не выполняет детекцию.
-JSON Schema и 24 эталона проверяются контрактными тестами. Валидация DTO
-не означает, что строка санитизирована: этот механизм появляется в S0-05.
+JSON Schema и эталоны проверяются контрактными тестами (25 после S0-06).
+Валидация DTO не означает, что строка санитизирована: это отдельный механизм.
 
 S0-03: env_guard принимает только project reader config и проверяет loopback,
 CA pin, регистрацию, контекст, SA subject и TTL. safe_client вручную создаёт
@@ -41,7 +41,18 @@ S0-05: DetectionEngine → очищенный Incident → ContextBuilder → Di
 Evidence формируются по allowlist, ограничиваются ContextLimits и очищаются
 до сериализации. Контекст сохраняет ID evidence и хешируется канонически.
 CLI detect работает на synthetic/local-kind и может показать очищенный контекст.
-LLM, рекомендации, policy/dry-run/audit pipeline — следующие задачи.
+
+S0-06: AnalysisEngine → LLMClient → единый AnalysisDraft (диагноз + рекомендация).
+Один запрос вместо двух независимых экономит контекст; максимум одна повторная
+попытка. Раздельная привязка Draft сохраняет проверки diagnosis/evidence,
+каталога, параметров и целевого workload (ADR-007). Поля безопасности назначает
+приложение; недоступность, невалидный ответ или лимит вызывают rule fallback.
+Промпт и контекст хешируются; метаданные готовы к аудиту следующего шага.
+LLMLimits/RunBudget ограничивают каждый запрос и всю серию. FakeLLMClient
+читает только подготовленные ответы по хешу. OpenAICompatibleClient поддерживает
+фиксированный OpenRouter HTTPS и явно выбранный loopback endpoint; ключи раздельны.
+Engine/prompt/fallback не могут импортировать транспорт или инфраструктуру.
+CLI analyze работает без БД; policy/dry-run/audit pipeline — следующая задача.
 
 Планируемый конвейер S0-02…S0-08: ObservationSource → DetectionEngine →
 ContextBuilder/sanitizer → DiagnosisEngine → RecommendationEngine →
