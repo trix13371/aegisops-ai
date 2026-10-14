@@ -10,6 +10,8 @@ import yaml
 from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 
+from aegisops.context.builder import ContextBuilder
+from aegisops.detection.engine import DetectionEngine
 from aegisops.domain.models import PodSnapshot
 from aegisops.sources.env_guard import load_reader_identity
 from aegisops.sources.kubernetes_readonly import KubernetesReadOnlySource
@@ -40,6 +42,27 @@ def test_live_collector_normalizes_actual_owners(raw_reader: Any) -> None:
                 assert len(snapshot.log_tail.splitlines()) <= 100
         assert any(snapshot.events for snapshot in snapshots)
         assert any(snapshot.log_tail for snapshot in snapshots)
+    finally:
+        reader.close()
+
+
+def test_live_detection_builds_sanitized_context(raw_reader: Any) -> None:
+    reader = ReadOnlyClient(load_reader_identity())
+    try:
+        snapshots = KubernetesReadOnlySource(reader, include_logs=True).collect()
+        incidents = DetectionEngine().detect(snapshots)
+        assert 4 <= len(incidents) <= 6
+        assert all(
+            incident.evidence[0].attributes["owner_kind"] == "ReplicaSet" for incident in incidents
+        )
+        for incident in incidents:
+            context = ContextBuilder().build(incident)
+            assert "DEMO_CANARY_NOT_A_REAL_CREDENTIAL" not in context.model_dump_json()
+            assert "DEMO_CANARY_NOT_A_REAL_CREDENTIAL" not in incident.model_dump_json()
+            assert all(item.attributes["untrusted"] is True for item in context.evidence)
+            assert {item.evidence_id for item in context.evidence} <= {
+                item.evidence_id for item in incident.evidence
+            }
     finally:
         reader.close()
 

@@ -221,8 +221,8 @@ class Incident(DTO):
     origin: Origin
     cluster_id: Identifier
     namespace: Literal["aegisops-demo"]
-    workload_name: Identifier
-    pod_name: Identifier
+    workload_name: Name253
+    pod_name: Name253
     container_name: Identifier
     severity: Severity
     observed_at: UTCDateTime

@@ -9,11 +9,15 @@ from io import TextIOWrapper
 import typer
 
 from aegisops.config import ConfigurationError, load_database_url
+from aegisops.context.builder import ContextBuilder, ContextError
+from aegisops.context.sanitizer import SanitizationError, sanitize_data
 from aegisops.db.health import DatabaseHealthError, check_database
+from aegisops.detection.engine import DetectionEngine, DetectionError
+from aegisops.domain.models import PodSnapshot
 from aegisops.sources.env_guard import EnvironmentGuardError, load_reader_identity
 from aegisops.sources.kubernetes_readonly import CollectionError, KubernetesReadOnlySource
 from aegisops.sources.safe_client import ReadOnlyClient, ReadOnlyError
-from aegisops.sources.synthetic import ScenarioError, ScenarioRepository
+from aegisops.sources.synthetic import ScenarioError, ScenarioRepository, SyntheticSource
 
 app = typer.Typer(
     name="aegisops",
@@ -25,6 +29,73 @@ app = typer.Typer(
 _OK_MESSAGE = "doctor: OK (synthetic mode; database ready; no LLM or Kubernetes required)"
 scenario_app = typer.Typer(help="List handcrafted scenarios; never execute actions.")
 app.add_typer(scenario_app, name="scenario")
+
+
+def _detection_snapshots(source: str, scenario: str | None) -> list[PodSnapshot]:
+    if source == "synthetic":
+        repository = ScenarioRepository()
+        identifiers = (scenario,) if scenario is not None else repository.list_ids()
+        return [
+            snapshot
+            for identifier in identifiers
+            for snapshot in SyntheticSource(repository, identifier).collect()
+        ]
+    if source != "local-kind" or scenario is not None:
+        raise DetectionError()
+    reader = ReadOnlyClient(load_reader_identity())
+    try:
+        return KubernetesReadOnlySource(reader, include_logs=True).collect()
+    finally:
+        reader.close()
+
+
+@app.command()
+def detect(
+    source: str = typer.Option("synthetic", "--source"),
+    scenario: str | None = typer.Option(None, "--scenario"),
+    show_context: bool = typer.Option(False, "--show-context"),
+) -> None:
+    """Detect CrashLoopBackOff and build sanitized evidence without a model call."""
+    try:
+        snapshots = _detection_snapshots(source, scenario)
+        incidents = DetectionEngine().detect(snapshots)
+        builder = ContextBuilder()
+        summaries = []
+        for incident in incidents:
+            context = builder.build(incident)
+            row: dict[str, object] = {
+                "incident_id": incident.incident_id,
+                "workload": incident.workload_name,
+                "pod": incident.pod_name,
+                "container": incident.container_name,
+                "evidence_count": len(context.evidence),
+                "context_hash": context.context_hash,
+            }
+            if show_context:
+                row["context"] = context.model_dump(mode="json")
+            summaries.append(row)
+        projection = sanitize_data(
+            {
+                "stage": "detection",
+                "source": source,
+                "snapshots": len(snapshots),
+                "incidents": summaries,
+                "execution_available": False,
+            }
+        )
+        output = json.dumps(projection, ensure_ascii=False, indent=2, allow_nan=False)
+    except (
+        ScenarioError,
+        EnvironmentGuardError,
+        ReadOnlyError,
+        CollectionError,
+        DetectionError,
+        ContextError,
+        SanitizationError,
+    ):
+        typer.echo("detect: FAILED (observation or context rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
 
 
 @app.command()
@@ -122,4 +193,9 @@ def scenario_show(identifier: str) -> None:
         ],
         "execution_available": False,
     }
-    typer.echo(json.dumps(projection, ensure_ascii=False, indent=2))
+    try:
+        clean = sanitize_data(projection)
+    except SanitizationError:
+        typer.echo("scenario: invalid projection")
+        raise typer.Exit(code=1) from None
+    typer.echo(json.dumps(clean, ensure_ascii=False, indent=2))

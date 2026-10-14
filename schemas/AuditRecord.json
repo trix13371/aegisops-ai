@@ -431,7 +431,7 @@
           "$ref": "#/$defs/Origin"
         },
         "pod_name": {
-          "maxLength": 128,
+          "maxLength": 253,
           "minLength": 1,
           "title": "Pod Name",
           "type": "string"
@@ -440,7 +440,7 @@
           "$ref": "#/$defs/Severity"
         },
         "workload_name": {
-          "maxLength": 128,
+          "maxLength": 253,
           "minLength": 1,
           "title": "Workload Name",
           "type": "string"

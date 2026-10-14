@@ -97,3 +97,30 @@ def test_observe_hides_raw_content_and_closes_client(monkeypatch, failure):
         }
         assert projected["snapshots"] == 1
         assert projected["execution_available"] is False
+
+
+def test_detect_all_fixtures_without_database(monkeypatch):
+    monkeypatch.delenv("AEGISOPS_DATABASE_URL", raising=False)
+    result = runner.invoke(app, ["detect"])
+    assert result.exit_code == 0
+    output = json.loads(result.output)
+    assert output["snapshots"] == 10
+    assert len(output["incidents"]) == 6
+    assert output["execution_available"] is False
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--source", "production"],
+        ["--scenario", "../private"],
+        ["--source", "local-kind", "--scenario", "crashloop-exit-1"],
+    ],
+)
+def test_detect_invalid_source_or_scenario_cannot_open_reader(monkeypatch, arguments):
+    reader_factory = MagicMock()
+    monkeypatch.setattr("aegisops.cli.app.ReadOnlyClient", reader_factory)
+    result = runner.invoke(app, ["detect", *arguments])
+    assert result.exit_code == 1
+    assert result.output.strip() == "detect: FAILED (observation or context rejected)"
+    reader_factory.assert_not_called()

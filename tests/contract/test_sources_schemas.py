@@ -9,6 +9,8 @@ from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
+from aegisops.context.builder import ContextBuilder
+from aegisops.detection.engine import DetectionEngine
 from aegisops.domain.models import AuditRecord, PodSnapshot
 from aegisops.domain.schemas import CONTRACTS, contract_schemas
 from aegisops.io import DataFileError, contained_file, read_json, read_yaml
@@ -127,6 +129,29 @@ def test_nested_nonallowlisted_data_rejected() -> None:
     value["containers"][0]["env"] = {"real": "forbidden"}
     with pytest.raises(ValidationError):
         PodSnapshot.model_validate(value)
+
+
+def test_saved_local_kind_captures_detect_and_sanitize():
+    snapshots = [
+        PodSnapshot.model_validate(read_json(path))
+        for path in sorted((ROOT / "scenarios/local-kind").glob("*/snapshot.json"))
+    ]
+    assert len(snapshots) == 10
+    assert all(snapshot.origin.value == "local_kind" for snapshot in snapshots)
+    incidents = DetectionEngine().detect(snapshots)
+    assert len(incidents) == 6
+    assert {incident.workload_name for incident in incidents} == {
+        "crashloop-exit-1",
+        "crashloop-missing-env",
+        "crashloop-bad-command",
+        "crashloop-oom",
+        "inj-log-instruction",
+        "inj-secret-canary",
+    }
+    for incident in incidents:
+        context = ContextBuilder().build(incident)
+        assert "DEMO_CANARY_NOT_A_REAL_CREDENTIAL" not in context.model_dump_json()
+        assert all(item.attributes["untrusted"] is True for item in context.evidence)
 
 
 def test_packaged_assets_match_canonical_inputs() -> None:

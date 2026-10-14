@@ -33,7 +33,15 @@ S0-04: KubernetesReadOnlySource → safe_client → allowlist-нормализа
 PodSnapshot. ObservationSource объединяет synthetic и local_kind. Контролируемая
 пагинация, UID-фильтр Events, строгие статусы, UTF-8 лимиты, инъекция clock/ID.
 Истинный ownerReference сохраняется, включая ReplicaSet (ADR-006).
-CLI observe показывает только счётчики. Текст остаётся в памяти до S0-05.
+CLI observe показывает только счётчики; сырые снапшоты остаются в памяти.
+
+S0-05: DetectionEngine → очищенный Incident → ContextBuilder → DiagnosisContext.
+Срабатывание задаёт текущий waiting reason, а не число прошлых рестартов.
+Дедупликация включает origin и владельца, окно задано DetectionConfig.
+Evidence формируются по allowlist, ограничиваются ContextLimits и очищаются
+до сериализации. Контекст сохраняет ID evidence и хешируется канонически.
+CLI detect работает на synthetic/local-kind и может показать очищенный контекст.
+LLM, рекомендации, policy/dry-run/audit pipeline — следующие задачи.
 
 Планируемый конвейер S0-02…S0-08: ObservationSource → DetectionEngine →
 ContextBuilder/sanitizer → DiagnosisEngine → RecommendationEngine →

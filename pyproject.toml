@@ -67,5 +67,14 @@ type = "forbidden"
 source_modules = ["aegisops"]
 forbidden_modules = ["subprocess", "pty"]
 
+[[tool.importlinter.contracts]]
+name = "Detection and context cannot access services or credentials"
+type = "forbidden"
+source_modules = ["aegisops.detection", "aegisops.context"]
+forbidden_modules = [
+  "aegisops.sources", "aegisops.db", "aegisops.config",
+  "kubernetes", "socket", "urllib3", "requests", "subprocess", "pty",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/aegisops"]
