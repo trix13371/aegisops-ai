@@ -78,6 +78,7 @@
     "autonomy_level": "L0",
     "blocked_capabilities": [],
     "incident_id": "incident-fixed",
+    "input_hash": null,
     "policy_version": "prototype-1",
     "reasons": [],
     "recommendation_id": "recommendation-fixed"

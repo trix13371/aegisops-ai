@@ -52,7 +52,18 @@ LLMLimits/RunBudget ограничивают каждый запрос и всю
 читает только подготовленные ответы по хешу. OpenAICompatibleClient поддерживает
 фиксированный OpenRouter HTTPS и явно выбранный loopback endpoint; ключи раздельны.
 Engine/prompt/fallback не могут импортировать транспорт или инфраструктуру.
-CLI analyze работает без БД; policy/dry-run/audit pipeline — следующая задача.
+CLI analyze работает без БД.
+
+S0-07: ReviewService для одного Incident → AnalysisEngine → PolicyChecker →
+DryRunEngine → PostgresAuditStore.append. CLI review выбирает один synthetic
+сценарий. PolicyChecker разрешает только описание четырёх точных действий;
+все реальные исполнительные capabilities заблокированы. Решение содержит
+хеш incident/recommendation/catalog/policy; dry-run пересчитывает решение.
+Summary строится шаблоном приложения, эффекты не проверяются. AuditStore
+санитизирует и сверяет контекст, evidence, policy и dry-run; транзакционный
+INSERT под app-ролью, без update/delete API. completed возвращается только
+после записи. Ошибка БД прерывает CLI. Полный сбор источника, ранний отказ
+среды, run и eval остаются S0-08 (ADR-008).
 
 Планируемый конвейер S0-02…S0-08: ObservationSource → DetectionEngine →
 ContextBuilder/sanitizer → DiagnosisEngine → RecommendationEngine →

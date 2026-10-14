@@ -87,3 +87,12 @@ forbidden_modules = [
   "aegisops.sources", "aegisops.db", "aegisops.config", "aegisops.llm.transport",
   "http", "socket", "kubernetes", "subprocess", "pty",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Policy and dry-run cannot access services, models or credentials"
+type = "forbidden"
+source_modules = ["aegisops.policy", "aegisops.dry_run"]
+forbidden_modules = [
+  "aegisops.sources", "aegisops.db", "aegisops.config", "aegisops.llm",
+  "http", "socket", "kubernetes", "requests", "urllib3", "subprocess", "pty",
+]

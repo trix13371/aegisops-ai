@@ -578,6 +578,19 @@
           "title": "Incident Id",
           "type": "string"
         },
+        "input_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Hash"
+        },
         "policy_version": {
           "maxLength": 128,
           "minLength": 1,

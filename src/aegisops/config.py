@@ -95,6 +95,13 @@ def load_database_url() -> str:
     if raw is None or raw == "":
         raise ConfigurationError("local database not configured")
 
+    return validate_database_url(raw)
+
+
+def validate_database_url(raw: str) -> str:
+    """Validate an explicitly supplied application URL without logging it."""
+    if type(raw) is not str:
+        raise _fail("URL must be text")
     _validate_url(raw)
     return raw
 

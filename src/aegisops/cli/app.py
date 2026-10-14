@@ -10,6 +10,8 @@ from io import TextIOWrapper
 import typer
 from pydantic import SecretStr
 
+from aegisops.audit.base import AuditStoreError
+from aegisops.audit.postgres import PostgresAuditStore
 from aegisops.config import ConfigurationError, load_database_url
 from aegisops.context.builder import ContextBuilder, ContextError
 from aegisops.context.sanitizer import SanitizationError, sanitize_data
@@ -20,6 +22,7 @@ from aegisops.llm.base import LLMClient, LLMError
 from aegisops.llm.engine import AnalysisEngine
 from aegisops.llm.fake import FakeLLMClient, UnavailableLLMClient
 from aegisops.llm.transport import DEFAULT_MODEL, OpenAICompatibleClient
+from aegisops.review.service import ReviewError, ReviewService
 from aegisops.sources.env_guard import EnvironmentGuardError, load_reader_identity
 from aegisops.sources.kubernetes_readonly import CollectionError, KubernetesReadOnlySource
 from aegisops.sources.safe_client import ReadOnlyClient, ReadOnlyError
@@ -58,6 +61,31 @@ def _analysis_client(mode: str, model: str | None, local_url: str | None) -> LLM
             api_key=SecretStr(local_key) if local_key else None,
         )
     raise LLMError()
+
+
+@app.command()
+def review(
+    scenario: str = typer.Option("crashloop-oom", "--scenario"),
+    llm: str = typer.Option("fake", "--llm"),
+    model: str | None = typer.Option(None, "--model"),
+    local_url: str | None = typer.Option(None, "--local-url"),
+) -> None:
+    """Review one synthetic incident, simulate a description and commit its audit."""
+    try:
+        with PostgresAuditStore() as store:
+            snapshots = _detection_snapshots("synthetic", scenario)
+            incidents = DetectionEngine().detect(snapshots)
+            if len(incidents) != 1:
+                raise ReviewError()
+            service = ReviewService(AnalysisEngine(_analysis_client(llm, model, local_url)), store)
+            record = service.review(incidents[0])
+        output = record.model_dump_json(indent=2)
+    except (AuditStoreError, ReviewError, ScenarioError, DetectionError, LLMError):
+        typer.echo("review: FAILED (input, configuration or durable audit rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
+    if record.status.value != "completed":
+        raise typer.Exit(code=1)
 
 
 @app.command()

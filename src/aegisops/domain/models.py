@@ -364,6 +364,7 @@ class PolicyDecision(DTO):
     incident_id: Identifier
     recommendation_id: Identifier
     policy_version: Identifier
+    input_hash: Sha256 | None = None
     autonomy_level: AutonomyLevel = AutonomyLevel.L0
     allowed_for_dry_run: StrictBool
     reasons: tuple[PolicyReason, ...] = Field(max_length=32)
