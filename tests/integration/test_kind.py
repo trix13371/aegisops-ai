@@ -9,6 +9,7 @@ import pytest
 import yaml
 from kubernetes import client
 from kubernetes.client.exceptions import ApiException
+from live_kind_wait import wait_for_crashing_snapshots
 
 from aegisops.context.builder import ContextBuilder
 from aegisops.detection.engine import DetectionEngine
@@ -49,7 +50,7 @@ def test_live_collector_normalizes_actual_owners(raw_reader: Any) -> None:
 def test_live_detection_builds_sanitized_context(raw_reader: Any) -> None:
     reader = ReadOnlyClient(load_reader_identity())
     try:
-        snapshots = KubernetesReadOnlySource(reader, include_logs=True).collect()
+        snapshots = wait_for_crashing_snapshots(reader)
         incidents = DetectionEngine().detect(snapshots)
         assert 4 <= len(incidents) <= 6
         assert all(

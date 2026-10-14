@@ -2,7 +2,7 @@
 
 import importlib.util
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 import yaml
@@ -69,3 +69,26 @@ def test_developer_commands_always_select_fixed_context() -> None:
     assert '"--kubeconfig", str(ADMIN), "--context", CONTEXT' in source
     assert '"--name", NAME, "--kubeconfig", str(ADMIN)' in source
     assert '"--all"' not in source
+
+
+def test_reserved_or_busy_api_port_refuses_new_cluster(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location(
+        "port_guarded_cluster", ROOT / "scripts/local_kind.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    local = tmp_path / ".local/kind"
+    monkeypatch.setattr(module, "LOCAL", local)
+    monkeypatch.setattr(module, "ADMIN", local / "admin-kubeconfig.yaml")
+    monkeypatch.setattr(module, "STATE", local / "state.json")
+    kind = MagicMock(return_value="")
+    monkeypatch.setattr(module, "kind", kind)
+    monkeypatch.setattr(module.socket, "socket", MagicMock(side_effect=PermissionError()))
+    with pytest.raises(module.LocalClusterError, match="unavailable or reserved"):
+        module.cluster_up()
+    assert kind.call_args_list == [call(["get", "clusters"])]
+
+
+def test_kind_api_port_avoids_dynamic_windows_range_and_public_bind():
+    configuration = yaml.safe_load((ROOT / "deploy/local/kind.yaml").read_text())
+    assert configuration["networking"] == {"apiServerAddress": "127.0.0.1", "apiServerPort": 16443}

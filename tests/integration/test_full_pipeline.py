@@ -2,6 +2,7 @@
 
 import json
 import os
+import time
 from uuid import uuid4
 
 import pytest
@@ -108,9 +109,14 @@ def test_reader_limits_unknown_uuid_and_legacy_invalid_payload(url):
 def test_live_kind_pipeline_through_durable_audit(url):
     if os.environ.get("AEGISOPS_KIND_LIVE") != "1":
         pytest.skip("explicit live kind pipeline disabled")
-    result = CliRunner().invoke(app, ["run", "--source", "local-kind"])
-    assert result.exit_code == 0, result.output
-    batch = PipelineResult.model_validate_json(result.output)
+    deadline = time.monotonic() + 180
+    while True:
+        result = CliRunner().invoke(app, ["run", "--source", "local-kind"])
+        assert result.exit_code == 0, result.output
+        batch = PipelineResult.model_validate_json(result.output)
+        if batch.incident_count or time.monotonic() >= deadline:
+            break
+        time.sleep(min(2, max(0, deadline - time.monotonic())))
     assert batch.origin == "local_kind" and batch.snapshot_count > 0
     assert batch.incident_count > 0 and not batch.execution_performed
     with PostgresAuditReader(url) as reader:

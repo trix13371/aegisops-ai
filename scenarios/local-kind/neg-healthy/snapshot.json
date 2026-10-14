@@ -13,12 +13,12 @@
       "name": "app",
       "is_init": false,
       "waiting_reason": null,
-      "last_terminated_reason": null,
-      "last_exit_code": null,
-      "restart_count": 0
+      "last_terminated_reason": "Unknown",
+      "last_exit_code": 255,
+      "restart_count": 5
     }
   ],
   "events": [],
   "log_tail": "b''",
-  "observed_at": "2026-10-14T13:56:19.525667Z"
+  "observed_at": "2026-10-14T22:16:33.418435Z"
 }

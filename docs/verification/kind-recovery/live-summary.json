@@ -1,0 +1,18 @@
+{
+  "api_server": "https://127.0.0.1:16443",
+  "node_ready": true,
+  "live_tests_passed": 20,
+  "full_tests_passed": 449,
+  "full_tests_skipped": 1,
+  "paid_tests_deselected": 2,
+  "representative_audit": {
+    "run_id": "98af5629-70a1-49fa-9fbd-368c8e3c235c",
+    "origin": "local_kind",
+    "status": "completed",
+    "model": "fixture-v1",
+    "used_fallback": true,
+    "action": "escalate_to_human",
+    "allowed_for_dry_run": true,
+    "execution_performed": false
+  }
+}

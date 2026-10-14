@@ -24,7 +24,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers -m 'not llm_live'"
+addopts = "--strict-markers --tb=short -m 'not llm_live'"
 markers = [
   "unit: no external services", "integration: local PostgreSQL or kind",
   "safety: enforcement of prototype boundaries", "contract: stable data contracts",

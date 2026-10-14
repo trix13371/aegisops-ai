@@ -3,7 +3,7 @@
   "origin": "local_kind",
   "cluster_id": "kind-aegisops-demo",
   "namespace": "aegisops-demo",
-  "pod_name": "crashloop-oom-b64ff58fd-57nt5",
+  "pod_name": "crashloop-oom-b64ff58fd-2lnq6",
   "owner": {
     "kind": "Deployment",
     "name": "crashloop-oom"
@@ -15,10 +15,10 @@
       "waiting_reason": "CrashLoopBackOff",
       "last_terminated_reason": "OOMKilled",
       "last_exit_code": 137,
-      "restart_count": 5
+      "restart_count": 1
     }
   ],
   "events": [],
   "log_tail": "b''",
-  "observed_at": "2026-10-14T13:57:28.973078Z"
+  "observed_at": "2026-10-14T22:16:44.316125Z"
 }

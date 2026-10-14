@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import shutil
+import socket
 import subprocess
 import uuid
 from pathlib import Path
@@ -24,6 +25,7 @@ CONTEXT = "kind-aegisops-demo"
 NODE_IMAGE = (
     "kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed"
 )
+API_PORT = 16443
 
 
 class LocalClusterError(ValueError):
@@ -196,6 +198,13 @@ def cluster_up() -> None:
         return
     if ADMIN.exists() or STATE.exists():
         raise LocalClusterError("stale registration exists; inspect before recreating")
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", API_PORT))
+    except OSError:
+        raise LocalClusterError(
+            "local API port 16443 is unavailable or reserved by Windows"
+        ) from None
     kind(
         [
             "create",
