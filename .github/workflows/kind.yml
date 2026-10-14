@@ -31,7 +31,7 @@ jobs:
       - name: Capture real local observations
         run: uv run --frozen python scripts/kind-scenarios.py capture --timeout 300
       - name: Verify RBAC and guards
-        run: uv run --frozen pytest tests/integration/test_kind.py tests/unit/test_kind_guard.py tests/unit/test_readonly_transport.py
+        run: uv run --frozen pytest tests/integration/test_kind.py tests/unit/test_kind_guard.py tests/unit/test_readonly_transport.py tests/unit/test_kubernetes_source.py
       - name: Cleanup owned cluster only
         if: always()
         run: uv run --frozen python scripts/cluster-local.py down

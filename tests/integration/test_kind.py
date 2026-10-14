@@ -12,10 +12,36 @@ from kubernetes.client.exceptions import ApiException
 
 from aegisops.domain.models import PodSnapshot
 from aegisops.sources.env_guard import load_reader_identity
+from aegisops.sources.kubernetes_readonly import KubernetesReadOnlySource
 from aegisops.sources.safe_client import ReadOnlyClient, ReadOnlyError
 
 pytestmark = [pytest.mark.integration, pytest.mark.kind_live]
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_live_collector_normalizes_actual_owners(raw_reader: Any) -> None:
+    reader = ReadOnlyClient(load_reader_identity())
+    try:
+        pods = {pod.metadata.name: pod for pod in reader.list_pods().items}
+        snapshots = KubernetesReadOnlySource(reader, include_logs=True).collect()
+        assert len(snapshots) == 10
+        assert len({snapshot.snapshot_id for snapshot in snapshots}) == 10
+        for snapshot in snapshots:
+            assert snapshot.origin.value == "local_kind"
+            assert snapshot.namespace == "aegisops-demo"
+            controller = next(
+                ref for ref in pods[snapshot.pod_name].metadata.owner_references if ref.controller
+            )
+            assert snapshot.owner.kind == controller.kind == "ReplicaSet"
+            assert snapshot.owner.name == controller.name
+            assert len(snapshot.events) <= 64
+            if snapshot.log_tail is not None:
+                assert len(snapshot.log_tail.encode("utf-8")) <= 16384
+                assert len(snapshot.log_tail.splitlines()) <= 100
+        assert any(snapshot.events for snapshot in snapshots)
+        assert any(snapshot.log_tail for snapshot in snapshots)
+    finally:
+        reader.close()
 
 
 @pytest.fixture

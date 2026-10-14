@@ -150,8 +150,8 @@ ExitCode = Annotated[StrictInt, Field(ge=0, le=255)]
 
 
 class Owner(DTO):
-    kind: Literal["Deployment", "StatefulSet", "DaemonSet", "Job", "Pod"]
-    name: Name63
+    kind: Literal["Deployment", "ReplicaSet", "StatefulSet", "DaemonSet", "Job", "Pod"]
+    name: Name253
 
 
 class ContainerSnapshot(DTO):

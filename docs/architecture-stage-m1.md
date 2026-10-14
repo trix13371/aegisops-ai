@@ -27,7 +27,13 @@ SDK Configuration, разрешает только GET по списку пут�
 Kubernetes SDK импортируется только этим модулем.
 
 Developer scripts создают/удаляют собственный kind, настраивают RBAC и capture.
-Они не являются интерфейсом исполнения приложения. Collector — S0-04.
+Они не являются интерфейсом исполнения приложения.
+
+S0-04: KubernetesReadOnlySource → safe_client → allowlist-нормализация →
+PodSnapshot. ObservationSource объединяет synthetic и local_kind. Контролируемая
+пагинация, UID-фильтр Events, строгие статусы, UTF-8 лимиты, инъекция clock/ID.
+Истинный ownerReference сохраняется, включая ReplicaSet (ADR-006).
+CLI observe показывает только счётчики. Текст остаётся в памяти до S0-05.
 
 Планируемый конвейер S0-02…S0-08: ObservationSource → DetectionEngine →
 ContextBuilder/sanitizer → DiagnosisEngine → RecommendationEngine →

@@ -21,7 +21,7 @@ from aegisops.sources.env_guard import (
     ensure_not_expired,
 )
 
-__all__ = ["ReadOnlyError", "ReadOnlyClient"]
+__all__ = ["ReadOnlyError", "LogUnavailableError", "ReadOnlyClient"]
 
 _NAMESPACE: Final[str] = "aegisops-demo"
 _NS_PATH: Final[str] = f"/api/v1/namespaces/{_NAMESPACE}"
@@ -42,6 +42,10 @@ _FORBIDDEN_SUBSTRINGS: Final[tuple[str, ...]] = (
 
 class ReadOnlyError(RuntimeError):
     """Raised for any rejected or failed read-only operation."""
+
+
+class LogUnavailableError(ReadOnlyError):
+    """The pod/container has no available log stream (HTTP 400 or 404)."""
 
 
 def _fail() -> ReadOnlyError:
@@ -228,14 +232,18 @@ class ReadOnlyClient:
             raise _fail() from None
         return None
 
-    def list_pods(self, label_selector: str = "") -> Any:
+    def list_pods(self, label_selector: str = "", *, continue_token: str = "") -> Any:
         self._guard()
+        if not isinstance(label_selector, str) or len(label_selector) > 256:
+            raise _fail()
+        self._check_continue(continue_token)
         try:
             self._verify_marker()
             return self._core.list_namespaced_pod(
                 namespace=_NAMESPACE,
                 label_selector=label_selector,
                 limit=100,
+                _continue=continue_token,
                 _request_timeout=(3, 10),
             )
         except ReadOnlyError:
@@ -243,13 +251,25 @@ class ReadOnlyClient:
         except Exception:
             raise _fail() from None
 
-    def list_events(self) -> Any:
+    @staticmethod
+    def _check_continue(value: str) -> None:
+        if not isinstance(value, str) or len(value) > 4096:
+            raise _fail()
+
+    def list_events(self, *, pod_uid: str = "", continue_token: str = "") -> Any:
         self._guard()
+        if not isinstance(pod_uid, str) or (
+            pod_uid and not re.fullmatch(r"[a-zA-Z0-9-]{1,128}", pod_uid)
+        ):
+            raise _fail()
+        self._check_continue(continue_token)
         try:
             self._verify_marker()
             return self._core.list_namespaced_event(
                 namespace=_NAMESPACE,
                 limit=64,
+                field_selector=f"involvedObject.uid={pod_uid}" if pod_uid else "",
+                _continue=continue_token,
                 _request_timeout=(3, 10),
             )
         except ReadOnlyError:
@@ -271,6 +291,9 @@ class ReadOnlyClient:
             raise _fail()
         try:
             self._verify_marker()
+        except Exception:
+            raise _fail() from None
+        try:
             data = self._core.read_namespaced_pod_log(
                 name=pod_name,
                 namespace=_NAMESPACE,
@@ -283,6 +306,10 @@ class ReadOnlyClient:
             )
         except ReadOnlyError:
             raise
+        except k8s_client.exceptions.ApiException as error:
+            if error.status in {400, 404}:
+                raise LogUnavailableError("local kind log unavailable") from None
+            raise _fail() from None
         except Exception:
             raise _fail() from None
         if isinstance(data, bytes):

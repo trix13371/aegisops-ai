@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
+from unittest.mock import MagicMock
+
 import pytest
 from typer.testing import CliRunner
 
 from aegisops.cli.app import app
 from aegisops.db.health import DatabaseHealthError
+from aegisops.sources.kubernetes_readonly import CollectionError
+from aegisops.sources.synthetic import ScenarioRepository
 
 runner = CliRunner()
 pytestmark = pytest.mark.unit
@@ -55,3 +60,40 @@ def test_doctor_has_no_cluster_override_options() -> None:
         assert option not in help_text
     result = runner.invoke(app, ["doctor", "--source", "production"])
     assert result.exit_code == 1
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_observe_hides_raw_content_and_closes_client(monkeypatch, failure):
+    reader = MagicMock()
+    source = MagicMock()
+    snapshot = ScenarioRepository().load("inj-secret-canary")[1]
+    assert snapshot.log_tail
+    source.collect.return_value = [snapshot]
+    if failure:
+        source.collect.side_effect = CollectionError("synthetic error canary")
+    monkeypatch.setattr("aegisops.cli.app.load_reader_identity", lambda: object())
+    monkeypatch.setattr("aegisops.cli.app.ReadOnlyClient", lambda identity: reader)
+    monkeypatch.setattr("aegisops.cli.app.KubernetesReadOnlySource", lambda *a, **kw: source)
+    monkeypatch.delenv("AEGISOPS_DATABASE_URL", raising=False)
+    result = runner.invoke(app, ["observe", "--include-logs"])
+    reader.close.assert_called_once()
+    assert snapshot.log_tail not in result.output
+    for event in snapshot.events:
+        assert event.message not in result.output
+    assert "synthetic error canary" not in result.output
+    if failure:
+        assert result.exit_code == 1
+        assert result.output.strip() == "observe: FAILED (local kind collection rejected)"
+    else:
+        assert result.exit_code == 0
+        projected = json.loads(result.output)
+        assert set(projected) == {
+            "origin",
+            "snapshots",
+            "containers",
+            "events",
+            "log_tails",
+            "execution_available",
+        }
+        assert projected["snapshots"] == 1
+        assert projected["execution_available"] is False

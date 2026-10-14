@@ -1,8 +1,4 @@
-"""Typer CLI for AegisOps S0-01.
-
-Only the read-only ``doctor`` command is exposed. No apply, execute, fix,
-or cluster options exist. No LLM or Kubernetes configuration is read.
-"""
+"""Local L0 checks, fixture metadata and bounded read-only observation."""
 
 from __future__ import annotations
 
@@ -15,12 +11,13 @@ import typer
 from aegisops.config import ConfigurationError, load_database_url
 from aegisops.db.health import DatabaseHealthError, check_database
 from aegisops.sources.env_guard import EnvironmentGuardError, load_reader_identity
+from aegisops.sources.kubernetes_readonly import CollectionError, KubernetesReadOnlySource
 from aegisops.sources.safe_client import ReadOnlyClient, ReadOnlyError
 from aegisops.sources.synthetic import ScenarioError, ScenarioRepository
 
 app = typer.Typer(
     name="aegisops",
-    help="AegisOps local L0 prototype (S0-01/S0-02).",
+    help="AegisOps local L0 prototype.",
     no_args_is_help=True,
     add_completion=False,
 )
@@ -28,6 +25,29 @@ app = typer.Typer(
 _OK_MESSAGE = "doctor: OK (synthetic mode; database ready; no LLM or Kubernetes required)"
 scenario_app = typer.Typer(help="List handcrafted scenarios; never execute actions.")
 app.add_typer(scenario_app, name="scenario")
+
+
+@app.command()
+def observe(include_logs: bool = typer.Option(False, "--include-logs")) -> None:
+    """Collect from the fixed local kind; display aggregate counts only."""
+    try:
+        reader = ReadOnlyClient(load_reader_identity())
+        try:
+            snapshots = KubernetesReadOnlySource(reader, include_logs=include_logs).collect()
+        finally:
+            reader.close()
+    except (EnvironmentGuardError, ReadOnlyError, CollectionError):
+        typer.echo("observe: FAILED (local kind collection rejected)")
+        raise typer.Exit(code=1) from None
+    projection = {
+        "origin": "local_kind",
+        "snapshots": len(snapshots),
+        "containers": sum(len(snapshot.containers) for snapshot in snapshots),
+        "events": sum(len(snapshot.events) for snapshot in snapshots),
+        "log_tails": sum(snapshot.log_tail is not None for snapshot in snapshots),
+        "execution_available": False,
+    }
+    typer.echo(json.dumps(projection, indent=2))
 
 
 @app.callback()

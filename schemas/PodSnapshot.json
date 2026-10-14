@@ -129,6 +129,7 @@
         "kind": {
           "enum": [
             "Deployment",
+            "ReplicaSet",
             "StatefulSet",
             "DaemonSet",
             "Job",
@@ -138,7 +139,7 @@
           "type": "string"
         },
         "name": {
-          "maxLength": 63,
+          "maxLength": 253,
           "minLength": 1,
           "title": "Name",
           "type": "string"
