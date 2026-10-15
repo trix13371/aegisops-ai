@@ -1,6 +1,7 @@
 """Revalidate and redact the entire record before it reaches storage."""
 
 from aegisops.audit.base import AuditStoreError
+from aegisops.authorization.projection import validate_receipt
 from aegisops.context.builder import ContextBuilder
 from aegisops.context.sanitizer import sanitize_data
 from aegisops.domain.models import AuditRecord, RunStatus
@@ -40,6 +41,16 @@ def sanitize_record(record: object) -> AuditRecord:
             raise AuditStoreError()
         if clean.status is RunStatus.BLOCKED and clean.policy_decision is None and not clean.errors:
             raise AuditStoreError()
+        if clean.pep_receipt is not None:
+            if (
+                clean.incident is None
+                or clean.recommendation is None
+                or clean.policy_decision is None
+            ):
+                raise AuditStoreError()
+            validate_receipt(
+                clean.incident, clean.recommendation, clean.policy_decision, clean.pep_receipt
+            )
         return clean
     except Exception:
         raise AuditStoreError() from None

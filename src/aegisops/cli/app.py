@@ -14,6 +14,8 @@ from pydantic import SecretStr
 from aegisops.audit.base import AuditStoreError
 from aegisops.audit.postgres import PostgresAuditStore
 from aegisops.audit.reader import PostgresAuditReader
+from aegisops.authorization.http import OpaClient
+from aegisops.authorization.pep import DryRunPEP
 from aegisops.config import ConfigurationError, load_database_url
 from aegisops.context.builder import ContextBuilder, ContextError
 from aegisops.context.sanitizer import SanitizationError, sanitize_data
@@ -201,9 +203,13 @@ def run_pipeline(
     model: str | None = typer.Option(None, "--model"),
     local_url: str | None = typer.Option(None, "--local-url"),
     data_class: DataClass | None = typer.Option(None, "--data-class"),
+    authorization: str = typer.Option(
+        "python", "--authorization", help="python or opa (fail closed)"
+    ),
 ) -> None:
     """Run collection through durable audit; execution is unavailable."""
     try:
+        pep = _authorization(authorization)
         if (
             source not in {"synthetic", "local-kind"}
             or source == "local-kind"
@@ -218,6 +224,7 @@ def run_pipeline(
             pipeline = Pipeline(
                 AnalysisEngine(_analysis_client(llm, model, local_url), data_class=data_class),
                 store,
+                pep=pep,
             )
             result = pipeline.run(observation_source, origin=origin)
         output = result.model_dump_json(indent=2)
@@ -294,6 +301,14 @@ def _analysis_client(mode: str, model: str | None, local_url: str | None) -> LLM
     raise LLMError()
 
 
+def _authorization(mode: str) -> DryRunPEP | None:
+    if mode == "python":
+        return None
+    if mode == "opa":
+        return DryRunPEP(OpaClient())
+    raise ReviewError()
+
+
 @app.command()
 def review(
     scenario: str = typer.Option("crashloop-oom", "--scenario"),
@@ -301,9 +316,13 @@ def review(
     model: str | None = typer.Option(None, "--model"),
     local_url: str | None = typer.Option(None, "--local-url"),
     data_class: DataClass | None = typer.Option(None, "--data-class"),
+    authorization: str = typer.Option(
+        "python", "--authorization", help="python or opa (fail closed)"
+    ),
 ) -> None:
     """Review one synthetic incident, simulate a description and commit its audit."""
     try:
+        pep = _authorization(authorization)
         with PostgresAuditStore() as store:
             snapshots = _detection_snapshots("synthetic", scenario)
             incidents = DetectionEngine().detect(snapshots)
@@ -312,6 +331,7 @@ def review(
             service = ReviewService(
                 AnalysisEngine(_analysis_client(llm, model, local_url), data_class=data_class),
                 store,
+                pep=pep,
             )
             record = service.review(incidents[0])
         output = record.model_dump_json(indent=2)

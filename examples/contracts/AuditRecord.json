@@ -72,8 +72,9 @@
     "workload_name": "demo"
   },
   "llm": null,
-  "origin": "synthetic_fixture",
   "observation": null,
+  "origin": "synthetic_fixture",
+  "pep_receipt": null,
   "policy_decision": {
     "allowed_for_dry_run": true,
     "autonomy_level": "L0",

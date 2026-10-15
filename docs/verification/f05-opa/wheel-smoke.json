@@ -1,0 +1,7 @@
+{
+  "import_from_extracted_wheel": true,
+  "required_opa_assets": true,
+  "bundle_metadata_valid": true,
+  "real_opa_allow": true,
+  "execution_performed": false
+}

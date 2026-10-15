@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from aegisops.audit.base import AuditStore
 from aegisops.audit.validation import prepare_record
+from aegisops.authorization.pep import DryRunPEP
 from aegisops.detection.engine import DetectionEngine
 from aegisops.domain.common import utc_now
 from aegisops.domain.models import (
@@ -43,11 +44,13 @@ class Pipeline:
         analysis: AnalysisEngine,
         store: AuditStore,
         *,
+        pep: DryRunPEP | None = None,
         clock: Callable[[], datetime] = utc_now,
         id_factory: Callable[[], UUID] = uuid4,
     ) -> None:
         self._analysis, self._store = analysis, store
         self._clock, self._id_factory = clock, id_factory
+        self._pep = pep
 
     def _scan_record(self, origin: Origin, count: int, code: str | None) -> PipelineResult:
         # Only actual scan/early-error records allocate an ID, not successful incident batches.
@@ -107,7 +110,11 @@ class Pipeline:
         if not incidents:
             return self._scan_record(origin, count, None)
         service = ReviewService(
-            self._analysis, self._store, clock=self._clock, id_factory=self._id_factory
+            self._analysis,
+            self._store,
+            clock=self._clock,
+            id_factory=self._id_factory,
+            pep=self._pep,
         )
         records = tuple(service.review(incident) for incident in incidents)
         statuses = {record.status for record in records}

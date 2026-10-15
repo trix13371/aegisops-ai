@@ -528,6 +528,60 @@ Shadow Mode или выполнение порогов MVP. Решения и г
 [ADR-009](docs/decisions/ADR-009-complete-pipeline-and-evaluation.md).
 Итог: [VERIFICATION-S0-08.md](VERIFICATION-S0-08.md).
 
+## Независимая проверка разрешений OPA (F05)
+
+`review` и `run` принимают `--authorization opa`. В этом режиме отдельный
+локальный OPA/Rego проверяет действие, параметры, цель и класс обратимости.
+PEP допускает только описательный dry-run при согласии OPA и Python policy.
+Отказ, отсутствие ответа, timeout, повреждённые данные или несовпадение хешей
+блокируют запуск без перехода на Python. Анализ и причина блокировки сохраняются
+в аудите как `pep_receipt`; `dry_run_result` при блокировке отсутствует.
+
+Прежний `--authorization python` остаётся режимом по умолчанию для offline-демо
+и `eval`: в нём OPA и новый kill switch не участвуют. OPA не запускается
+приложением автоматически. Для Windows из корня проекта:
+
+```powershell
+# OPA 1.21.2 уже установлен локально в work/tooling/opa/opa.exe вне репозитория.
+& scripts/opa-local.ps1 up
+.venv/Scripts/python.exe scripts/wait-opa.py
+# Изначально аварийная блокировка включена. Разрешить учебные dry-run:
+.venv/Scripts/python.exe scripts/opa-control.py resume
+.venv/Scripts/python.exe scripts/with-local-env.py aegisops review --scenario crashloop-oom --authorization opa
+.venv/Scripts/python.exe scripts/with-local-env.py aegisops run --source local-kind --authorization opa
+# Снова заблокировать:
+.venv/Scripts/python.exe scripts/opa-control.py block
+& scripts/opa-local.ps1 status
+```
+
+`opa-local.ps1` проверяет SHA-256 runtime и policy metadata, запускает скрытый
+процесс на `127.0.0.1:18181`; `stop` проверяет путь процесса и время старта.
+На новой машине нужен официальный `opa_windows_amd64.exe` из
+[релиза v1.21.2](https://github.com/open-policy-agent/opa/releases/tag/v1.21.2),
+сохранённый как `../../work/tooling/opa/opa.exe`. Ожидаемый SHA-256:
+`0089fa7ad8cdea7ff9e56ff86fa9202462afb63ef74506e2b547a24b4a987ccb`.
+
+Управляющие HTTP API закрыты; разрешён только POST фиксированного decision API.
+Запрос содержит проекцию идентификаторов и параметров без логов, evidence и
+текста модели; размер ответа ограничен 8192 байтами, общий deadline — 2 секунды.
+Хеши bundle/catalog/input связывают локальный контракт, но не являются подписью
+или доказательством подлинности процесса на loopback-порту.
+
+Файл `.local/authorization/control.json` читается перед OPA и перед dry-run.
+Отсутствие, повреждение или изменение поколения блокирует запуск. Через
+`scripts/opa-control.py` доступны `block-cluster ID`, `allow-cluster ID`,
+`block-action ACTION`, `allow-action ACTION`, а также `status`.
+Глобальную блокировку снимает только явный `resume`; остальные блокировки
+сохраняются. Скрипты предназначены для одного доверенного локального оператора.
+
+После изменения Rego или actions выполните `scripts/prepare-opa-policy.py`,
+`scripts/sync-assets.py`, затем перезапустите OPA. Политики лежат в
+`policies/opa`, их runtime-копии входят в wheel. Тесты настоящего OPA включаются
+через `AEGISOPS_OPA_LIVE=1`; CI дополнен закреплённым Linux runtime и Rego-тестами.
+Это L0 без исполнителя, подписанных bundles, workload identity или HA.
+Решение: [ADR-014](docs/decisions/ADR-014-opa-dry-run-pep.md),
+приёмка: [VERIFICATION-F05.md](VERIFICATION-F05.md).
+
 ## Справочные инструкции диагностики (F04)
 
 Каталог `runbooks/catalog.yaml` содержит CrashLoop triage, проверку OOMKilled

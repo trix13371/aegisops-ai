@@ -30,6 +30,7 @@ markers = [
   "safety: enforcement of prototype boundaries", "contract: stable data contracts",
   "e2e: complete synthetic pipeline", "llm_live: explicit paid provider tests",
   "kind_live: explicitly enabled local Kubernetes tests",
+  "opa_live: explicitly enabled local OPA tests",
 ]
 
 [tool.ruff]
@@ -60,6 +61,15 @@ ignore_missing_imports = true
 [tool.importlinter]
 root_package = "aegisops"
 include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "PEP and projection cannot import transports, models or infrastructure"
+type = "forbidden"
+source_modules = ["aegisops.authorization.pep", "aegisops.authorization.projection"]
+forbidden_modules = [
+  "aegisops.authorization.http", "aegisops.llm", "aegisops.sources", "aegisops.db",
+  "aegisops.config", "http", "socket", "kubernetes", "requests", "urllib3",
+]
 
 [[tool.importlinter.contracts]]
 name = "Application cannot invoke external commands"

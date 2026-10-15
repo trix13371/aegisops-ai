@@ -1,0 +1,49 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/AuthorizationControl.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "blocked_actions": {
+      "default": [],
+      "items": {
+        "enum": [
+          "escalate_to_human",
+          "collect_more_evidence",
+          "restart_workload",
+          "rollback_deployment"
+        ],
+        "type": "string"
+      },
+      "maxItems": 4,
+      "title": "Blocked Actions",
+      "type": "array"
+    },
+    "blocked_clusters": {
+      "default": [],
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Blocked Clusters",
+      "type": "array"
+    },
+    "generation": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "title": "Generation",
+      "type": "integer"
+    },
+    "global_blocked": {
+      "title": "Global Blocked",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "generation",
+    "global_blocked"
+  ],
+  "title": "AuthorizationControl",
+  "type": "object"
+}

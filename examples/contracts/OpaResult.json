@@ -1,0 +1,9 @@
+{
+  "policy_version": "opa-l0-1",
+  "bundle_hash": "57b929265740195251ddd640ceda9d16d23b2163f789c62de0cb1032bf2563d2",
+  "catalog_hash": "8f920ec176d2f4ac1c27786a29f70851206a1e44ff40f9b841239458776b4e3a",
+  "input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "allow": true,
+  "autonomy_level": "L0",
+  "execution_performed": false
+}

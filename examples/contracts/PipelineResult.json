@@ -21,6 +21,7 @@
       "diagnosis": null,
       "recommendation": null,
       "policy_decision": null,
+      "pep_receipt": null,
       "dry_run_result": null,
       "llm": null,
       "context_hash": null,

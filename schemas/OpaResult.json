@@ -1,0 +1,52 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/OpaResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "allow": {
+      "title": "Allow",
+      "type": "boolean"
+    },
+    "autonomy_level": {
+      "const": "L0",
+      "title": "Autonomy Level",
+      "type": "string"
+    },
+    "bundle_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Bundle Hash",
+      "type": "string"
+    },
+    "catalog_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Catalog Hash",
+      "type": "string"
+    },
+    "execution_performed": {
+      "const": false,
+      "title": "Execution Performed",
+      "type": "boolean"
+    },
+    "input_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Input Hash",
+      "type": "string"
+    },
+    "policy_version": {
+      "const": "opa-l0-1",
+      "title": "Policy Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy_version",
+    "bundle_hash",
+    "catalog_hash",
+    "input_hash",
+    "allow",
+    "autonomy_level",
+    "execution_performed"
+  ],
+  "title": "OpaResult",
+  "type": "object"
+}

@@ -1,0 +1,325 @@
+{
+  "$defs": {
+    "AuthorizationControl": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked_actions": {
+          "default": [],
+          "items": {
+            "enum": [
+              "escalate_to_human",
+              "collect_more_evidence",
+              "restart_workload",
+              "rollback_deployment"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Blocked Actions",
+          "type": "array"
+        },
+        "blocked_clusters": {
+          "default": [],
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "title": "Blocked Clusters",
+          "type": "array"
+        },
+        "generation": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "global_blocked": {
+          "title": "Global Blocked",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "generation",
+        "global_blocked"
+      ],
+      "title": "AuthorizationControl",
+      "type": "object"
+    },
+    "OpaInput": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Action Id",
+          "type": "string"
+        },
+        "autonomy_level": {
+          "const": "L0",
+          "default": "L0",
+          "title": "Autonomy Level",
+          "type": "string"
+        },
+        "bundle_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Bundle Hash",
+          "type": "string"
+        },
+        "catalog_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Catalog Hash",
+          "type": "string"
+        },
+        "cluster_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Cluster Id",
+          "type": "string"
+        },
+        "execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Performed",
+          "type": "boolean"
+        },
+        "incident_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Incident Id",
+          "type": "string"
+        },
+        "input_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Hash",
+          "type": "string"
+        },
+        "namespace": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Namespace",
+          "type": "string"
+        },
+        "owner_kinds": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Owner Kinds",
+          "type": "array"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxProperties": 16,
+          "title": "Params",
+          "type": "object"
+        },
+        "policy_version": {
+          "const": "opa-l0-1",
+          "default": "opa-l0-1",
+          "title": "Policy Version",
+          "type": "string"
+        },
+        "recommendation_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Recommendation Id",
+          "type": "string"
+        },
+        "recommendation_incident_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Recommendation Incident Id",
+          "type": "string"
+        },
+        "requires_human_approval": {
+          "const": true,
+          "default": true,
+          "title": "Requires Human Approval",
+          "type": "boolean"
+        },
+        "reversibility": {
+          "enum": [
+            "R1",
+            "R2",
+            "R3"
+          ],
+          "title": "Reversibility",
+          "type": "string"
+        },
+        "workload": {
+          "maxLength": 253,
+          "minLength": 1,
+          "title": "Workload",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bundle_hash",
+        "catalog_hash",
+        "input_hash",
+        "cluster_id",
+        "incident_id",
+        "recommendation_id",
+        "recommendation_incident_id",
+        "namespace",
+        "workload",
+        "action_id",
+        "params",
+        "reversibility",
+        "owner_kinds"
+      ],
+      "title": "OpaInput",
+      "type": "object"
+    },
+    "OpaResult": {
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "title": "Allow",
+          "type": "boolean"
+        },
+        "autonomy_level": {
+          "const": "L0",
+          "title": "Autonomy Level",
+          "type": "string"
+        },
+        "bundle_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Bundle Hash",
+          "type": "string"
+        },
+        "catalog_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Catalog Hash",
+          "type": "string"
+        },
+        "execution_performed": {
+          "const": false,
+          "title": "Execution Performed",
+          "type": "boolean"
+        },
+        "input_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Input Hash",
+          "type": "string"
+        },
+        "policy_version": {
+          "const": "opa-l0-1",
+          "title": "Policy Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_version",
+        "bundle_hash",
+        "catalog_hash",
+        "input_hash",
+        "allow",
+        "autonomy_level",
+        "execution_performed"
+      ],
+      "title": "OpaResult",
+      "type": "object"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/PepReceipt.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "allowed_for_dry_run": {
+      "title": "Allowed For Dry Run",
+      "type": "boolean"
+    },
+    "control_after": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuthorizationControl"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "control_before": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuthorizationControl"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mode": {
+      "const": "opa-dry-run-v1",
+      "default": "opa-dry-run-v1",
+      "title": "Mode",
+      "type": "string"
+    },
+    "python_allowed": {
+      "title": "Python Allowed",
+      "type": "boolean"
+    },
+    "reason": {
+      "enum": [
+        "allowed",
+        "python_denied",
+        "control_invalid",
+        "kill_switch",
+        "control_changed",
+        "opa_unavailable",
+        "opa_invalid",
+        "opa_denied"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "request": {
+      "$ref": "#/$defs/OpaInput"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpaResult"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "request",
+    "python_allowed",
+    "control_before",
+    "control_after",
+    "result",
+    "allowed_for_dry_run",
+    "reason"
+  ],
+  "title": "PepReceipt",
+  "type": "object"
+}

@@ -4,6 +4,7 @@ from typing import Any
 
 from aegisops.actions.catalog import ActionCatalog, ActionDefinition, ParameterRule
 from aegisops.audit.reader import AuditEntry
+from aegisops.domain.authorization import AuthorizationControl, OpaInput, OpaResult, PepReceipt
 from aegisops.domain.common import DTO
 from aegisops.domain.models import (
     ActionProposal,
@@ -37,6 +38,10 @@ from aegisops.runbooks.models import RunbookCatalog, RunbookDocument, RunbookSel
 from aegisops.sources.synthetic import ScenarioSpec
 
 CONTRACTS: tuple[type[DTO], ...] = (
+    AuthorizationControl,
+    OpaInput,
+    OpaResult,
+    PepReceipt,
     Owner,
     ContainerSnapshot,
     KubernetesEvent,

@@ -1,0 +1,149 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/OpaInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "action_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Action Id",
+      "type": "string"
+    },
+    "autonomy_level": {
+      "const": "L0",
+      "default": "L0",
+      "title": "Autonomy Level",
+      "type": "string"
+    },
+    "bundle_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Bundle Hash",
+      "type": "string"
+    },
+    "catalog_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Catalog Hash",
+      "type": "string"
+    },
+    "cluster_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Cluster Id",
+      "type": "string"
+    },
+    "execution_performed": {
+      "const": false,
+      "default": false,
+      "title": "Execution Performed",
+      "type": "boolean"
+    },
+    "incident_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "input_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Input Hash",
+      "type": "string"
+    },
+    "namespace": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Namespace",
+      "type": "string"
+    },
+    "owner_kinds": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 8,
+      "title": "Owner Kinds",
+      "type": "array"
+    },
+    "params": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "maxLength": 512,
+            "type": "string"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "maxProperties": 16,
+      "title": "Params",
+      "type": "object"
+    },
+    "policy_version": {
+      "const": "opa-l0-1",
+      "default": "opa-l0-1",
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "recommendation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Recommendation Id",
+      "type": "string"
+    },
+    "recommendation_incident_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Recommendation Incident Id",
+      "type": "string"
+    },
+    "requires_human_approval": {
+      "const": true,
+      "default": true,
+      "title": "Requires Human Approval",
+      "type": "boolean"
+    },
+    "reversibility": {
+      "enum": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "title": "Reversibility",
+      "type": "string"
+    },
+    "workload": {
+      "maxLength": 253,
+      "minLength": 1,
+      "title": "Workload",
+      "type": "string"
+    }
+  },
+  "required": [
+    "bundle_hash",
+    "catalog_hash",
+    "input_hash",
+    "cluster_id",
+    "incident_id",
+    "recommendation_id",
+    "recommendation_incident_id",
+    "namespace",
+    "workload",
+    "action_id",
+    "params",
+    "reversibility",
+    "owner_kinds"
+  ],
+  "title": "OpaInput",
+  "type": "object"
+}

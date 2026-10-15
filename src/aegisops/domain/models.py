@@ -14,6 +14,7 @@ from uuid import UUID
 
 from pydantic import Field, StrictBool, StrictInt, field_validator, model_validator
 
+from aegisops.domain.authorization import PepReceipt
 from aegisops.domain.common import (
     DTO,
     Identifier,
@@ -438,6 +439,7 @@ class AuditRecord(DTO):
     diagnosis: Diagnosis | None = None
     recommendation: Recommendation | None = None
     policy_decision: PolicyDecision | None = None
+    pep_receipt: PepReceipt | None = None
     dry_run_result: DryRunResult | None = None
     llm: LLMMetadata | None = None
     context_hash: Sha256 | None = None
@@ -475,6 +477,7 @@ class AuditRecord(DTO):
                     self.diagnosis,
                     self.recommendation,
                     self.policy_decision,
+                    self.pep_receipt,
                     self.dry_run_result,
                     self.llm,
                     self.context_hash,
@@ -496,6 +499,20 @@ class AuditRecord(DTO):
             raise ValueError("policy decision requires recommendation")
         if self.dry_run_result is not None and self.recommendation is None:
             raise ValueError("dry run result requires recommendation")
+        if self.pep_receipt is not None:
+            decision = self.policy_decision
+            if decision is None or self.incident is None or self.recommendation is None:
+                raise ValueError("PEP receipt requires incident, recommendation and policy")
+            request = self.pep_receipt.request
+            if (
+                request.incident_id != self.incident.incident_id
+                or request.recommendation_id != self.recommendation.recommendation_id
+                or request.input_hash != decision.input_hash
+                or self.pep_receipt.python_allowed != decision.allowed_for_dry_run
+            ):
+                raise ValueError("PEP receipt binding mismatch")
+            if self.dry_run_result is not None and not self.pep_receipt.allowed_for_dry_run:
+                raise ValueError("dry run requires PEP permission")
 
         incident_id = self.incident.incident_id if self.incident is not None else None
 
@@ -567,7 +584,11 @@ class AuditRecord(DTO):
             raise ValueError("failed record requires at least one error")
 
         if self.status is RunStatus.BLOCKED:
-            if self.policy_decision is not None and self.policy_decision.allowed_for_dry_run:
+            if (
+                self.policy_decision is not None
+                and self.policy_decision.allowed_for_dry_run
+                and (self.pep_receipt is None or self.pep_receipt.allowed_for_dry_run)
+            ):
                 raise ValueError("blocked record requires denied decision")
 
         if self.status in (RunStatus.BLOCKED, RunStatus.FAILED) and self.dry_run_result is not None:

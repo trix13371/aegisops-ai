@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from aegisops.audit.base import AuditStore
 from aegisops.audit.validation import prepare_record
+from aegisops.authorization.pep import DryRunPEP
 from aegisops.context.builder import ContextBuilder
 from aegisops.domain.common import utc_now
 from aegisops.domain.models import AuditError, AuditRecord, Incident, LLMMetadata, RunStatus
@@ -25,11 +26,13 @@ class ReviewService:
         analysis: AnalysisEngine,
         store: AuditStore,
         *,
+        pep: DryRunPEP | None = None,
         clock: Callable[[], datetime] = utc_now,
         id_factory: Callable[[], UUID] = uuid4,
     ) -> None:
         self._analysis, self._store = analysis, store
         self._clock, self._id_factory = clock, id_factory
+        self._pep = pep
 
     def review(self, incident: Incident) -> AuditRecord:
         try:
@@ -46,7 +49,7 @@ class ReviewService:
             )
         except Exception:
             raise ReviewError() from None
-        context = diagnosis = recommendation = decision = dry_run = llm = None
+        context = diagnosis = recommendation = decision = dry_run = llm = receipt = None
         errors: tuple[AuditError, ...] = ()
         status = RunStatus.FAILED
         try:
@@ -61,7 +64,9 @@ class ReviewService:
             }
             llm = LLMMetadata.model_validate(metadata)
             decision = PolicyChecker().evaluate(incident, recommendation)
-            if decision.allowed_for_dry_run:
+            if self._pep is not None:
+                receipt = self._pep.authorize(incident, recommendation, decision)
+            if decision.allowed_for_dry_run and (receipt is None or receipt.allowed_for_dry_run):
                 dry_run = DryRunEngine().simulate(incident, recommendation, decision)
                 status = RunStatus.COMPLETED
             else:
@@ -81,6 +86,7 @@ class ReviewService:
                 diagnosis=diagnosis,
                 recommendation=recommendation,
                 policy_decision=decision,
+                pep_receipt=receipt,
                 dry_run_result=dry_run,
                 llm=llm,
                 errors=errors,

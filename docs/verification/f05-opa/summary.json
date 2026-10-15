@@ -1,0 +1,61 @@
+{
+  "stage": "F05",
+  "autonomy_level": "L0",
+  "execution_performed": false,
+  "pytest": {
+    "tests": 689,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 688
+  },
+  "paid_tests_deselected": 2,
+  "rego_tests_passed": 25,
+  "opa_version": "1.21.2",
+  "bundle": {
+    "policy_version": "opa-l0-1",
+    "bundle_hash": "57b929265740195251ddd640ceda9d16d23b2163f789c62de0cb1032bf2563d2",
+    "catalog_hash": "8f920ec176d2f4ac1c27786a29f70851206a1e44ff40f9b841239458776b4e3a"
+  },
+  "cli_cases": [
+    {
+      "case": "allowed",
+      "run_id": "49af3eba-4225-490f-9c1e-c58f9061c244",
+      "status": "completed",
+      "pep_reason": "allowed",
+      "dry_run_present": true,
+      "durable_readback_equal": true
+    },
+    {
+      "case": "blocked",
+      "run_id": "4b1b8c20-4a1a-45c8-8cd6-67ffb7432476",
+      "status": "blocked",
+      "pep_reason": "kill_switch",
+      "dry_run_present": false,
+      "durable_readback_equal": true
+    },
+    {
+      "case": "outage",
+      "run_id": "2bccbae7-f93d-43f9-aa50-0c48faec501d",
+      "status": "blocked",
+      "pep_reason": "opa_unavailable",
+      "dry_run_present": false,
+      "durable_readback_equal": true
+    }
+  ],
+  "kind_opa_pipeline": {
+    "status": "completed",
+    "snapshot_count": 10,
+    "incident_count": 6,
+    "allowed_receipts": 6,
+    "durable_readback_equal": true,
+    "llm": "fixture-v2"
+  },
+  "final_emergency_control": {
+    "generation": 5,
+    "global_blocked": true,
+    "blocked_clusters": [],
+    "blocked_actions": []
+  },
+  "remote_ci_executed": false
+}

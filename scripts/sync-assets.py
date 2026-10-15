@@ -9,7 +9,7 @@ parser.add_argument("--check", action="store_true")
 arguments = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 assets = root / "src" / "aegisops" / "assets"
-for name in ("actions", "scenarios", "prompts", "fixtures", "runbooks"):
+for name in ("actions", "scenarios", "prompts", "fixtures", "runbooks", "policies"):
     source = root / name
     expected = {str(path.relative_to(source)): path for path in source.rglob("*") if path.is_file()}
     destination = assets / name
