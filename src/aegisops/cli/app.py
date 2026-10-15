@@ -30,6 +30,8 @@ from aegisops.llm.routing import DataClass
 from aegisops.llm.transport import DEFAULT_MODEL, OpenAICompatibleClient
 from aegisops.pipeline.engine import Pipeline, PipelineError
 from aegisops.review.service import ReviewError, ReviewService
+from aegisops.runbooks.models import RunbookError, digest
+from aegisops.runbooks.repository import RunbookRepository
 from aegisops.sources.env_guard import EnvironmentGuardError, load_reader_identity
 from aegisops.sources.kubernetes_readonly import CollectionError, KubernetesReadOnlySource
 from aegisops.sources.pipeline import LocalKindSource, SyntheticBatchSource
@@ -50,6 +52,55 @@ audit_app = typer.Typer(help="Read bounded local audit records; no mutation comm
 app.add_typer(audit_app, name="audit")
 feedback_app = typer.Typer(help="Record local human assessments; never approve or execute actions.")
 app.add_typer(feedback_app, name="feedback")
+runbook_app = typer.Typer(help="Read bounded diagnostic runbooks; no execution or remote lookup.")
+app.add_typer(runbook_app, name="runbook")
+
+
+@runbook_app.command("list")
+def runbook_list() -> None:
+    try:
+        repository = RunbookRepository()
+        output = json.dumps(
+            {
+                "catalog_version": repository.catalog.catalog_version,
+                "documents": [
+                    {
+                        "id": doc.id,
+                        "version": doc.version,
+                        "title": doc.title,
+                        "signal": doc.signal.value,
+                        "sha256": digest(doc.model_dump(mode="json")),
+                    }
+                    for doc in repository.list()
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    except RunbookError:
+        typer.echo("runbook: FAILED (local catalog rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
+
+
+@runbook_app.command("show")
+def runbook_show(identifier: str) -> None:
+    try:
+        repository = RunbookRepository()
+        document = repository.get(identifier)
+        output = json.dumps(
+            {
+                "catalog_version": repository.catalog.catalog_version,
+                "document": document.model_dump(mode="json"),
+                "sha256": digest(document.model_dump(mode="json")),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    except RunbookError:
+        typer.echo("runbook: FAILED (identifier or local catalog rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
 
 
 @feedback_app.command("add")

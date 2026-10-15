@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "RunbookDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "data_class": {
+          "const": "public",
+          "title": "Data Class",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z][a-z0-9-]{0,31}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "signal": {
+          "$ref": "#/$defs/RunbookSignal"
+        },
+        "steps": {
+          "items": {
+            "maxLength": 180,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "title": {
+          "maxLength": 96,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 16,
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "data_class",
+        "title",
+        "signal",
+        "steps"
+      ],
+      "title": "RunbookDocument",
+      "type": "object"
+    },
+    "RunbookSignal": {
+      "enum": [
+        "crashloop",
+        "oom_killed",
+        "exit_nonzero"
+      ],
+      "title": "RunbookSignal",
+      "type": "string"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/RunbookCatalog.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "catalog_version": {
+      "maxLength": 16,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "title": "Catalog Version",
+      "type": "string"
+    },
+    "documents": {
+      "items": {
+        "$ref": "#/$defs/RunbookDocument"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "title": "Documents",
+      "type": "array"
+    }
+  },
+  "required": [
+    "catalog_version",
+    "documents"
+  ],
+  "title": "RunbookCatalog",
+  "type": "object"
+}

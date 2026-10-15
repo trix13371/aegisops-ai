@@ -132,3 +132,12 @@ forbidden_modules = [
   "aegisops.db", "aegisops.config", "aegisops.feedback.postgres",
   "aegisops.audit.postgres", "aegisops.audit.reader", "sqlalchemy",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Runbooks cannot reach services, models or credentials"
+type = "forbidden"
+source_modules = ["aegisops.runbooks"]
+forbidden_modules = [
+  "aegisops.sources", "aegisops.db", "aegisops.config", "aegisops.llm",
+  "http", "socket", "kubernetes", "requests", "urllib3", "subprocess", "pty",
+]

@@ -1,4 +1,4 @@
-"""Deterministic prompt construction for the analysis-v1 prompt.
+"""Deterministic prompt construction for analysis-v2 with bounded runbooks.
 
 This module builds a fully-verified :class:`LLMRequest` from trusted domain
 objects.  All untrusted free text is sanitized and embedded as data inside a
@@ -20,11 +20,13 @@ from aegisops.domain.models import DiagnosisContext, Incident, Origin
 from aegisops.io import contained_file, read_text, unique_object
 from aegisops.llm.base import AnalysisDraft, LLMError, LLMRequest
 from aegisops.llm.routing import DataClass, resolve_data_class
+from aegisops.runbooks.models import RunbookCatalog, RunbookSelection
+from aegisops.runbooks.repository import RunbookRepository
+from aegisops.runbooks.selector import select_runbooks, validate_selection
 
-__all__ = ["build_request", "verify_request"]
+__all__ = ["build_request", "verify_request", "request_runbooks"]
 
-_PROMPT_ID = "analysis-v1"
-_SYSTEM_ASSET = ("aegisops", "assets", "prompts", "v1", "analysis.system.txt")
+_PROMPT_ID = "analysis-v2"
 _MAX_SYSTEM_BYTES = 8192
 # Bounded domain JSON can expand control characters sixfold. Construction has
 # room for that expansion; the much smaller wire limit is enforced by RunBudget.
@@ -45,7 +47,7 @@ def _canonical(payload: object) -> str:
 def _read_system_prompt() -> str:
     try:
         root = Path(str(resources.files("aegisops"))) / "assets"
-        return read_text(contained_file(root, "prompts/v1/analysis.system.txt"), _MAX_SYSTEM_BYTES)
+        return read_text(contained_file(root, "prompts/v2/analysis.system.txt"), _MAX_SYSTEM_BYTES)
     except Exception:
         raise LLMError() from None
 
@@ -129,7 +131,7 @@ def _build_system(catalog: ActionCatalog) -> str:
     )
 
 
-def _build_user(incident: Incident, context: DiagnosisContext) -> str:
+def _build_user(incident: Incident, context: DiagnosisContext, selection: RunbookSelection) -> str:
     try:
         context_dump = context.model_dump(mode="json")
     except Exception:
@@ -137,6 +139,7 @@ def _build_user(incident: Incident, context: DiagnosisContext) -> str:
     payload = {
         "incident": _incident_projection(incident),
         "diagnosis_context": context_dump,
+        "runbooks": selection.model_dump(mode="json"),
     }
     try:
         sanitized = sanitize_data(payload)
@@ -173,8 +176,9 @@ def build_request(
     catalog: ActionCatalog,
     *,
     data_class: DataClass | None = None,
+    runbooks: RunbookCatalog | None = None,
 ) -> LLMRequest:
-    """Build a verified :class:`LLMRequest` for the analysis-v1 prompt."""
+    """Build a verified analysis-v2 request; runbooks never become observation evidence."""
     incident = _require_dto(incident, Incident)
     context = _require_dto(context, DiagnosisContext)
     catalog = _require_dto(catalog, ActionCatalog)
@@ -206,7 +210,16 @@ def build_request(
         raise LLMError() from None
 
     system = _build_system(catalog)
-    user = _build_user(incident, context)
+    try:
+        runbook_catalog = (
+            RunbookRepository().catalog
+            if runbooks is None
+            else _require_dto(runbooks, RunbookCatalog)
+        )
+        selection = select_runbooks(context, runbook_catalog)
+        user = _build_user(incident, context, selection)
+    except Exception:
+        raise LLMError() from None
 
     if len(system) > _MAX_FIELD_CHARS or len(user) > _MAX_FIELD_CHARS:
         raise LLMError()
@@ -257,7 +270,11 @@ def verify_request(request: LLMRequest) -> None:
         packet = json.loads(
             request.user[len(prefix) : -len(suffix)], object_pairs_hook=unique_object
         )
-        if not isinstance(packet, dict) or set(packet) != {"incident", "diagnosis_context"}:
+        if not isinstance(packet, dict) or set(packet) != {
+            "incident",
+            "diagnosis_context",
+            "runbooks",
+        }:
             raise LLMError()
         header = packet["incident"]
         if not isinstance(header, dict) or set(header) != {
@@ -280,9 +297,23 @@ def verify_request(request: LLMRequest) -> None:
             context.incident_id, context.evidence, context.limits
         ):
             raise LLMError()
+        validate_selection(context, RunbookSelection.model_validate(packet["runbooks"]))
         if sanitize_data(packet) != packet or not all(
             evidence.attributes.get("untrusted") is True for evidence in context.evidence
         ):
             raise LLMError()
+    except Exception:
+        raise LLMError() from None
+
+
+def request_runbooks(request: LLMRequest) -> RunbookSelection:
+    """Return validated references actually selected for this immutable request."""
+    verify_request(request)
+    try:
+        prefix, suffix = "UNTRUSTED_OBSERVATIONS_JSON\n", "\nEND_UNTRUSTED_OBSERVATIONS_JSON"
+        packet = json.loads(
+            request.user[len(prefix) : -len(suffix)], object_pairs_hook=unique_object
+        )
+        return RunbookSelection.model_validate(packet["runbooks"])
     except Exception:
         raise LLMError() from None

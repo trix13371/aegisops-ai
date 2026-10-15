@@ -1,0 +1,182 @@
+{
+  "9495fee52fb45ea599c5194a2e59a8aa8f4a50b95ba62c124eedb1b7b19f3244": {
+    "diagnosis": {
+      "summary": "Учебная фикстура: вероятная причина требует проверки оператором",
+      "hypotheses": [
+        {
+          "cause_category": "invalid_command",
+          "cause": "Учебный пример invalid_command",
+          "rationale": "Учебная фикстура для проверки механики конвейера",
+          "confidence": "low",
+          "supporting_evidence_ids": [
+            "evidence-ef5b90b7335251f8bb93bc22b86907587d8fd2d6f0f3d7ec22bebe8df3807a61"
+          ]
+        }
+      ],
+      "missing_evidence": [
+        "Сверить гипотезу с оператором"
+      ]
+    },
+    "recommendation": {
+      "title": "Проверить инцидент вручную",
+      "rationale": "Учебная рекомендация из каталога без выполнения действий",
+      "proposed_action": {
+        "action_id": "escalate_to_human",
+        "params": {}
+      },
+      "explanation_steps": [
+        "Просмотреть очищенные evidence"
+      ]
+    }
+  },
+  "89a222942911e1f0444595333ea38b2c1b7ffbffa5a150861c8e485ba76448a7": {
+    "diagnosis": {
+      "summary": "Учебная фикстура: вероятная причина требует проверки оператором",
+      "hypotheses": [
+        {
+          "cause_category": "application_exit_nonzero",
+          "cause": "Учебный пример application_exit_nonzero",
+          "rationale": "Учебная фикстура для проверки механики конвейера",
+          "confidence": "low",
+          "supporting_evidence_ids": [
+            "evidence-81dfd595e3215e2da54a64f3e62dbb02edcb594abbba0507723d133ec3307af8"
+          ]
+        }
+      ],
+      "missing_evidence": [
+        "Сверить гипотезу с оператором"
+      ]
+    },
+    "recommendation": {
+      "title": "Проверить инцидент вручную",
+      "rationale": "Учебная рекомендация из каталога без выполнения действий",
+      "proposed_action": {
+        "action_id": "escalate_to_human",
+        "params": {}
+      },
+      "explanation_steps": [
+        "Просмотреть очищенные evidence"
+      ]
+    }
+  },
+  "d69b539030143db137e67c8d36d48ee9b3b8919d59362e3a2bbb9c99203b5966": {
+    "diagnosis": {
+      "summary": "Учебная фикстура: вероятная причина требует проверки оператором",
+      "hypotheses": [
+        {
+          "cause_category": "missing_runtime_config",
+          "cause": "Учебный пример missing_runtime_config",
+          "rationale": "Учебная фикстура для проверки механики конвейера",
+          "confidence": "low",
+          "supporting_evidence_ids": [
+            "evidence-6ea27cecbd7cf0c87f9a5f1e736a4cb281577e6594fe4c886d065a0089e3a941"
+          ]
+        }
+      ],
+      "missing_evidence": [
+        "Сверить гипотезу с оператором"
+      ]
+    },
+    "recommendation": {
+      "title": "Проверить инцидент вручную",
+      "rationale": "Учебная рекомендация из каталога без выполнения действий",
+      "proposed_action": {
+        "action_id": "escalate_to_human",
+        "params": {}
+      },
+      "explanation_steps": [
+        "Просмотреть очищенные evidence"
+      ]
+    }
+  },
+  "22b08d4b68d053ba3d7e95c8e8322a78336bd33a6eb11d250244ce747531a933": {
+    "diagnosis": {
+      "summary": "Учебная фикстура: вероятная причина требует проверки оператором",
+      "hypotheses": [
+        {
+          "cause_category": "oom_killed",
+          "cause": "Учебный пример oom_killed",
+          "rationale": "Учебная фикстура для проверки механики конвейера",
+          "confidence": "low",
+          "supporting_evidence_ids": [
+            "evidence-de423d8af19fe77386284b01be0f5ad0c53239e4bcdbe7ca4c9f2912695c7728"
+          ]
+        }
+      ],
+      "missing_evidence": [
+        "Сверить гипотезу с оператором"
+      ]
+    },
+    "recommendation": {
+      "title": "Проверить инцидент вручную",
+      "rationale": "Учебная рекомендация из каталога без выполнения действий",
+      "proposed_action": {
+        "action_id": "escalate_to_human",
+        "params": {}
+      },
+      "explanation_steps": [
+        "Просмотреть очищенные evidence"
+      ]
+    }
+  },
+  "c0246b230421262ce5b751e9096f729dd9d968ac604404b5cb8a529f6ee3098a": {
+    "diagnosis": {
+      "summary": "Учебная фикстура: вероятная причина требует проверки оператором",
+      "hypotheses": [
+        {
+          "cause_category": "unknown",
+          "cause": "Учебный пример unknown",
+          "rationale": "Учебная фикстура для проверки механики конвейера",
+          "confidence": "low",
+          "supporting_evidence_ids": [
+            "evidence-c73aa1d3c022eb5671e59d666ba3ee672bc18ef0c9674f87b7478cb4d091843c"
+          ]
+        }
+      ],
+      "missing_evidence": [
+        "Сверить гипотезу с оператором"
+      ]
+    },
+    "recommendation": {
+      "title": "Проверить инцидент вручную",
+      "rationale": "Учебная рекомендация из каталога без выполнения действий",
+      "proposed_action": {
+        "action_id": "escalate_to_human",
+        "params": {}
+      },
+      "explanation_steps": [
+        "Просмотреть очищенные evidence"
+      ]
+    }
+  },
+  "a96d707ac5c9f362dfe4261b2e25ac8590416101a37003798cc1d5e96e6a4207": {
+    "diagnosis": {
+      "summary": "Учебная фикстура: вероятная причина требует проверки оператором",
+      "hypotheses": [
+        {
+          "cause_category": "unknown",
+          "cause": "Учебный пример unknown",
+          "rationale": "Учебная фикстура для проверки механики конвейера",
+          "confidence": "low",
+          "supporting_evidence_ids": [
+            "evidence-d802e7ae13d1c90ed51954e60e17eaa863c8926024e38de418450e23577016ea"
+          ]
+        }
+      ],
+      "missing_evidence": [
+        "Сверить гипотезу с оператором"
+      ]
+    },
+    "recommendation": {
+      "title": "Проверить инцидент вручную",
+      "rationale": "Учебная рекомендация из каталога без выполнения действий",
+      "proposed_action": {
+        "action_id": "escalate_to_human",
+        "params": {}
+      },
+      "explanation_steps": [
+        "Просмотреть очищенные evidence"
+      ]
+    }
+  }
+}

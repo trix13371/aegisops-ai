@@ -24,7 +24,7 @@ from aegisops.llm.routing import decide_route
 
 __all__ = ["FakeLLMClient", "UnavailableLLMClient"]
 
-_FIXTURE_ASSET = ("aegisops", "assets", "fixtures", "llm", "analysis-v1.json")
+_FIXTURE_ASSET = ("aegisops", "assets", "fixtures", "llm", "analysis-v2.json")
 _MAX_FIXTURE_BYTES = 128 * 1024
 _MAX_RECORDS = 32
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -34,7 +34,7 @@ _VALID_ORIGINS = frozenset({Origin.SYNTHETIC_FIXTURE, Origin.LOCAL_KIND})
 def _load_default_fixtures() -> dict[str, object]:
     try:
         root = Path(str(resources.files("aegisops"))) / "assets"
-        path = contained_file(root, "fixtures/llm/analysis-v1.json")
+        path = contained_file(root, "fixtures/llm/analysis-v2.json")
         data = read_json(path)
     except Exception:
         raise LLMError() from None
@@ -64,7 +64,7 @@ class FakeLLMClient:
     """Offline client returning fixture drafts keyed by prompt hash."""
 
     provider = "fake"
-    model_name = "fixture-v1"
+    model_name = "fixture-v2"
 
     def __init__(self, fixtures: dict[str, object] | None = None) -> None:
         source = _load_default_fixtures() if fixtures is None else fixtures

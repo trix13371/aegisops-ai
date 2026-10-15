@@ -1,7 +1,7 @@
 {
   "suite": "synthetic-crashloop-v1",
   "mode": "fixture_mechanics_not_model_quality",
-  "model": "fixture-v1",
+  "model": "fixture-v2",
   "passed": true,
   "scenarios": [
     {

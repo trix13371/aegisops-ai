@@ -50,8 +50,8 @@ class UniqueSafeLoader(yaml.SafeLoader):
         return super().construct_mapping(node, deep=deep)
 
 
-def read_yaml(path: Path) -> object:
-    value = read_text(path)
+def read_yaml(path: Path, max_bytes: int = 131072) -> object:
+    value = read_text(path, max_bytes)
     try:
         for index, token in enumerate(yaml.scan(value)):
             if isinstance(token, AliasToken) or index > 10000:

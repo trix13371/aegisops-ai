@@ -1,0 +1,38 @@
+{
+  "catalog_version": "1.0.0",
+  "documents": [
+    {
+      "id": "crashloop-triage",
+      "version": "1.0.0",
+      "data_class": "public",
+      "title": "Диагностика CrashLoop",
+      "signal": "crashloop",
+      "steps": [
+        "Сверьте текущий waiting_reason, причину завершения и счётчик рестартов.",
+        "Сопоставьте очищенные логи и Events; при нехватке данных передайте человеку."
+      ]
+    },
+    {
+      "id": "oom-triage",
+      "version": "1.0.0",
+      "data_class": "public",
+      "title": "Проверка OOMKilled",
+      "signal": "oom_killed",
+      "steps": [
+        "Подтвердите OOMKilled в статусе; один код 137 не доказывает нехватку памяти.",
+        "Запросите проверку лимитов и потребления памяти; изменение лимитов требует человека."
+      ]
+    },
+    {
+      "id": "process-exit-triage",
+      "version": "1.0.0",
+      "data_class": "public",
+      "title": "Ненулевой код завершения",
+      "signal": "exit_nonzero",
+      "steps": [
+        "Сверьте код завершения с логом приложения; не угадывайте отсутствующую конфигурацию.",
+        "При недостатке evidence предложите сбор previous_logs или передачу человеку."
+      ]
+    }
+  ]
+}

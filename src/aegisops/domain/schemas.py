@@ -33,6 +33,7 @@ from aegisops.feedback.models import FeedbackRecord, FeedbackSummary
 from aegisops.feedback.quality_models import QualityCase, QualityReport
 from aegisops.llm.base import AnalysisDraft
 from aegisops.pipeline.models import PipelineResult
+from aegisops.runbooks.models import RunbookCatalog, RunbookDocument, RunbookSelection
 from aegisops.sources.synthetic import ScenarioSpec
 
 CONTRACTS: tuple[type[DTO], ...] = (
@@ -69,6 +70,9 @@ CONTRACTS: tuple[type[DTO], ...] = (
     FeedbackSummary,
     QualityCase,
     QualityReport,
+    RunbookDocument,
+    RunbookCatalog,
+    RunbookSelection,
 )
 
 

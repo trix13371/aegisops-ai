@@ -44,7 +44,7 @@ for scenario_id in repository.list_ids():
             }
         ).model_dump(mode="json")
 
-(root / "fixtures/llm/analysis-v1.json").write_text(
+(root / "fixtures/llm/analysis-v2.json").write_text(
     json.dumps(records, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )
 print(f"{len(records)} handcrafted replies generated; no provider calls.")

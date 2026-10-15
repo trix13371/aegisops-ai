@@ -146,8 +146,11 @@
       "type": "string"
     },
     "model": {
-      "const": "fixture-v1",
-      "default": "fixture-v1",
+      "default": "fixture-v2",
+      "enum": [
+        "fixture-v1",
+        "fixture-v2"
+      ],
       "title": "Model",
       "type": "string"
     },

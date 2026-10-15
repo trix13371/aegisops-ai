@@ -1,0 +1,11 @@
+{
+  "id": "crashloop-triage",
+  "version": "1.0.0",
+  "data_class": "public",
+  "title": "Диагностика CrashLoop",
+  "signal": "crashloop",
+  "steps": [
+    "Сверьте текущий waiting_reason, причину завершения и счётчик рестартов.",
+    "Сопоставьте очищенные логи и Events; при нехватке данных передайте человеку."
+  ]
+}

@@ -98,6 +98,21 @@ def test_real_loopback_http_sends_only_sanitized_json(origin, data_class):
         payload = json.loads(body)
         assert payload["response_format"] == {"type": "json_object"}
         assert "tools" not in payload and "functions" not in payload
+        user_packet = json.loads(
+            payload["messages"][1]["content"].split("\n", 1)[1].rsplit("\n", 1)[0]
+        )
+        documents = user_packet["runbooks"]["documents"]
+        assert {document["id"] for document in documents} == {
+            "crashloop-triage",
+            "process-exit-triage",
+        }
+        assert (
+            result.metadata.parameters["runbook_selection_hash"]
+            == user_packet["runbooks"]["selection_hash"]
+        )
+        assert not {document["id"] for document in documents} & {
+            evidence["evidence_id"] for evidence in user_packet["diagnosis_context"]["evidence"]
+        }
     finally:
         server.shutdown()
         server.server_close()

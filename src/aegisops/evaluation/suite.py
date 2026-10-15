@@ -53,7 +53,7 @@ class ScenarioEvaluation(DTO):
 class EvaluationReport(DTO):
     suite: Literal["synthetic-crashloop-v1"] = "synthetic-crashloop-v1"
     mode: Literal["fixture_mechanics_not_model_quality"] = "fixture_mechanics_not_model_quality"
-    model: Literal["fixture-v1"] = "fixture-v1"
+    model: Literal["fixture-v1", "fixture-v2"] = "fixture-v2"
     passed: bool = Field(strict=True)
     scenarios: tuple[ScenarioEvaluation, ...] = Field(min_length=10, max_length=10)
     true_positives: int = Field(strict=True, ge=0, le=10)

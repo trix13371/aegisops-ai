@@ -1,0 +1,9 @@
+{
+  "wheel": "aegisops_ai-0.1.0-py3-none-any.whl",
+  "assets_present": true,
+  "imported_from_extracted_wheel": true,
+  "offline_analysis_passed": true,
+  "prompt": "analysis-v2",
+  "model": "fixture-v2",
+  "execution_performed": false
+}

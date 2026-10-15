@@ -33,7 +33,7 @@ from aegisops.llm.base import (
     RunBudget,
 )
 from aegisops.llm.fallback import RuleBasedRecommender, unknown_diagnosis
-from aegisops.llm.prompt import build_request
+from aegisops.llm.prompt import build_request, request_runbooks
 from aegisops.llm.routing import DataClass, decide_route
 
 __all__ = ["AnalysisEngine", "AnalysisResult"]
@@ -344,6 +344,7 @@ class AnalysisEngine:
         returned_model: str | None,
     ) -> LLMMetadata:
         route = decide_route(request.origin, self._provider, request.data_class)
+        runbooks = request_runbooks(request)
         parameters: dict[str, Scalar] = {
             "temperature": 0,
             "max_tokens": self._limits.max_output_tokens,
@@ -355,6 +356,9 @@ class AnalysisEngine:
             "routing_policy": route.policy_version,
             "route_allowed": route.allowed,
             "route_reason": route.reason,
+            "runbook_catalog_version": runbooks.catalog_version,
+            "runbook_selection_hash": runbooks.selection_hash,
+            "runbook_refs": ",".join(f"{doc.id}@{doc.version}" for doc in runbooks.documents),
         }
         if returned_model is not None:
             parameters["returned_model"] = returned_model

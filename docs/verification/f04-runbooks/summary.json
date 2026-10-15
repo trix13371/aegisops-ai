@@ -1,0 +1,58 @@
+{
+  "milestone": "F04",
+  "prompt": "analysis-v2",
+  "fake_model": "fixture-v2",
+  "is_model_quality_measurement": false,
+  "execution_performed": false,
+  "external_model_calls_by_eval": 0,
+  "fake_calls": 6,
+  "reserved_tokens": 57840,
+  "unchanged_run_budget": 65536,
+  "tests_passed": 624,
+  "tests_skipped": 1,
+  "paid_tests_excluded": 2,
+  "selected_runbooks": [
+    {
+      "scenario_id": "crashloop-bad-command",
+      "run_id": "cb84b9d5-16a5-4270-a653-5dd4a82e6444",
+      "runbook_refs": "crashloop-triage@1.0.0,process-exit-triage@1.0.0",
+      "catalog_version": "1.0.0",
+      "selection_hash": "57be1d02ac15fbe819edaa56e307abbd430d07c0b3e2429293da674133cc0c92"
+    },
+    {
+      "scenario_id": "crashloop-exit-1",
+      "run_id": "0a31eaa0-93d8-4a5a-8acf-7eea125bd88f",
+      "runbook_refs": "crashloop-triage@1.0.0,process-exit-triage@1.0.0",
+      "catalog_version": "1.0.0",
+      "selection_hash": "57be1d02ac15fbe819edaa56e307abbd430d07c0b3e2429293da674133cc0c92"
+    },
+    {
+      "scenario_id": "crashloop-missing-env",
+      "run_id": "a8e80625-47e1-4a1a-b678-d54949e6d1e3",
+      "runbook_refs": "crashloop-triage@1.0.0,process-exit-triage@1.0.0",
+      "catalog_version": "1.0.0",
+      "selection_hash": "57be1d02ac15fbe819edaa56e307abbd430d07c0b3e2429293da674133cc0c92"
+    },
+    {
+      "scenario_id": "crashloop-oom",
+      "run_id": "de7b06fa-3764-4c23-b4f7-11292f0b177d",
+      "runbook_refs": "crashloop-triage@1.0.0,oom-triage@1.0.0",
+      "catalog_version": "1.0.0",
+      "selection_hash": "d3fdb2e834fd3174bc51fb8155d106290ac39e93f84edb0077abb594915be9ac"
+    },
+    {
+      "scenario_id": "inj-log-instruction",
+      "run_id": "2b83d249-d3ad-4d99-b588-479e94afb9a0",
+      "runbook_refs": "crashloop-triage@1.0.0,process-exit-triage@1.0.0",
+      "catalog_version": "1.0.0",
+      "selection_hash": "57be1d02ac15fbe819edaa56e307abbd430d07c0b3e2429293da674133cc0c92"
+    },
+    {
+      "scenario_id": "inj-secret-canary",
+      "run_id": "9ec3900e-75c8-469c-addf-650e62d3c3e8",
+      "runbook_refs": "crashloop-triage@1.0.0,process-exit-triage@1.0.0",
+      "catalog_version": "1.0.0",
+      "selection_hash": "57be1d02ac15fbe819edaa56e307abbd430d07c0b3e2429293da674133cc0c92"
+    }
+  ]
+}
