@@ -13,7 +13,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 _EXPECTED_USER = "aegisops_app"
 _ALLOWED_DATABASES = frozenset({"aegisops_local", "aegisops_test"})
-_EXPECTED_ALEMBIC_VERSION = "0001_audit_runs"
+_EXPECTED_ALEMBIC_VERSION = "0002_feedback"
+_APP_TABLES = ("public.audit_runs", "public.recommendation_feedback")
 
 _SAFE_CONNECT_FAILED = "database health check failed: could not connect"
 _SAFE_QUERY_FAILED = "database health check failed: query error"
@@ -22,7 +23,7 @@ _SAFE_DB_MISMATCH = "database health check failed: unexpected current database"
 _SAFE_ALEMBIC_MISSING = "database health check failed: alembic_version missing"
 _SAFE_ALEMBIC_MULTI = "database health check failed: alembic_version not single"
 _SAFE_ALEMBIC_VALUE = "database health check failed: unexpected alembic version"
-_SAFE_TABLE_MISSING = "database health check failed: audit_runs table missing"
+_SAFE_TABLE_MISSING = "database health check failed: required table missing"
 _SAFE_PRIVILEGE = "database health check failed: unexpected table privileges"
 _SAFE_ROLE_ATTRS = "database health check failed: unsafe role attributes"
 _SAFE_ROLE_MEMBERSHIP = "database health check failed: unexpected role membership"
@@ -73,33 +74,31 @@ def _check_alembic(conn: Connection) -> None:
 
 
 def _check_audit_runs_table(conn: Connection) -> None:
-    exists = _scalar(
-        conn,
-        "SELECT to_regclass('public.audit_runs') IS NOT NULL",
-    )
-    if not exists:
-        raise DatabaseHealthError(_SAFE_TABLE_MISSING)
+    for table in _APP_TABLES:
+        exists = conn.execute(
+            text("SELECT to_regclass(:table) IS NOT NULL"), {"table": table}
+        ).scalar()
+        if not exists:
+            raise DatabaseHealthError(_SAFE_TABLE_MISSING)
 
 
 def _check_table_privileges(conn: Connection) -> None:
-    select_ok = _scalar(
-        conn,
-        "SELECT has_table_privilege(current_user, 'public.audit_runs', 'SELECT')",
-    )
-    insert_ok = _scalar(
-        conn,
-        "SELECT has_table_privilege(current_user, 'public.audit_runs', 'INSERT')",
-    )
-    if not select_ok or not insert_ok:
-        raise DatabaseHealthError(_SAFE_PRIVILEGE)
-
-    for privilege in ("UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
-        granted = conn.execute(
-            text("SELECT has_table_privilege(current_user, 'public.audit_runs', :priv)"),
-            {"priv": privilege},
-        ).scalar()
-        if granted:
-            raise DatabaseHealthError(_SAFE_PRIVILEGE)
+    for table in _APP_TABLES:
+        for privilege in (
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "TRUNCATE",
+            "REFERENCES",
+            "TRIGGER",
+        ):
+            granted = conn.execute(
+                text("SELECT has_table_privilege(current_user, :table, :priv)"),
+                {"table": table, "priv": privilege},
+            ).scalar()
+            if bool(granted) != (privilege in {"SELECT", "INSERT"}):
+                raise DatabaseHealthError(_SAFE_PRIVILEGE)
 
 
 def _check_role_attributes(conn: Connection) -> None:
@@ -129,12 +128,13 @@ def _check_role_membership(conn: Connection) -> None:
 
 
 def _check_ownership(conn: Connection) -> None:
-    table_owner = _scalar(
-        conn,
-        "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.audit_runs'::regclass",
-    )
-    if table_owner == _EXPECTED_USER:
-        raise DatabaseHealthError(_SAFE_OWNERSHIP)
+    for table in _APP_TABLES:
+        table_owner = conn.execute(
+            text("SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = to_regclass(:table)"),
+            {"table": table},
+        ).scalar()
+        if table_owner == _EXPECTED_USER:
+            raise DatabaseHealthError(_SAFE_OWNERSHIP)
 
     schema_owner = _scalar(
         conn,

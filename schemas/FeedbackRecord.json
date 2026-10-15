@@ -1,0 +1,105 @@
+{
+  "$defs": {
+    "Assessment": {
+      "description": "Latest human assessment of a recommendation.",
+      "enum": [
+        "useful",
+        "incorrect",
+        "unsafe",
+        "uncertain"
+      ],
+      "title": "Assessment",
+      "type": "string"
+    },
+    "Origin": {
+      "enum": [
+        "synthetic_fixture",
+        "local_kind"
+      ],
+      "title": "Origin",
+      "type": "string"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/FeedbackRecord.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A single human feedback record.\n\n``reviewer`` is a local alias only and is NOT a verified identity.",
+  "properties": {
+    "assessment": {
+      "$ref": "#/$defs/Assessment"
+    },
+    "comment": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Comment",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "feedback_id": {
+      "format": "uuid",
+      "title": "Feedback Id",
+      "type": "string"
+    },
+    "origin": {
+      "$ref": "#/$defs/Origin"
+    },
+    "recommendation_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Recommendation Hash",
+      "type": "string"
+    },
+    "recommendation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Recommendation Id",
+      "type": "string"
+    },
+    "reviewer": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$",
+      "title": "Reviewer",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "supersedes_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Supersedes Id"
+    }
+  },
+  "required": [
+    "feedback_id",
+    "run_id",
+    "origin",
+    "recommendation_id",
+    "recommendation_hash",
+    "reviewer",
+    "assessment",
+    "created_at"
+  ],
+  "title": "FeedbackRecord",
+  "type": "object"
+}

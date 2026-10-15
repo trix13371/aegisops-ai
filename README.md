@@ -10,11 +10,11 @@ Python 3.12, PostgreSQL, Alembic и CLI. Это отдельный трек пр
 
 Готовы read-only collector, проверки среды, детектор, санитизация контекста,
 LLM-адаптер, рекомендации с резервными правилами, полный CLI и аудит в БД.
-Контракты Pydantic, 29 JSON Schema, каталог четырёх
+Контракты Pydantic, 31 JSON Schema, каталог четырёх
 действий и 10 синтетических сценариев готовы. Уровень приложения — L0.
 Synthetic и live-kind конвейеры проверены целиком. Проблема публикации
 Docker-порта устранена: API закреплён на `127.0.0.1:16443`. Полный прогон
-с kind после F01: 493 passed, 1 skipped, 2 deselected. Живой анализ проверен на
+с kind после F02: 546 passed, 1 skipped, 2 deselected. Живой анализ проверен на
 бесплатном fake/fallback; платные smoke-тесты остаются отдельными.
 Подробности: [восстановление kind](VERIFICATION-KIND-RECOVERY.md).
 
@@ -24,6 +24,12 @@ Docker-порта устранена: API закреплён на `127.0.0.1:164
 Restricted обрабатывается резервными правилами без модели. Решение пишется
 в аудит. Это не завершённый Этап 0a и не разрешение Shadow на реальных данных.
 Текущая приёмка: [VERIFICATION-F01.md](VERIFICATION-F01.md).
+
+**F02: оценки рекомендаций человеком** добавляет CLI feedback, неизменяемую
+историю исправлений и сводку текущих мнений отдельно по происхождению данных.
+Миграция `0002_feedback` применена к текущей локальной БД; при обновлении другой
+установки выполните `uv run python scripts/with-local-env.py alembic upgrade head`.
+Приёмка: [VERIFICATION-F02.md](VERIFICATION-F02.md).
 
 ## Сценарии без БД и LLM
 
@@ -122,7 +128,8 @@ Compose-проект `aegisops-prototype-s001` публикует PostgreSQL т�
 
 - Bootstrap: настройка отдельных ролей, приложение его не использует.
 - Owner: миграции, схема и таблица.
-- App: SELECT/INSERT в `audit_runs`, SELECT версии миграции; никаких ролей-членств.
+- App: SELECT/INSERT в `audit_runs` и `recommendation_feedback`, SELECT версии
+  миграции; никаких ролей-членств. Обе таблицы проверяет doctor.
 
 Адрес приложения ограничен loopback IP, локальным именем БД и ролью app.
 Только loopback не гарантирует отсутствие туннеля к иной БД; пользователь
@@ -509,3 +516,44 @@ Fake не содержит ответов для изменяющихся жив
 Shadow Mode или выполнение порогов MVP. Решения и границы:
 [ADR-009](docs/decisions/ADR-009-complete-pipeline-and-evaluation.md).
 Итог: [VERIFICATION-S0-08.md](VERIFICATION-S0-08.md).
+
+## Оценки рекомендаций (F02)
+
+`feedback add` сохраняет одну из оценок: `useful` (полезно), `incorrect`
+(ошибочно), `unsafe` (опасно), `uncertain` (не хватает данных). Оценить можно
+сохранённый запуск с рекомендацией. Привязка включает UUID запуска, ID и хеш
+рекомендации; исходный аудит не меняется. Для здорового наблюдения без
+рекомендации отзыв недоступен.
+
+Пример из PowerShell, из корня проекта:
+
+```powershell
+$run = uv run python scripts/with-local-env.py aegisops run --scenario crashloop-oom | ConvertFrom-Json
+$runId = $run.records[0].run_id
+$feedback = uv run python scripts/with-local-env.py aegisops feedback add $runId --reviewer local-demo --assessment uncertain --comment 'Учебная проверка интерфейса' | ConvertFrom-Json
+uv run python scripts/with-local-env.py aegisops feedback list --run-id $runId --limit 10
+uv run python scripts/with-local-env.py aegisops feedback summary --source synthetic --limit 25
+# Явное исправление последней оценки того же пользователя:
+$feedbackId = $feedback.feedback_id
+uv run python scripts/with-local-env.py aegisops feedback add $runId --reviewer local-demo --assessment useful --supersedes $feedbackId
+```
+
+Псевдоним reviewer — 1…64 латинских букв, цифр, точек, дефисов или подчёркиваний,
+первый символ — буква/цифра. Это локальная подпись пользователя, не проверенная
+identity. Комментарий — до 2000 символов, очищается до хранения и вывода.
+Не вводите секреты в комментарий: shell history находится за пределами redaction.
+
+Первый отзыв для run+reviewer создаётся один раз. Исправление требует
+`--supersedes` с ID текущего отзыва. Старый ID, чужой reviewer/run, повтор UUID
+или две конкурирующие правки приводят к отказу без изменения истории.
+`list` показывает историю, включая предыдущие оценки. Вывод add появляется
+только после COMMIT. Нет команд удаления или перезаписи.
+
+`summary` считает только текущие оценки, отдельно для synthetic и local-kind,
+в пределах последних 1…100 мнений. `sample_size` — объём этой выборки,
+`has_more=true` означает, что более старые текущие оценки не вошли.
+Несколько reviewer на один run дают несколько мнений; это не независимые
+инциденты, не accuracy и не допуск G0. Локальная разработческая БД содержит
+отзывы автоматических тестов, поэтому её цифры не являются оценками SRE.
+Мнения не передаются LLM и не одобряют исполнение или повышение автономности.
+Решение: [ADR-011](docs/decisions/ADR-011-human-feedback.md).

@@ -29,6 +29,7 @@ from aegisops.domain.models import (
     RecommendationDraft,
 )
 from aegisops.evaluation.suite import EvaluationReport
+from aegisops.feedback.models import FeedbackRecord, FeedbackSummary
 from aegisops.llm.base import AnalysisDraft
 from aegisops.pipeline.models import PipelineResult
 from aegisops.sources.synthetic import ScenarioSpec
@@ -63,6 +64,8 @@ CONTRACTS: tuple[type[DTO], ...] = (
     PipelineResult,
     EvaluationReport,
     AuditEntry,
+    FeedbackRecord,
+    FeedbackSummary,
 )
 
 

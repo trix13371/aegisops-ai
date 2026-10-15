@@ -1,0 +1,10 @@
+{
+  "origin": "synthetic_fixture",
+  "limit": 25,
+  "sample_size": 1,
+  "has_more": false,
+  "useful": 0,
+  "incorrect": 0,
+  "unsafe": 0,
+  "uncertain": 1
+}

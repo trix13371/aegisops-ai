@@ -4,6 +4,7 @@ from types import TracebackType
 from uuid import UUID
 
 from sqlalchemy import Text, cast, func, select
+from sqlalchemy.engine import Connection
 
 from aegisops.audit.base import AuditStoreError
 from aegisops.audit.postgres import create_audit_engine
@@ -23,6 +24,24 @@ class AuditEntry(DTO):
     incident_id: Identifier | None
     model_name: Identifier | None
     policy_version: Identifier | None
+
+
+def read_audit_record(connection: Connection, run_id: UUID) -> AuditRecord:
+    """Read a validated historical record inside an existing local transaction."""
+    try:
+        if type(run_id) is not UUID:
+            raise AuditStoreError()
+        statement = select(AuditRun.payload_json).where(
+            AuditRun.run_id == run_id,
+            func.octet_length(cast(AuditRun.payload_json, Text)) <= MAX_AUDIT_BYTES * 2,
+        )
+        payload = connection.execute(statement).scalar_one()
+        record = sanitize_record(payload)
+        if record.run_id != run_id:
+            raise AuditStoreError()
+        return record
+    except Exception:
+        raise AuditStoreError() from None
 
 
 class PostgresAuditReader:
@@ -59,19 +78,8 @@ class PostgresAuditReader:
 
     def show(self, run_id: UUID) -> AuditRecord:
         try:
-            if type(run_id) is not UUID:
-                raise AuditStoreError()
-            statement = select(AuditRun.payload_json).where(
-                AuditRun.run_id == run_id,
-                func.octet_length(cast(AuditRun.payload_json, Text)) <= MAX_AUDIT_BYTES * 2,
-            )
             with self._engine.connect() as connection:
-                payload = connection.execute(statement).scalar_one()
-            # Read historical validated data; never reinterpret old policy under new rules.
-            record = sanitize_record(payload)
-            if record.run_id != run_id:
-                raise AuditStoreError()
-            return record
+                return read_audit_record(connection, run_id)
         except Exception:
             raise AuditStoreError() from None
 

@@ -1,0 +1,17 @@
+{
+  "milestone": "F02",
+  "migration": "0002_feedback",
+  "automated_demo": true,
+  "is_sre_quality_measurement": false,
+  "run_id": "8eee4db3-ff58-480b-a9dd-d7abc039d9da",
+  "history_count": 2,
+  "current_assessment_count": 1,
+  "first_feedback_id": "7712fc6a-70bd-406c-9650-668cf8cf2829",
+  "current_feedback_id": "43ca846c-019c-4a41-bd15-8662cc43e9f4",
+  "current_assessment": "uncertain",
+  "original_audit_unchanged": true,
+  "execution_performed": false,
+  "tests_passed": 546,
+  "tests_skipped": 1,
+  "paid_tests_excluded": 2
+}

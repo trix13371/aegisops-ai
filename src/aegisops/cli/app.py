@@ -21,6 +21,8 @@ from aegisops.db.health import DatabaseHealthError, check_database
 from aegisops.detection.engine import DetectionEngine, DetectionError
 from aegisops.domain.models import Origin, PodSnapshot
 from aegisops.evaluation.suite import EvaluationError, evaluate_suite
+from aegisops.feedback.models import Assessment, FeedbackError
+from aegisops.feedback.postgres import PostgresFeedbackStore
 from aegisops.llm.base import LLMClient, LLMError
 from aegisops.llm.engine import AnalysisEngine
 from aegisops.llm.fake import FakeLLMClient, UnavailableLLMClient
@@ -46,6 +48,73 @@ scenario_app = typer.Typer(help="List handcrafted scenarios; never execute actio
 app.add_typer(scenario_app, name="scenario")
 audit_app = typer.Typer(help="Read bounded local audit records; no mutation commands.")
 app.add_typer(audit_app, name="audit")
+feedback_app = typer.Typer(help="Record local human assessments; never approve or execute actions.")
+app.add_typer(feedback_app, name="feedback")
+
+
+@feedback_app.command("add")
+def feedback_add(
+    run_id: str,
+    reviewer: str = typer.Option(..., "--reviewer"),
+    assessment: Assessment = typer.Option(..., "--assessment"),
+    comment: str = typer.Option("", "--comment"),
+    supersedes: str | None = typer.Option(None, "--supersedes"),
+) -> None:
+    """Append an assessment, or explicitly correct its current predecessor."""
+    try:
+        identifier = UUID(run_id)
+        predecessor = UUID(supersedes) if supersedes is not None else None
+        with PostgresFeedbackStore() as store:
+            record = store.add(
+                identifier,
+                reviewer=reviewer,
+                assessment=assessment,
+                comment=comment,
+                supersedes_id=predecessor,
+            )
+        output = record.model_dump_json(indent=2)
+    except (ValueError, FeedbackError):
+        typer.echo("feedback: FAILED (input, target, correction or durable storage rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
+
+
+@feedback_app.command("list")
+def feedback_list(
+    run_id: str | None = typer.Option(None, "--run-id"),
+    limit: int = typer.Option(25, "--limit", min=1, max=100),
+) -> None:
+    """List bounded assessment history, including superseded entries."""
+    try:
+        identifier = UUID(run_id) if run_id is not None else None
+        with PostgresFeedbackStore() as store:
+            records = store.list(run_id=identifier, limit=limit)
+        output = json.dumps(
+            [record.model_dump(mode="json") for record in records], ensure_ascii=False, indent=2
+        )
+    except (ValueError, FeedbackError):
+        typer.echo("feedback: FAILED (input or local feedback read rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
+
+
+@feedback_app.command("summary")
+def feedback_summary(
+    source: str = typer.Option("synthetic", "--source"),
+    limit: int = typer.Option(100, "--limit", min=1, max=100),
+) -> None:
+    """Count latest current opinions by origin; this is not model accuracy."""
+    try:
+        if source not in {"synthetic", "local-kind"}:
+            raise FeedbackError()
+        origin = Origin.SYNTHETIC_FIXTURE if source == "synthetic" else Origin.LOCAL_KIND
+        with PostgresFeedbackStore() as store:
+            result = store.summary(origin=origin, limit=limit)
+        output = result.model_dump_json(indent=2)
+    except FeedbackError:
+        typer.echo("feedback: FAILED (source or local summary read rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
 
 
 @app.command("run")

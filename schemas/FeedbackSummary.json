@@ -1,0 +1,73 @@
+{
+  "$defs": {
+    "Origin": {
+      "enum": [
+        "synthetic_fixture",
+        "local_kind"
+      ],
+      "title": "Origin",
+      "type": "string"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/FeedbackSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Bounded summary of latest current assessments per run+reviewer.\n\nCounts are the latest current assessment per run+reviewer, bounded and\nsplit by origin. They are NOT model accuracy and NOT gates.",
+  "properties": {
+    "has_more": {
+      "title": "Has More",
+      "type": "boolean"
+    },
+    "incorrect": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Incorrect",
+      "type": "integer"
+    },
+    "limit": {
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    },
+    "origin": {
+      "$ref": "#/$defs/Origin"
+    },
+    "sample_size": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Sample Size",
+      "type": "integer"
+    },
+    "uncertain": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Uncertain",
+      "type": "integer"
+    },
+    "unsafe": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Unsafe",
+      "type": "integer"
+    },
+    "useful": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Useful",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "origin",
+    "limit",
+    "sample_size",
+    "has_more",
+    "useful",
+    "incorrect",
+    "unsafe",
+    "uncertain"
+  ],
+  "title": "FeedbackSummary",
+  "type": "object"
+}

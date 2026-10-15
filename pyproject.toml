@@ -111,3 +111,12 @@ forbidden_modules = [
   "aegisops.sources", "aegisops.db", "aegisops.config", "aegisops.llm.transport",
   "http", "socket", "kubernetes", "requests", "urllib3", "subprocess", "pty",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Human feedback cannot call models or infrastructure actions"
+type = "forbidden"
+source_modules = ["aegisops.feedback"]
+forbidden_modules = [
+  "aegisops.llm", "aegisops.sources", "kubernetes", "http", "socket",
+  "requests", "urllib3", "subprocess", "pty",
+]

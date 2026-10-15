@@ -1,7 +1,7 @@
 """SQLAlchemy declarative models for AegisOps S0-01.
 
-Only the audit_runs table is defined. No hash-chain columns exist in this
-stage. Schema creation is handled by migrations, never by create_all.
+Audit runs and human feedback are append-only under the application role.
+Schema creation is handled by migrations, never by create_all.
 """
 
 from __future__ import annotations
@@ -13,10 +13,14 @@ from typing import Any
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
+    UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -121,3 +125,57 @@ class AuditRun(Base):
 
     def __repr__(self) -> str:
         return f"AuditRun(run_id={self.run_id!r}, status={self.status!r})"
+
+
+class RecommendationFeedback(Base):
+    """One immutable assessment or explicit correction of a previous assessment."""
+
+    __tablename__ = "recommendation_feedback"
+
+    feedback_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("audit_runs.run_id"), nullable=False
+    )
+    origin: Mapped[str] = mapped_column(String(32), nullable=False)
+    recommendation_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    recommendation_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reviewer: Mapped[str] = mapped_column(String(64), nullable=False)
+    assessment: Mapped[str] = mapped_column(String(16), nullable=False)
+    comment: Mapped[str] = mapped_column(String(2000), nullable=False, server_default="")
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("schema_version = 1", name="ck_feedback_schema_version"),
+        CheckConstraint("origin IN ('synthetic_fixture', 'local_kind')", name="ck_feedback_origin"),
+        CheckConstraint(
+            "assessment IN ('useful', 'incorrect', 'unsafe', 'uncertain')",
+            name="ck_feedback_assessment",
+        ),
+        CheckConstraint(
+            "reviewer ~ '^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$'", name="ck_feedback_reviewer"
+        ),
+        CheckConstraint("recommendation_hash ~ '^[0-9a-f]{64}$'", name="ck_feedback_hash"),
+        CheckConstraint("supersedes_id <> feedback_id", name="ck_feedback_not_self"),
+        UniqueConstraint("feedback_id", "run_id", "reviewer", name="uq_feedback_identity"),
+        UniqueConstraint("supersedes_id", name="uq_feedback_successor"),
+        ForeignKeyConstraint(
+            ["supersedes_id", "run_id", "reviewer"],
+            [
+                "recommendation_feedback.feedback_id",
+                "recommendation_feedback.run_id",
+                "recommendation_feedback.reviewer",
+            ],
+            name="fk_feedback_parent_identity",
+        ),
+        Index(
+            "uq_feedback_root",
+            "run_id",
+            "reviewer",
+            unique=True,
+            postgresql_where=text("supersedes_id IS NULL"),
+        ),
+        Index("ix_feedback_created_at", "created_at"),
+        Index("ix_feedback_run_id", "run_id"),
+    )
