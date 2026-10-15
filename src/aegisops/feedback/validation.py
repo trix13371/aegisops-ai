@@ -63,6 +63,11 @@ def sanitize_feedback(record: object) -> FeedbackRecord:
             raise FeedbackError()
         if sanitized_recommendation_id != validated.recommendation_id:
             raise FeedbackError()
+        if (
+            validated.reference is not None
+            and sanitize_text(validated.reference) != validated.reference
+        ):
+            raise FeedbackError()
 
         updated: dict[str, Any] = validated.model_dump(mode="python")
         updated["comment"] = sanitized_comment

@@ -120,3 +120,15 @@ forbidden_modules = [
   "aegisops.llm", "aegisops.sources", "kubernetes", "http", "socket",
   "requests", "urllib3", "subprocess", "pty",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Label comparison cannot access storage or service clients"
+type = "forbidden"
+source_modules = [
+  "aegisops.feedback.quality", "aegisops.feedback.quality_case",
+  "aegisops.feedback.quality_models",
+]
+forbidden_modules = [
+  "aegisops.db", "aegisops.config", "aegisops.feedback.postgres",
+  "aegisops.audit.postgres", "aegisops.audit.reader", "sqlalchemy",
+]

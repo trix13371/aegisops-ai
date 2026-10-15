@@ -1,0 +1,33 @@
+{
+  "mode": "local_label_comparison_not_model_quality",
+  "origin": "synthetic_fixture",
+  "limit": 25,
+  "sample_size": 1,
+  "has_more": false,
+  "cases": [
+    {
+      "incident_id": "incident-example",
+      "run_id": "11111111-1111-4111-8111-111111111111",
+      "feedback_ids": [
+        "22222222-2222-4222-8222-222222222222"
+      ],
+      "confirmed_cause": "oom_killed",
+      "incident_outcome": "resolved",
+      "predicted_categories": [
+        "oom_killed"
+      ],
+      "status": "match",
+      "prediction_kind": "fixture",
+      "provider": "fake",
+      "model_name": "fixture-v1"
+    }
+  ],
+  "matches": 1,
+  "mismatches": 0,
+  "abstentions": 0,
+  "conflicts": 0,
+  "unlabelled": 0,
+  "incomplete": 0,
+  "resolved_incidents": 1,
+  "unresolved_incidents": 0
+}

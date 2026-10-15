@@ -13,13 +13,14 @@ from uuid import UUID
 from pydantic import Field, StrictBool, StrictInt, StrictStr, field_validator, model_validator
 
 from aegisops.domain.common import DTO, Identifier, Sha256, UTCDateTime
-from aegisops.domain.models import Origin
+from aegisops.domain.models import CauseCategory, Origin
 
 __all__ = [
     "Assessment",
     "FeedbackError",
     "FeedbackRecord",
     "FeedbackSummary",
+    "IncidentOutcome",
 ]
 
 
@@ -40,6 +41,12 @@ class Assessment(StrEnum):
     INCORRECT = "incorrect"
     UNSAFE = "unsafe"
     UNCERTAIN = "uncertain"
+
+
+class IncidentOutcome(StrEnum):
+    RESOLVED = "resolved"
+    UNRESOLVED = "unresolved"
+    UNKNOWN = "unknown"
 
 
 ReviewerAlias = Annotated[
@@ -71,6 +78,9 @@ class FeedbackRecord(DTO):
     comment: Comment = ""
     supersedes_id: UUID | None = None
     created_at: UTCDateTime
+    confirmed_cause: CauseCategory | None = None
+    incident_outcome: IncidentOutcome | None = None
+    reference: ReviewerAlias | None = None
 
     @field_validator("schema_version", mode="before")
     @classmethod
@@ -84,6 +94,12 @@ class FeedbackRecord(DTO):
     def _reject_self_supersede(self) -> FeedbackRecord:
         if self.supersedes_id is not None and self.supersedes_id == self.feedback_id:
             raise ValueError("supersedes_id must not equal feedback_id")
+        if self.confirmed_cause is CauseCategory.UNKNOWN:
+            raise ValueError("unknown is not a confirmed cause")
+        if (
+            self.confirmed_cause is not None or self.incident_outcome is not None
+        ) and not self.reference:
+            raise ValueError("labelled cause or outcome requires a reference")
         return self
 
 

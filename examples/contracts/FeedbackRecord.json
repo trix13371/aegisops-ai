@@ -9,5 +9,8 @@
   "assessment": "uncertain",
   "comment": "Учебная оценка: требуется проверка причины.",
   "supersedes_id": null,
-  "created_at": "2026-10-15T12:00:00Z"
+  "created_at": "2026-10-15T12:00:00Z",
+  "confirmed_cause": null,
+  "incident_outcome": null,
+  "reference": null
 }

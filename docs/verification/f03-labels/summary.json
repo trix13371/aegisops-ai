@@ -1,0 +1,44 @@
+{
+  "milestone": "F03",
+  "migration": "0003_feedback_labels",
+  "basis": "automated_test_labels_not_human_ground_truth",
+  "model_quality_measured": false,
+  "execution_performed": false,
+  "model_calls_by_comparison": 0,
+  "tests_passed": 587,
+  "tests_skipped": 1,
+  "paid_tests_excluded": 2,
+  "comparison": {
+    "mode": "local_label_comparison_not_model_quality",
+    "origin": "synthetic_fixture",
+    "limit": 1,
+    "sample_size": 1,
+    "has_more": true,
+    "cases": [
+      {
+        "incident_id": "incident-2c0b50deae6db2df9915a3e0aa4197d58ea6cb2cec886ac51aad6b44d961b45f",
+        "run_id": "f9221c80-56b0-468f-9a2c-4d91f38ca190",
+        "feedback_ids": [
+          "67062e13-cb31-41d8-b095-104e675ef969"
+        ],
+        "confirmed_cause": "oom_killed",
+        "incident_outcome": "resolved",
+        "predicted_categories": [
+          "oom_killed"
+        ],
+        "status": "match",
+        "prediction_kind": "fixture",
+        "provider": "fake",
+        "model_name": "fixture-v1"
+      }
+    ],
+    "matches": 1,
+    "mismatches": 0,
+    "abstentions": 0,
+    "conflicts": 0,
+    "unlabelled": 0,
+    "incomplete": 0,
+    "resolved_incidents": 1,
+    "unresolved_incidents": 0
+  }
+}

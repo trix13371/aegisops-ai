@@ -19,9 +19,9 @@ from aegisops.context.builder import ContextBuilder, ContextError
 from aegisops.context.sanitizer import SanitizationError, sanitize_data
 from aegisops.db.health import DatabaseHealthError, check_database
 from aegisops.detection.engine import DetectionEngine, DetectionError
-from aegisops.domain.models import Origin, PodSnapshot
+from aegisops.domain.models import CauseCategory, Origin, PodSnapshot
 from aegisops.evaluation.suite import EvaluationError, evaluate_suite
-from aegisops.feedback.models import Assessment, FeedbackError
+from aegisops.feedback.models import Assessment, FeedbackError, IncidentOutcome
 from aegisops.feedback.postgres import PostgresFeedbackStore
 from aegisops.llm.base import LLMClient, LLMError
 from aegisops.llm.engine import AnalysisEngine
@@ -59,6 +59,9 @@ def feedback_add(
     assessment: Assessment = typer.Option(..., "--assessment"),
     comment: str = typer.Option("", "--comment"),
     supersedes: str | None = typer.Option(None, "--supersedes"),
+    confirmed_cause: CauseCategory | None = typer.Option(None, "--confirmed-cause"),
+    incident_outcome: IncidentOutcome | None = typer.Option(None, "--outcome"),
+    reference: str | None = typer.Option(None, "--reference"),
 ) -> None:
     """Append an assessment, or explicitly correct its current predecessor."""
     try:
@@ -71,6 +74,9 @@ def feedback_add(
                 assessment=assessment,
                 comment=comment,
                 supersedes_id=predecessor,
+                confirmed_cause=confirmed_cause,
+                incident_outcome=incident_outcome,
+                reference=reference,
             )
         output = record.model_dump_json(indent=2)
     except (ValueError, FeedbackError):
@@ -113,6 +119,25 @@ def feedback_summary(
         output = result.model_dump_json(indent=2)
     except FeedbackError:
         typer.echo("feedback: FAILED (source or local summary read rejected)")
+        raise typer.Exit(code=1) from None
+    typer.echo(output)
+
+
+@feedback_app.command("quality")
+def feedback_quality(
+    source: str = typer.Option("synthetic", "--source"),
+    limit: int = typer.Option(100, "--limit", min=1, max=100),
+) -> None:
+    """Compare local labels with recorded diagnoses; no model quality or gate claim."""
+    try:
+        if source not in {"synthetic", "local-kind"}:
+            raise FeedbackError()
+        origin = Origin.SYNTHETIC_FIXTURE if source == "synthetic" else Origin.LOCAL_KIND
+        with PostgresFeedbackStore() as store:
+            result = store.quality(origin=origin, limit=limit)
+        output = result.model_dump_json(indent=2)
+    except FeedbackError:
+        typer.echo("feedback: FAILED (source, labels or local comparison read rejected)")
         raise typer.Exit(code=1) from None
     typer.echo(output)
 

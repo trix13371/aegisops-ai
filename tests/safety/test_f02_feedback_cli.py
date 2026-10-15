@@ -38,7 +38,7 @@ def test_failed_durable_write_prints_no_record_or_raw_error(monkeypatch):
     assert '"feedback_id"' not in result.output
 
 
-@pytest.mark.parametrize("command", ["list", "summary"])
+@pytest.mark.parametrize("command", ["list", "summary", "quality"])
 def test_read_failure_has_no_partial_output(monkeypatch, command):
     store = Mock()
     store.__enter__ = Mock(return_value=store)
@@ -67,6 +67,7 @@ def test_invalid_feedback_rejected_before_database_query():
         ["add", "not-a-uuid", "--reviewer", "operator", "--assessment", "useful"],
         ["list", "--run-id", "not-a-uuid"],
         ["summary", "--source", "production"],
+        ["quality", "--source", "production"],
         ["approve"],
         ["execute"],
         ["delete"],

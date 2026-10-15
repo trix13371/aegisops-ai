@@ -1,0 +1,257 @@
+{
+  "$defs": {
+    "CauseCategory": {
+      "enum": [
+        "application_exit_nonzero",
+        "missing_runtime_config",
+        "invalid_command",
+        "oom_killed",
+        "unknown"
+      ],
+      "title": "CauseCategory",
+      "type": "string"
+    },
+    "ComparisonStatus": {
+      "enum": [
+        "match",
+        "mismatch",
+        "abstained",
+        "conflict",
+        "unlabelled",
+        "sample_incomplete"
+      ],
+      "title": "ComparisonStatus",
+      "type": "string"
+    },
+    "IncidentOutcome": {
+      "enum": [
+        "resolved",
+        "unresolved",
+        "unknown"
+      ],
+      "title": "IncidentOutcome",
+      "type": "string"
+    },
+    "Origin": {
+      "enum": [
+        "synthetic_fixture",
+        "local_kind"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "PredictionKind": {
+      "enum": [
+        "fixture",
+        "fallback",
+        "model",
+        "unclassified"
+      ],
+      "title": "PredictionKind",
+      "type": "string"
+    },
+    "QualityCase": {
+      "additionalProperties": false,
+      "properties": {
+        "confirmed_cause": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CauseCategory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "feedback_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Feedback Ids",
+          "type": "array"
+        },
+        "incident_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Incident Id",
+          "type": "string"
+        },
+        "incident_outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IncidentOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model_name": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Name"
+        },
+        "predicted_categories": {
+          "items": {
+            "$ref": "#/$defs/CauseCategory"
+          },
+          "maxItems": 5,
+          "title": "Predicted Categories",
+          "type": "array"
+        },
+        "prediction_kind": {
+          "$ref": "#/$defs/PredictionKind"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provider"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ComparisonStatus"
+        }
+      },
+      "required": [
+        "incident_id",
+        "run_id",
+        "feedback_ids",
+        "confirmed_cause",
+        "incident_outcome",
+        "predicted_categories",
+        "status",
+        "prediction_kind",
+        "provider",
+        "model_name"
+      ],
+      "title": "QualityCase",
+      "type": "object"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/QualityReport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "abstentions": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Abstentions",
+      "type": "integer"
+    },
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/QualityCase"
+      },
+      "maxItems": 100,
+      "title": "Cases",
+      "type": "array"
+    },
+    "conflicts": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Conflicts",
+      "type": "integer"
+    },
+    "has_more": {
+      "title": "Has More",
+      "type": "boolean"
+    },
+    "incomplete": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Incomplete",
+      "type": "integer"
+    },
+    "limit": {
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    },
+    "matches": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Matches",
+      "type": "integer"
+    },
+    "mismatches": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Mismatches",
+      "type": "integer"
+    },
+    "mode": {
+      "const": "local_label_comparison_not_model_quality",
+      "default": "local_label_comparison_not_model_quality",
+      "title": "Mode",
+      "type": "string"
+    },
+    "origin": {
+      "$ref": "#/$defs/Origin"
+    },
+    "resolved_incidents": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Resolved Incidents",
+      "type": "integer"
+    },
+    "sample_size": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Sample Size",
+      "type": "integer"
+    },
+    "unlabelled": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Unlabelled",
+      "type": "integer"
+    },
+    "unresolved_incidents": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Unresolved Incidents",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "origin",
+    "limit",
+    "sample_size",
+    "has_more",
+    "cases",
+    "matches",
+    "mismatches",
+    "abstentions",
+    "conflicts",
+    "unlabelled",
+    "incomplete",
+    "resolved_incidents",
+    "unresolved_incidents"
+  ],
+  "title": "QualityReport",
+  "type": "object"
+}

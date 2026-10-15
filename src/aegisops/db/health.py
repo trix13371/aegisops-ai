@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 _EXPECTED_USER = "aegisops_app"
 _ALLOWED_DATABASES = frozenset({"aegisops_local", "aegisops_test"})
-_EXPECTED_ALEMBIC_VERSION = "0002_feedback"
+_EXPECTED_ALEMBIC_VERSION = "0003_feedback_labels"
 _APP_TABLES = ("public.audit_runs", "public.recommendation_feedback")
 
 _SAFE_CONNECT_FAILED = "database health check failed: could not connect"

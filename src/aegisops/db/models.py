@@ -145,6 +145,9 @@ class RecommendationFeedback(Base):
     comment: Mapped[str] = mapped_column(String(2000), nullable=False, server_default="")
     supersedes_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    confirmed_cause: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    incident_outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     __table_args__ = (
         CheckConstraint("schema_version = 1", name="ck_feedback_schema_version"),
@@ -158,6 +161,22 @@ class RecommendationFeedback(Base):
         ),
         CheckConstraint("recommendation_hash ~ '^[0-9a-f]{64}$'", name="ck_feedback_hash"),
         CheckConstraint("supersedes_id <> feedback_id", name="ck_feedback_not_self"),
+        CheckConstraint(
+            "confirmed_cause IN ('application_exit_nonzero', 'missing_runtime_config', "
+            "'invalid_command', 'oom_killed')",
+            name="ck_feedback_confirmed_cause",
+        ),
+        CheckConstraint(
+            "incident_outcome IN ('resolved', 'unresolved', 'unknown')",
+            name="ck_feedback_incident_outcome",
+        ),
+        CheckConstraint(
+            "reference ~ '^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$'", name="ck_feedback_reference"
+        ),
+        CheckConstraint(
+            "(confirmed_cause IS NULL AND incident_outcome IS NULL) OR reference IS NOT NULL",
+            name="ck_feedback_label_reference",
+        ),
         UniqueConstraint("feedback_id", "run_id", "reviewer", name="uq_feedback_identity"),
         UniqueConstraint("supersedes_id", name="uq_feedback_successor"),
         ForeignKeyConstraint(

@@ -10,11 +10,11 @@ Python 3.12, PostgreSQL, Alembic и CLI. Это отдельный трек пр
 
 Готовы read-only collector, проверки среды, детектор, санитизация контекста,
 LLM-адаптер, рекомендации с резервными правилами, полный CLI и аудит в БД.
-Контракты Pydantic, 31 JSON Schema, каталог четырёх
+Контракты Pydantic, 33 JSON Schema, каталог четырёх
 действий и 10 синтетических сценариев готовы. Уровень приложения — L0.
 Synthetic и live-kind конвейеры проверены целиком. Проблема публикации
 Docker-порта устранена: API закреплён на `127.0.0.1:16443`. Полный прогон
-с kind после F02: 546 passed, 1 skipped, 2 deselected. Живой анализ проверен на
+с kind после F03: 587 passed, 1 skipped, 2 deselected. Живой анализ проверен на
 бесплатном fake/fallback; платные smoke-тесты остаются отдельными.
 Подробности: [восстановление kind](VERIFICATION-KIND-RECOVERY.md).
 
@@ -30,6 +30,12 @@ Restricted обрабатывается резервными правилами 
 Миграция `0002_feedback` применена к текущей локальной БД; при обновлении другой
 установки выполните `uv run python scripts/with-local-env.py alembic upgrade head`.
 Приёмка: [VERIFICATION-F02.md](VERIFICATION-F02.md).
+
+**F03: сравнение с разметкой** добавляет причину/исход со ссылкой на разбор
+и `feedback quality`. Отчёт учитывает повторы инцидентов, противоречия и
+неполные группы выборки. Миграция `0003_feedback_labels` применена локально;
+для другой установки выполните `alembic upgrade head` через wrapper выше.
+Приёмка: [VERIFICATION-F03.md](VERIFICATION-F03.md).
 
 ## Сценарии без БД и LLM
 
@@ -557,3 +563,43 @@ identity. Комментарий — до 2000 символов, очищает�
 отзывы автоматических тестов, поэтому её цифры не являются оценками SRE.
 Мнения не передаются LLM и не одобряют исполнение или повышение автономности.
 Решение: [ADR-011](docs/decisions/ADR-011-human-feedback.md).
+
+## Сравнение с причиной и исходом (F03)
+
+При оценке можно добавить `--confirmed-cause` из категорий `application_exit_nonzero`,
+`missing_runtime_config`, `invalid_command`, `oom_killed` и `--outcome` из
+`resolved`, `unresolved`, `unknown`. Для причины/исхода обязательна
+`--reference` — ID постмортема или тикета до 64 символов по тем же правилам,
+что reviewer. Это локальное утверждение со ссылкой: источник не открывается
+и его авторство не проверяется. Старые отзывы без этих полей остаются валидными.
+
+```powershell
+# $runId — сохранённый запуск с рекомендацией; TEST-PM-42 — учебный ID.
+uv run python scripts/with-local-env.py aegisops feedback add $runId --reviewer local-reviewer --assessment useful --confirmed-cause oom_killed --outcome resolved --reference TEST-PM-42
+uv run python scripts/with-local-env.py aegisops feedback quality --source synthetic --limit 25
+uv run python scripts/with-local-env.py aegisops feedback quality --source local-kind --limit 25
+```
+
+Если у того же reviewer уже есть отзыв на run, добавьте `--supersedes` с его
+текущим ID. Исправление заменяет весь отзыв: чтобы сохранить разметку, нужно
+повторить её поля. Пропуск полей снимает разметку, сохраняя прежнюю версию в истории.
+
+Отчёт группирует текущие отзывы по `incident_id` и выбирает самый поздний
+оценённый запуск. Один ID даёт один case независимо от числа запусков/reviewer.
+ID детектора включает пятиминутное окно; это ещё не независимые постмортемы.
+Разные причины или известные исходы дают `conflict`; отсутствие причины —
+`unlabelled`. Одна конкретная категория сравнивается как `match`/`mismatch`,
+неизвестный или неоднозначный диагноз — `abstained`.
+
+Лимит относится к отзывам, а не инцидентам. Если часть текущих отзывов того же
+инцидента не вошла, case получает `sample_incomplete` и не сравнивается.
+`has_more` указывает усечение выборки. Чтение происходит в одном read-only
+REPEATABLE READ snapshot, поэтому параллельное исправление не смешивает версии.
+Отчёт содержит только ID, категории и метаданные модели, без комментариев.
+
+`prediction_kind` различает `fixture`, `fallback`, `model` и `unclassified`;
+provider/model_name показывают источник выбранного диагноза. Общие счётчики
+относятся к показанным случаям и не являются accuracy модели. `resolved`
+обозначает записанный исход, а не эффект рекомендации. Локальные тестовые
+labels не заменяют реальные разборы; механизм не вычисляет gate G0 или MTTR.
+Решение: [ADR-012](docs/decisions/ADR-012-labelled-comparison.md).

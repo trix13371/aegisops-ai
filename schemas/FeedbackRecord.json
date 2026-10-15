@@ -11,6 +11,26 @@
       "title": "Assessment",
       "type": "string"
     },
+    "CauseCategory": {
+      "enum": [
+        "application_exit_nonzero",
+        "missing_runtime_config",
+        "invalid_command",
+        "oom_killed",
+        "unknown"
+      ],
+      "title": "CauseCategory",
+      "type": "string"
+    },
+    "IncidentOutcome": {
+      "enum": [
+        "resolved",
+        "unresolved",
+        "unknown"
+      ],
+      "title": "IncidentOutcome",
+      "type": "string"
+    },
     "Origin": {
       "enum": [
         "synthetic_fixture",
@@ -34,6 +54,17 @@
       "title": "Comment",
       "type": "string"
     },
+    "confirmed_cause": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CauseCategory"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "created_at": {
       "format": "date-time",
       "title": "Created At",
@@ -43,6 +74,17 @@
       "format": "uuid",
       "title": "Feedback Id",
       "type": "string"
+    },
+    "incident_outcome": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IncidentOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "origin": {
       "$ref": "#/$defs/Origin"
@@ -57,6 +99,21 @@
       "minLength": 1,
       "title": "Recommendation Id",
       "type": "string"
+    },
+    "reference": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reference"
     },
     "reviewer": {
       "maxLength": 64,
