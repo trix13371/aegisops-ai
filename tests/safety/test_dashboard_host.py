@@ -12,6 +12,7 @@ import pytest
 
 from aegisops.dashboard.view import present_record
 from aegisops.domain.models import AuditRecord
+from aegisops.projects.repository import ProjectRepository
 
 pytestmark = pytest.mark.safety
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,8 +29,9 @@ def operator():
 
 
 @pytest.fixture
-def host(operator, monkeypatch):
+def host(operator, monkeypatch, tmp_path):
     dashboard = operator.Dashboard()
+    dashboard.projects = ProjectRepository(tmp_path / "private-registry")
     monkeypatch.setattr(dashboard, "overview", lambda: {"records": [], "private": False})
     monkeypatch.setattr(dashboard, "run_job", lambda *args: None)
     server = ThreadingHTTPServer(("127.0.0.1", 0), operator.Handler)
@@ -222,3 +224,78 @@ def test_audit_projection_excludes_raw_context_and_provider_metadata():
     assert not {"context", "llm", "telemetry", "log_tail", "prompt", "payload_json"}.intersection(
         result
     )
+
+
+def test_project_registration_scan_and_report_api_stay_local(host, tmp_path):
+    from aegisops.projects.scanner import scan_project
+
+    dashboard, request = host
+    root = tmp_path / "chosen-project"
+    root.mkdir()
+    (root / "main.py").write_text("def broken(:\n pass\n")
+    body = json.dumps({"name": "Мой сервис", "path": str(root)}, ensure_ascii=True)
+    assert request("/api/projects")[0] == 401
+    assert request("/api/projects", method="POST", body=body)[0] == 401
+    assert (
+        request(
+            "/api/projects",
+            method="POST",
+            auth=True,
+            body=body,
+            headers={"Origin": "https://attacker.example"},
+        )[0]
+        == 403
+    )
+    status, _, data = request("/api/projects", method="POST", auth=True, body=body)
+    assert status == 201
+    identifier = UUID(json.loads(data)["project_id"])
+    listed = json.loads(request("/api/projects", auth=True)[2])["projects"]
+    assert len(listed) == 1 and listed[0]["name"] == "Мой сервис"
+    assert "device" not in listed[0] and "inode" not in listed[0]
+    project = dashboard.projects.get(identifier)
+    report = scan_project(project)
+    dashboard.projects.save_report(report)
+    history = json.loads(request(f"/api/projects/{identifier}", auth=True)[2])["reports"]
+    assert history[0]["id"] == str(report.id) and "findings" not in history[0]
+    status, _, result = request(f"/api/project-reports/{report.id}", auth=True)
+    assert status == 200 and json.loads(result)["findings"][0]["code"] == "syntax"
+    assert json.loads(result)["execution_performed"] is False
+    job = json.dumps({"mode": "project", "project_id": str(identifier)})
+    assert request("/api/jobs", method="POST", auth=True, body=job)[0] == 202
+    remove = json.dumps({"project_id": str(identifier)})
+    assert request("/api/projects/remove", method="POST", auth=True, body=remove)[0] == 400
+    dashboard.job["state"] = "completed"
+    assert request("/api/projects/remove", method="POST", auth=True, body=remove)[0] == 200
+    assert (root / "main.py").exists()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"name": "x", "path": "https://github.com/a/b"},
+        {"name": "x", "path": "relative"},
+        {"name": "x", "path": "C:/missing", "command": "whoami"},
+        {"name": "x", "path": "C:/missing", "llm": "openrouter"},
+    ],
+)
+def test_project_api_rejects_remote_paths_and_extra_capabilities(host, payload):
+    _, request = host
+    assert request("/api/projects", method="POST", auth=True, body=json.dumps(payload))[0] == 400
+
+
+def test_project_worker_does_not_launch_any_child_process(operator, tmp_path, monkeypatch):
+    dashboard = operator.Dashboard()
+    dashboard.projects = ProjectRepository(tmp_path / "registry")
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "main.py").write_text("print('DO_NOT_EXECUTE')\n")
+    project = dashboard.projects.add("Local", str(root))
+    dashboard.job = {"state": "running"}
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("project check attempted a child process")
+
+    monkeypatch.setattr(dashboard, "child", forbidden)
+    dashboard.run_job("project", str(project.id))
+    assert dashboard.job["state"] == "passed"
+    assert dashboard.projects.history(project.id)[0].files_checked == 1

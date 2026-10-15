@@ -104,6 +104,15 @@ source_modules = ["aegisops"]
 forbidden_modules = ["subprocess", "pty"]
 
 [[tool.importlinter.contracts]]
+name = "Local project checks cannot execute code, use services or model credentials"
+type = "forbidden"
+source_modules = ["aegisops.projects"]
+forbidden_modules = [
+  "aegisops.collector", "aegisops.sources", "aegisops.llm", "aegisops.config",
+  "aegisops.db", "aegisops.authorization", "http", "socket", "subprocess", "kubernetes",
+]
+
+[[tool.importlinter.contracts]]
 name = "Dashboard projection has no transport, execution or credentials"
 type = "forbidden"
 source_modules = ["aegisops.dashboard"]

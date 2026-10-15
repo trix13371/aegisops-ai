@@ -119,3 +119,10 @@ CLI children. Host не является модельным tool или част
 policy/key management или снятие блокировки нет. Сам `aegisops.dashboard` содержит
 только представление AuditRecord и локальные assets; транспорт/SDK/credentials
 из него запрещены import-контрактом. См. ADR-019.
+
+UI02: явная регистрация папки → ProjectRepository → bounded static scanner →
+отдельный ProjectReport. Новая ветка не конвертирует source files в Kubernetes
+Incident и не исполняет код. Host хранит общий single-job lock, а projects-модуль
+не зависит от процессов/сети/моделей/БД. Реестр и 20 последних ссылок на отчёты
+сохраняются в `.local/projects`; этот локальный формат не входит в F06 audit_runs.
+Профиль и ограничения указаны в ADR-020.

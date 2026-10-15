@@ -1,0 +1,19 @@
+{
+  "full_pytest": {
+    "passed": 971,
+    "skipped": 3,
+    "paid_deselected": 2
+  },
+  "final_project_and_ui_targeted": {
+    "passed": 53,
+    "skipped": 1
+  },
+  "note": "Full run preceded four additional regression cases; final targeted tests include them.",
+  "mypy_source_files": 96,
+  "import_contracts": 17,
+  "schemas_verified": 57,
+  "ruff": "passed",
+  "format": "passed",
+  "new_dependencies": false,
+  "new_migrations": false
+}

@@ -1,0 +1,29 @@
+{
+  "completed_date": "2026-10-16",
+  "profile": "aegisops-local-static-v1",
+  "browser_checked": [
+    "add actual local project",
+    "start from project card",
+    "read saved report",
+    "restart UI host and reload persisted project",
+    "read project history after restart"
+  ],
+  "example": {
+    "name": "AegisOps AI",
+    "report_id": "01c72c02-2b79-42ee-9d46-9f1d3fdc72e6",
+    "status": "passed",
+    "files_seen": 542,
+    "files_checked": 457,
+    "skipped_entries": 125,
+    "findings_count": 0,
+    "stacks": [
+      "Docker Compose",
+      "JavaScript / TypeScript",
+      "Kubernetes",
+      "Python"
+    ]
+  },
+  "external_model_calls": 0,
+  "project_code_executions": 0,
+  "screenshot": ".local/dashboard/screenshots/projects.jpg (ignored; local only)"
+}

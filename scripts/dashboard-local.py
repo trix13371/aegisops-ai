@@ -30,6 +30,9 @@ from aegisops.authorization.releases import load_release_check
 from aegisops.dashboard.view import present_record
 from aegisops.io import read_text, unique_object
 from aegisops.pipeline.models import PipelineResult
+from aegisops.projects.models import ProjectError
+from aegisops.projects.repository import ProjectRepository
+from aegisops.projects.scanner import scan_project
 from aegisops.telemetry.contracts import DeliveryResult
 from aegisops.telemetry.files import load_trust, read_object, safe_path
 
@@ -67,6 +70,7 @@ class Dashboard:
         self.stopping = False
         self.health_at = 0
         self.health = None
+        self.projects = ProjectRepository(ROOT / ".local/projects")
         self.python = str(ROOT / ".venv/Scripts/python.exe")
         if os.name != "nt":
             self.python = sys.executable
@@ -157,6 +161,22 @@ class Dashboard:
         with self.lock:
             return dict(self.job) if self.job else None
 
+    def list_projects(self):
+        items = []
+        for project in self.projects.list():
+            item = project.model_dump(mode="json", exclude={"device", "inode", "reports"})
+            item["last_report"] = None
+            item["report_error"] = False
+            if project.reports:
+                try:
+                    item["last_report"] = self.projects.read_report(project.reports[0]).model_dump(
+                        mode="json", exclude={"findings"}
+                    )
+                except ProjectError:
+                    item["report_error"] = True
+            items.append(item)
+        return {"projects": items}
+
     def start(self, payload):
         if not isinstance(payload, dict):
             raise ValueError("invalid request")
@@ -170,6 +190,9 @@ class Dashboard:
             and payload["scenario"] in SCENARIOS
         ):
             scenario = payload["scenario"]
+        elif mode == "project" and set(payload) == {"mode", "project_id"}:
+            scenario = str(UUID(payload["project_id"]))
+            self.projects.get(UUID(scenario))
         else:
             raise ValueError("invalid request")
         with self.lock:
@@ -185,6 +208,8 @@ class Dashboard:
                 "started_at": datetime.now(UTC).isoformat(),
                 "message": "Собираем наблюдения…",
             }
+            if mode == "project":
+                self.job.update(project_id=scenario, message="Читаем структуру проекта…")
             job = dict(self.job)
         threading.Thread(target=self.run_job, args=(mode, scenario), daemon=True).start()
         return job, True
@@ -195,6 +220,24 @@ class Dashboard:
 
     def run_job(self, mode, scenario):
         try:
+            if mode == "project":
+                project = self.projects.get(UUID(scenario))
+                self.update(stage="processing", message="Проверяем форматы и конфигурацию проекта…")
+                report = scan_project(project)
+                self.projects.save_report(report)
+                self.update(
+                    state=report.status,
+                    stage="done",
+                    report_id=str(report.id),
+                    files_checked=report.files_checked,
+                    findings_count=len(report.findings),
+                    message={
+                        "passed": "Проверка форматов завершена. Отчёт сохранён.",
+                        "issues": "В проекте найдены замечания. Отчёт сохранён.",
+                        "partial": "Проверка проекта выполнена частично. Подробности в отчёте.",
+                    }[report.status],
+                )
+                return
             if mode == "local_kind":
                 self.child(
                     ["scripts/cluster-local.py", "refresh-reader"], json_output=False, timeout=30
@@ -248,6 +291,8 @@ class Dashboard:
                     "failed": "Проверка завершилась с ошибкой. Подробности — в аудите.",
                 }[status],
             )
+        except ProjectError as error:
+            self.update(state="failed", stage="done", message=str(error))
         except Exception:
             # May be an uncertain claim: no retry, cleanup or controls mutation.
             self.update(
@@ -338,6 +383,25 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(200, self.dashboard.overview())
                 if self.path == "/api/job":
                     return self.send_json(200, {"job": self.dashboard.current_job()})
+                if self.path == "/api/projects":
+                    return self.send_json(200, self.dashboard.list_projects())
+                if self.path.startswith("/api/projects/"):
+                    identifier = UUID(self.path[len("/api/projects/") :])
+                    reports = self.dashboard.projects.history(identifier)
+                    return self.send_json(
+                        200,
+                        {
+                            "reports": [
+                                item.model_dump(mode="json", exclude={"findings"})
+                                for item in reports
+                            ]
+                        },
+                    )
+                if self.path.startswith("/api/project-reports/"):
+                    identifier = UUID(self.path[len("/api/project-reports/") :])
+                    report = self.dashboard.projects.read_report(identifier)
+                    self.dashboard.projects.get(report.project_id)
+                    return self.send_json(200, report.model_dump(mode="json"))
                 if self.path.startswith("/api/audit/"):
                     identifier = UUID(self.path[11:])
                     with PostgresAuditReader() as reader:
@@ -365,17 +429,31 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(403, {"error": "Запрос отклонён"})
         if not self.authorized():
             return self.send_json(401, {"error": "Сессия недоступна"})
-        if self.path not in {"/api/jobs", "/api/stop"}:
+        if self.path not in {"/api/jobs", "/api/stop", "/api/projects", "/api/projects/remove"}:
             return self.send_json(404, {"error": "Команда недоступна"})
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if (
-                not 0 < length <= 1024
+                not 0 < length <= (4096 if self.path == "/api/projects" else 1024)
                 or self.headers.get("Content-Type") != "application/json"
                 or self.headers.get("Transfer-Encoding") is not None
             ):
                 raise ValueError("invalid body")
             payload = json.loads(self.rfile.read(length), object_pairs_hook=unique_object)
+            if self.path == "/api/projects":
+                if not isinstance(payload, dict) or set(payload) != {"name", "path"}:
+                    raise ValueError("invalid project request")
+                project = self.dashboard.projects.add(payload["name"], payload["path"])
+                return self.send_json(201, {"project_id": str(project.id)})
+            if self.path == "/api/projects/remove":
+                if not isinstance(payload, dict) or set(payload) != {"project_id"}:
+                    raise ValueError("invalid project request")
+                identifier = UUID(payload["project_id"])
+                with self.dashboard.lock:
+                    if self.dashboard.job and self.dashboard.job["state"] == "running":
+                        raise ProjectError("Дождитесь завершения проверки")
+                    self.dashboard.projects.remove(identifier)
+                return self.send_json(200, {"removed": True})
             if self.path == "/api/stop":
                 if payload != {}:
                     raise ValueError("invalid stop request")
@@ -388,6 +466,8 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
             job, created = self.dashboard.start(payload)
+        except ProjectError as error:
+            return self.send_json(400, {"error": str(error)})
         except Exception:
             return self.send_json(400, {"error": "Недопустимые параметры проверки"})
         self.send_json(202 if created else 409, {"job": job})
