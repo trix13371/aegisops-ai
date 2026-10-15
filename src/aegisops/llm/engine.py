@@ -34,6 +34,7 @@ from aegisops.llm.base import (
 )
 from aegisops.llm.fallback import RuleBasedRecommender, unknown_diagnosis
 from aegisops.llm.prompt import build_request
+from aegisops.llm.routing import DataClass, decide_route
 
 __all__ = ["AnalysisEngine", "AnalysisResult"]
 
@@ -88,8 +89,12 @@ class AnalysisEngine:
         catalog: ActionCatalog | None = None,
         limits: LLMLimits | None = None,
         budget: RunBudget | None = None,
+        data_class: DataClass | None = None,
     ) -> None:
         try:
+            if data_class is not None and type(data_class) is not DataClass:
+                raise LLMError()
+            self._data_class = data_class
             self._initialize(client, catalog, limits, budget)
         except Exception:
             raise LLMError() from None
@@ -124,7 +129,9 @@ class AnalysisEngine:
             raise LLMError() from None
 
         try:
-            request = build_request(trusted_incident, trusted_context, self._catalog)
+            request = build_request(
+                trusted_incident, trusted_context, self._catalog, data_class=self._data_class
+            )
         except (ValueError, TypeError):
             raise LLMError() from None
 
@@ -141,7 +148,13 @@ class AnalysisEngine:
         last_valid_diagnosis: Diagnosis | None = None
         fallback_reason: str | None = None
 
+        route = decide_route(request.origin, self._provider, request.data_class)
+        if not route.allowed:
+            fallback_reason = "routing_denied"
+
         for attempt in range(2):
+            if not route.allowed:
+                break
             try:
                 self._budget.reserve(request)
             except LLMError:
@@ -330,6 +343,7 @@ class AnalysisEngine:
         usage_complete: bool,
         returned_model: str | None,
     ) -> LLMMetadata:
+        route = decide_route(request.origin, self._provider, request.data_class)
         parameters: dict[str, Scalar] = {
             "temperature": 0,
             "max_tokens": self._limits.max_output_tokens,
@@ -337,6 +351,10 @@ class AnalysisEngine:
             "calls_this_incident": calls,
             "reserved_tokens": self._budget.reserved_tokens - reserved_before,
             "usage_complete": usage_complete,
+            "data_class": route.data_class.value,
+            "routing_policy": route.policy_version,
+            "route_allowed": route.allowed,
+            "route_reason": route.reason,
         }
         if returned_model is not None:
             parameters["returned_model"] = returned_model

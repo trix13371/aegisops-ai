@@ -9,19 +9,39 @@ import pytest
 from aegisops.actions.catalog import load_catalog
 from aegisops.context.builder import ContextBuilder
 from aegisops.detection.engine import DetectionEngine
+from aegisops.domain.models import Origin, PodSnapshot
 from aegisops.llm.base import LLMLimits
+from aegisops.llm.engine import AnalysisEngine
 from aegisops.llm.fake import FakeLLMClient
 from aegisops.llm.prompt import build_request
+from aegisops.llm.routing import DataClass
 from aegisops.llm.transport import OpenAICompatibleClient
 from aegisops.sources.synthetic import ScenarioRepository
 
 pytestmark = pytest.mark.integration
 
 
-def test_real_loopback_http_sends_only_sanitized_json():
-    incident = DetectionEngine().detect([ScenarioRepository().load("inj-secret-canary")[1]])[0]
-    request = build_request(incident, ContextBuilder().build(incident), load_catalog())
+@pytest.mark.parametrize(
+    "origin,data_class",
+    [
+        (Origin.SYNTHETIC_FIXTURE, None),
+        (Origin.LOCAL_KIND, None),
+        (Origin.LOCAL_KIND, DataClass.CONFIDENTIAL),
+    ],
+)
+def test_real_loopback_http_sends_only_sanitized_json(origin, data_class):
+    snapshot = ScenarioRepository().load("inj-secret-canary")[1]
+    reference = DetectionEngine().detect([snapshot])[0]
+    request = build_request(reference, ContextBuilder().build(reference), load_catalog())
     draft = FakeLLMClient().generate_structured(request, LLMLimits()).data
+    raw = snapshot.model_dump()
+    raw["origin"] = origin
+    incident = DetectionEngine().detect([PodSnapshot.model_validate(raw)])[0]
+    context = ContextBuilder().build(incident)
+    response_draft = draft.model_dump(mode="json")
+    response_draft["diagnosis"]["hypotheses"][0]["supporting_evidence_ids"] = [
+        context.evidence[0].evidence_id
+    ]
     received = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -37,11 +57,7 @@ def test_real_loopback_http_sends_only_sanitized_json():
                     "choices": [
                         {
                             "finish_reason": "stop",
-                            "message": {
-                                "content": json.dumps(
-                                    draft.model_dump(mode="json"), ensure_ascii=False
-                                )
-                            },
+                            "message": {"content": json.dumps(response_draft, ensure_ascii=False)},
                         }
                     ],
                 },
@@ -65,8 +81,16 @@ def test_real_loopback_http_sends_only_sanitized_json():
             model_name="fixture-local",
             endpoint=f"http://127.0.0.1:{server.server_port}/v1/chat/completions",
         )
-        result = client.generate_structured(request, LLMLimits(timeout_seconds=5))
-        assert result.data == draft
+        result = AnalysisEngine(
+            client, data_class=data_class, limits=LLMLimits(timeout_seconds=5)
+        ).analyze(incident, context)
+        assert not result.used_fallback
+        assert result.metadata.parameters["route_allowed"] is True
+        assert result.metadata.parameters["data_class"] == (
+            data_class.value
+            if data_class
+            else ("internal" if origin == Origin.LOCAL_KIND else "public")
+        )
         assert len(received) == 1
         path, body, authorization = received[0]
         assert path == "/v1/chat/completions" and authorization is None

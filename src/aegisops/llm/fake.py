@@ -20,6 +20,7 @@ from aegisops.llm.base import (
     LLMRequest,
 )
 from aegisops.llm.prompt import verify_request
+from aegisops.llm.routing import decide_route
 
 __all__ = ["FakeLLMClient", "UnavailableLLMClient"]
 
@@ -72,6 +73,8 @@ class FakeLLMClient:
 
     def generate_structured(self, request: LLMRequest, limits: LLMLimits) -> LLMReply:
         verify_request(request)
+        if not decide_route(request.origin, self.provider, request.data_class).allowed:
+            raise LLMError()
         if type(limits) is not LLMLimits:
             raise LLMError()
         try:

@@ -1,0 +1,20 @@
+{
+  "source": "local-kind",
+  "status": "completed",
+  "snapshot_count": 10,
+  "incident_count": 6,
+  "provider": "openrouter",
+  "data_class": "internal",
+  "route_allowed": false,
+  "route_reason": "external_data_denied",
+  "model_calls": 0,
+  "execution_performed": false,
+  "audit_run_ids": [
+    "7a3560d5-219f-4f6c-895e-8c17b5888408",
+    "a49c50eb-4e2b-4f3d-a691-00f1497bda61",
+    "f1feb367-d3ae-45d7-bfb5-abb8bd5a32df",
+    "cec587f1-cf60-4704-8bb9-8a4309de208e",
+    "45f45829-e069-461a-a935-a977ec7e6fd5",
+    "b83315a1-8069-4132-bf23-720e03888bbc"
+  ]
+}

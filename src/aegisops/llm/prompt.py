@@ -19,6 +19,7 @@ from aegisops.domain.common import DTO
 from aegisops.domain.models import DiagnosisContext, Incident, Origin
 from aegisops.io import contained_file, read_text, unique_object
 from aegisops.llm.base import AnalysisDraft, LLMError, LLMRequest
+from aegisops.llm.routing import DataClass, resolve_data_class
 
 __all__ = ["build_request", "verify_request"]
 
@@ -150,6 +151,7 @@ def _compute_prompt_hash(
     system: str,
     user: str,
     origin: Origin,
+    data_class: DataClass | None = None,
 ) -> str:
     try:
         payload = {
@@ -158,6 +160,8 @@ def _compute_prompt_hash(
             "user": user,
             "origin": str(origin),
         }
+        if data_class is not None:
+            payload["data_class"] = data_class.value
         return hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
     except Exception:
         raise LLMError() from None
@@ -167,6 +171,8 @@ def build_request(
     incident: Incident,
     context: DiagnosisContext,
     catalog: ActionCatalog,
+    *,
+    data_class: DataClass | None = None,
 ) -> LLMRequest:
     """Build a verified :class:`LLMRequest` for the analysis-v1 prompt."""
     incident = _require_dto(incident, Incident)
@@ -193,13 +199,19 @@ def build_request(
     if incident.origin not in _VALID_ORIGINS:
         raise LLMError()
 
+    try:
+        resolved = resolve_data_class(incident.origin, data_class)
+        classification = None if resolved == resolve_data_class(incident.origin) else resolved
+    except ValueError:
+        raise LLMError() from None
+
     system = _build_system(catalog)
     user = _build_user(incident, context)
 
     if len(system) > _MAX_FIELD_CHARS or len(user) > _MAX_FIELD_CHARS:
         raise LLMError()
 
-    prompt_hash = _compute_prompt_hash(_PROMPT_ID, system, user, incident.origin)
+    prompt_hash = _compute_prompt_hash(_PROMPT_ID, system, user, incident.origin, classification)
 
     request = LLMRequest(
         prompt_id=_PROMPT_ID,
@@ -207,6 +219,7 @@ def build_request(
         system=system,
         user=user,
         origin=incident.origin,
+        data_class=classification,
     )
     verify_request(request)
     return request
@@ -220,13 +233,19 @@ def verify_request(request: LLMRequest) -> None:
         raise LLMError()
     if type(request.origin) is not Origin or request.origin not in _VALID_ORIGINS:
         raise LLMError()
+    try:
+        resolve_data_class(request.origin, request.data_class)
+    except ValueError:
+        raise LLMError() from None
     if type(request.system) is not str or type(request.user) is not str:
         raise LLMError()
     if len(request.system) > _MAX_FIELD_CHARS or len(request.user) > _MAX_FIELD_CHARS:
         raise LLMError()
     if type(request.prompt_hash) is not str:
         raise LLMError()
-    expected = _compute_prompt_hash(request.prompt_id, request.system, request.user, request.origin)
+    expected = _compute_prompt_hash(
+        request.prompt_id, request.system, request.user, request.origin, request.data_class
+    )
     if expected != request.prompt_hash:
         raise LLMError()
     try:

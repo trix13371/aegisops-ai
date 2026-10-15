@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "aegisops-ai"
 version = "0.1.0"
-description = "Local L0 AegisOps prototype: S0-01 foundation"
+description = "Local L0 AegisOps analysis pipeline and safety foundation"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "pydantic>=2.10,<3", "typer>=0.15,<1", "SQLAlchemy>=2.0,<2.1",
@@ -102,3 +102,12 @@ name = "Offline evaluation cannot import paid model transport"
 type = "forbidden"
 source_modules = ["aegisops.evaluation"]
 forbidden_modules = ["aegisops.llm.transport"]
+
+[[tool.importlinter.contracts]]
+name = "Data routing is a pure policy without services or transport"
+type = "forbidden"
+source_modules = ["aegisops.llm.routing"]
+forbidden_modules = [
+  "aegisops.sources", "aegisops.db", "aegisops.config", "aegisops.llm.transport",
+  "http", "socket", "kubernetes", "requests", "urllib3", "subprocess", "pty",
+]

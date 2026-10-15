@@ -17,6 +17,7 @@ from aegisops.context.sanitizer import sanitize_text
 from aegisops.io import unique_object
 from aegisops.llm.base import AnalysisDraft, LLMError, LLMLimits, LLMReply, LLMRequest
 from aegisops.llm.prompt import verify_request
+from aegisops.llm.routing import decide_route
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash"
@@ -27,6 +28,8 @@ def build_payload(
     request: LLMRequest, limits: LLMLimits, model: str, provider: str
 ) -> dict[str, Any]:
     verify_request(request)
+    if not decide_route(request.origin, provider, request.data_class).allowed:
+        raise LLMError()
     limits.__post_init__()
     if request.input_bytes > limits.max_input_bytes or _MODEL.fullmatch(model) is None:
         raise LLMError()

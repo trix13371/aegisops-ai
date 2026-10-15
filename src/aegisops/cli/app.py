@@ -24,6 +24,7 @@ from aegisops.evaluation.suite import EvaluationError, evaluate_suite
 from aegisops.llm.base import LLMClient, LLMError
 from aegisops.llm.engine import AnalysisEngine
 from aegisops.llm.fake import FakeLLMClient, UnavailableLLMClient
+from aegisops.llm.routing import DataClass
 from aegisops.llm.transport import DEFAULT_MODEL, OpenAICompatibleClient
 from aegisops.pipeline.engine import Pipeline, PipelineError
 from aegisops.review.service import ReviewError, ReviewService
@@ -54,6 +55,7 @@ def run_pipeline(
     llm: str = typer.Option("fake", "--llm"),
     model: str | None = typer.Option(None, "--model"),
     local_url: str | None = typer.Option(None, "--local-url"),
+    data_class: DataClass | None = typer.Option(None, "--data-class"),
 ) -> None:
     """Run collection through durable audit; execution is unavailable."""
     try:
@@ -68,7 +70,10 @@ def run_pipeline(
                 SyntheticBatchSource(scenario) if source == "synthetic" else LocalKindSource()
             )
             origin = Origin.SYNTHETIC_FIXTURE if source == "synthetic" else Origin.LOCAL_KIND
-            pipeline = Pipeline(AnalysisEngine(_analysis_client(llm, model, local_url)), store)
+            pipeline = Pipeline(
+                AnalysisEngine(_analysis_client(llm, model, local_url), data_class=data_class),
+                store,
+            )
             result = pipeline.run(observation_source, origin=origin)
         output = result.model_dump_json(indent=2)
     except (AuditStoreError, PipelineError, ReviewError, LLMError):
@@ -150,6 +155,7 @@ def review(
     llm: str = typer.Option("fake", "--llm"),
     model: str | None = typer.Option(None, "--model"),
     local_url: str | None = typer.Option(None, "--local-url"),
+    data_class: DataClass | None = typer.Option(None, "--data-class"),
 ) -> None:
     """Review one synthetic incident, simulate a description and commit its audit."""
     try:
@@ -158,7 +164,10 @@ def review(
             incidents = DetectionEngine().detect(snapshots)
             if len(incidents) != 1:
                 raise ReviewError()
-            service = ReviewService(AnalysisEngine(_analysis_client(llm, model, local_url)), store)
+            service = ReviewService(
+                AnalysisEngine(_analysis_client(llm, model, local_url), data_class=data_class),
+                store,
+            )
             record = service.review(incidents[0])
         output = record.model_dump_json(indent=2)
     except (AuditStoreError, ReviewError, ScenarioError, DetectionError, LLMError):
@@ -176,12 +185,13 @@ def analyze(
     llm: str = typer.Option("fake", "--llm"),
     model: str | None = typer.Option(None, "--model"),
     local_url: str | None = typer.Option(None, "--local-url"),
+    data_class: DataClass | None = typer.Option(None, "--data-class"),
 ) -> None:
     """Produce advisory diagnoses and recommendations; fake replies are the default."""
     try:
         snapshots = _detection_snapshots(source, scenario)
         incidents = DetectionEngine().detect(snapshots)
-        engine = AnalysisEngine(_analysis_client(llm, model, local_url))
+        engine = AnalysisEngine(_analysis_client(llm, model, local_url), data_class=data_class)
         rows = []
         for incident in incidents:
             result = engine.analyze(incident, ContextBuilder().build(incident))

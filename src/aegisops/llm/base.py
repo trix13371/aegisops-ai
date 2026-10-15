@@ -5,6 +5,7 @@ from typing import Protocol
 
 from aegisops.domain.common import DTO
 from aegisops.domain.models import DiagnosisDraft, Origin, RecommendationDraft
+from aegisops.llm.routing import DataClass
 
 
 class LLMError(ValueError):
@@ -46,6 +47,7 @@ class LLMRequest:
     system: str
     user: str
     origin: Origin
+    data_class: DataClass | None = None
 
     @property
     def input_bytes(self) -> int:
