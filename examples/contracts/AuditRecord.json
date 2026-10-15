@@ -103,5 +103,6 @@
   "run_id": "12345678-1234-5678-1234-567812345678",
   "schema_version": 1,
   "started_at": "2026-10-10T12:00:00Z",
-  "status": "completed"
+  "status": "completed",
+  "telemetry": null
 }

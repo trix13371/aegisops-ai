@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-15",
+  "environment": "Windows / Python 3.12 / PostgreSQL 17 / local kind / pinned mTLS OPA 1.21.2",
+  "pytest": {
+    "passed": 922,
+    "skipped": 2,
+    "deselected": 2,
+    "failures": 0,
+    "errors": 0
+  },
+  "ruff": "passed",
+  "format_python_files": 213,
+  "mypy_source_files": 90,
+  "import_contracts_kept": 15,
+  "schemas_verified": 57,
+  "rego_tests_passed": 31,
+  "assets": "verified",
+  "alembic_check": "no new upgrade operations",
+  "doctor": "OK",
+  "dependency_audit": "no known vulnerabilities; local unpublished package skipped",
+  "wheel_smoke": "passed; current local dependencies",
+  "external_ci": "not run for this local change",
+  "kill_switch": true,
+  "control_generation": 13,
+  "execution_count": 0
+}

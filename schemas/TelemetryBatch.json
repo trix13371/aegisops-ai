@@ -1,0 +1,316 @@
+{
+  "$defs": {
+    "ContainerSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "is_init": {
+          "default": false,
+          "title": "Is Init",
+          "type": "boolean"
+        },
+        "last_exit_code": {
+          "anyOf": [
+            {
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Exit Code"
+        },
+        "last_terminated_reason": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Terminated Reason"
+        },
+        "name": {
+          "maxLength": 63,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "restart_count": {
+          "default": 0,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Restart Count",
+          "type": "integer"
+        },
+        "waiting_reason": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Waiting Reason"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ContainerSnapshot",
+      "type": "object"
+    },
+    "KubernetesEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "default": 1,
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "last_seen": {
+          "format": "date-time",
+          "title": "Last Seen",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "Normal",
+            "Warning"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "type",
+        "message",
+        "last_seen"
+      ],
+      "title": "KubernetesEvent",
+      "type": "object"
+    },
+    "Origin": {
+      "enum": [
+        "synthetic_fixture",
+        "local_kind"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "Owner": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "Deployment",
+            "ReplicaSet",
+            "StatefulSet",
+            "DaemonSet",
+            "Job",
+            "Pod"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 253,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "Owner",
+      "type": "object"
+    },
+    "PodSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Cluster Id",
+          "type": "string"
+        },
+        "containers": {
+          "items": {
+            "$ref": "#/$defs/ContainerSnapshot"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Containers",
+          "type": "array"
+        },
+        "events": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/KubernetesEvent"
+          },
+          "maxItems": 64,
+          "title": "Events",
+          "type": "array"
+        },
+        "log_tail": {
+          "anyOf": [
+            {
+              "maxLength": 16384,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Log Tail"
+        },
+        "namespace": {
+          "const": "aegisops-demo",
+          "title": "Namespace",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "owner": {
+          "$ref": "#/$defs/Owner"
+        },
+        "pod_name": {
+          "maxLength": 253,
+          "minLength": 1,
+          "title": "Pod Name",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "origin",
+        "cluster_id",
+        "namespace",
+        "pod_name",
+        "owner",
+        "containers",
+        "observed_at"
+      ],
+      "title": "PodSnapshot",
+      "type": "object"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/TelemetryBatch.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "batch_id": {
+      "format": "uuid",
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "cluster_id": {
+      "const": "kind-aegisops-demo",
+      "default": "kind-aegisops-demo",
+      "title": "Cluster Id",
+      "type": "string"
+    },
+    "collector_id": {
+      "const": "local-kind-reader",
+      "default": "local-kind-reader",
+      "title": "Collector Id",
+      "type": "string"
+    },
+    "data_class": {
+      "const": "internal",
+      "default": "internal",
+      "title": "Data Class",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "format": {
+      "const": "aegisops-observations-v1",
+      "default": "aegisops-observations-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "issued_at": {
+      "format": "date-time",
+      "title": "Issued At",
+      "type": "string"
+    },
+    "key_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Key Id",
+      "type": "string"
+    },
+    "origin": {
+      "const": "local_kind",
+      "default": "local_kind",
+      "title": "Origin",
+      "type": "string"
+    },
+    "registration_id": {
+      "format": "uuid",
+      "title": "Registration Id",
+      "type": "string"
+    },
+    "snapshots": {
+      "items": {
+        "$ref": "#/$defs/PodSnapshot"
+      },
+      "maxItems": 200,
+      "title": "Snapshots",
+      "type": "array"
+    }
+  },
+  "required": [
+    "batch_id",
+    "registration_id",
+    "key_id",
+    "issued_at",
+    "expires_at",
+    "snapshots"
+  ],
+  "title": "TelemetryBatch",
+  "type": "object"
+}

@@ -25,6 +25,7 @@ from aegisops.domain.common import (
     Text,
     UTCDateTime,
 )
+from aegisops.domain.telemetry import TelemetryProvenance
 
 __all__ = [
     "ActionID",
@@ -433,6 +434,7 @@ class AuditRecord(DTO):
     status: RunStatus
     autonomy_level: AutonomyLevel = AutonomyLevel.L0
     origin: Origin
+    telemetry: TelemetryProvenance | None = None
     observation: NoIncidentObservation | None = None
     incident: Incident | None = None
     context: DiagnosisContext | None = None
@@ -454,6 +456,11 @@ class AuditRecord(DTO):
 
     @model_validator(mode="after")
     def _check_consistency(self) -> Self:
+        if self.telemetry is not None:
+            if self.origin is not Origin.LOCAL_KIND:
+                raise ValueError("telemetry requires local-kind origin")
+            if self.incident is not None and self.incident.cluster_id != self.telemetry.cluster_id:
+                raise ValueError("telemetry cluster mismatch")
         if self.completed_at < self.started_at:
             raise ValueError("completed_at precedes started_at")
 

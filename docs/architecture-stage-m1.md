@@ -90,3 +90,24 @@ clientAuth и subject PEP. Trust/срок повторно проверяютс�
 Оператор выпускает identity ≤24 часов вне приложения; native PEM-ключи вне Git,
 ACL/0600. CA-ключ не сохраняется. Это локальная аутентификация транспорта,
 не разделение OS identity, SPIFFE или Cluster Agent. См. ADR-017.
+
+F09 добавляет отдельные точки входа и локальный подписанный handoff:
+
+```mermaid
+flowchart LR
+    K[Локальный kind] -->|read-only| C[Collector process]
+    C -->|sanitizer + Ed25519| F[Пакет на диске]
+    F -->|signature + identity + TTL| P[Control Plane process]
+    P --> B[BatchProcessor: detection / offline fallback]
+    B -->|PEP + mTLS| O[OPA]
+    B --> A[PostgreSQL audit]
+    A -->|readback| R[Квитанция пакета]
+```
+
+Collector не импортирует LLM/DB/OPA; Control Plane не импортирует sources/SDK
+или приватный signer. До анализа создаётся exclusive claim; повтор готового
+пакета читает квитанцию и связанные записи без нового анализа. Незавершённый
+claim автоматически не перехватывается. TelemetryProvenance добавляет связь
+batch/hash/collector/registration/key в JSONB без новой миграции. Старый Pipeline
+использует то же ядро через адаптер источника. Это один trusted OS user и файловый
+транспорт, без сетевого Cluster Agent, durable workflow или исполнения. См. ADR-018.

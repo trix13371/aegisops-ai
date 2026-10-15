@@ -1,0 +1,38 @@
+{
+  "format": "aegisops-observations-v1",
+  "batch_id": "22222222-2222-4222-8222-222222222222",
+  "collector_id": "local-kind-reader",
+  "cluster_id": "kind-aegisops-demo",
+  "registration_id": "11111111-1111-4111-8111-111111111111",
+  "key_id": "5255da8abecab8218d451bd5a866e66e4b76e44b2d1a11f8856d1ed6145b255c",
+  "origin": "local_kind",
+  "data_class": "internal",
+  "issued_at": "2026-10-15T12:00:00Z",
+  "expires_at": "2026-10-15T12:05:00Z",
+  "snapshots": [
+    {
+      "snapshot_id": "synthetic-crashloop-oom",
+      "origin": "local_kind",
+      "cluster_id": "kind-aegisops-demo",
+      "namespace": "aegisops-demo",
+      "pod_name": "crashloop-oom-pod",
+      "owner": {
+        "kind": "Deployment",
+        "name": "crashloop-oom"
+      },
+      "containers": [
+        {
+          "name": "app",
+          "is_init": false,
+          "waiting_reason": "CrashLoopBackOff",
+          "last_terminated_reason": "OOMKilled",
+          "last_exit_code": 137,
+          "restart_count": 3
+        }
+      ],
+      "events": [],
+      "log_tail": "Synthetic process exceeded memory limit",
+      "observed_at": "2026-10-15T12:00:00Z"
+    }
+  ]
+}

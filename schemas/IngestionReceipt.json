@@ -1,0 +1,118 @@
+{
+  "$defs": {
+    "RunStatus": {
+      "enum": [
+        "completed",
+        "failed",
+        "blocked"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "TelemetryProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Batch Hash",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "cluster_id": {
+          "const": "kind-aegisops-demo",
+          "default": "kind-aegisops-demo",
+          "title": "Cluster Id",
+          "type": "string"
+        },
+        "collector_id": {
+          "const": "local-kind-reader",
+          "default": "local-kind-reader",
+          "title": "Collector Id",
+          "type": "string"
+        },
+        "key_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "registration_id": {
+          "format": "uuid",
+          "title": "Registration Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "batch_id",
+        "batch_hash",
+        "registration_id",
+        "key_id"
+      ],
+      "title": "TelemetryProvenance",
+      "type": "object"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/IngestionReceipt.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "audit_run_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Audit Run Ids",
+      "type": "array"
+    },
+    "execution_performed": {
+      "const": false,
+      "default": false,
+      "title": "Execution Performed",
+      "type": "boolean"
+    },
+    "format": {
+      "const": "aegisops-ingestion-v1",
+      "default": "aegisops-ingestion-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "incident_count": {
+      "maximum": 200,
+      "minimum": 0,
+      "title": "Incident Count",
+      "type": "integer"
+    },
+    "processed_at": {
+      "format": "date-time",
+      "title": "Processed At",
+      "type": "string"
+    },
+    "snapshot_count": {
+      "maximum": 200,
+      "minimum": 0,
+      "title": "Snapshot Count",
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus"
+    },
+    "telemetry": {
+      "$ref": "#/$defs/TelemetryProvenance"
+    }
+  },
+  "required": [
+    "telemetry",
+    "processed_at",
+    "snapshot_count",
+    "incident_count",
+    "audit_run_ids",
+    "status"
+  ],
+  "title": "IngestionReceipt",
+  "type": "object"
+}

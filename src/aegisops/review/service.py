@@ -10,6 +10,7 @@ from aegisops.authorization.pep import DryRunPEP
 from aegisops.context.builder import ContextBuilder
 from aegisops.domain.common import utc_now
 from aegisops.domain.models import AuditError, AuditRecord, Incident, LLMMetadata, RunStatus
+from aegisops.domain.telemetry import TelemetryProvenance
 from aegisops.dry_run.engine import DryRunEngine
 from aegisops.llm.engine import AnalysisEngine
 from aegisops.policy.checker import PolicyChecker
@@ -29,10 +30,12 @@ class ReviewService:
         pep: DryRunPEP | None = None,
         clock: Callable[[], datetime] = utc_now,
         id_factory: Callable[[], UUID] = uuid4,
+        telemetry: TelemetryProvenance | None = None,
     ) -> None:
         self._analysis, self._store = analysis, store
         self._clock, self._id_factory = clock, id_factory
         self._pep = pep
+        self._telemetry = telemetry
 
     def review(self, incident: Incident) -> AuditRecord:
         try:
@@ -45,6 +48,7 @@ class ReviewService:
                 completed_at=started_at,
                 status=RunStatus.FAILED,
                 origin=incident.origin,
+                telemetry=self._telemetry,
                 errors=(AuditError(code="preflight", message="Проверка входа"),),
             )
         except Exception:
@@ -80,6 +84,7 @@ class ReviewService:
                 completed_at=self._clock(),
                 status=status,
                 origin=incident.origin,
+                telemetry=self._telemetry,
                 incident=incident,
                 context=context,
                 context_hash=context.context_hash if context else None,

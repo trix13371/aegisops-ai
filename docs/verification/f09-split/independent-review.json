@@ -1,0 +1,23 @@
+{
+  "reviewer": "google/gemini-3.8-flash",
+  "scope": "public source only; no credentials or observations; no tools",
+  "dispositions": [
+    {
+      "finding": "concurrent consumer rejected while first is processing",
+      "result": "intentional fail-closed behavior",
+      "evidence": "Exclusive claim permits one processing attempt. Concurrency test verifies losing caller has zero model calls; completed receipt is readable later."
+    },
+    {
+      "finding": "filesystem races and generic path traversal",
+      "result": "outside trusted OS threat model; paths have no packet-controlled text segments",
+      "evidence": "CLI accepts UUID only; fixed directories and typed UUID/hash names. Existing symlink/junction components rejected. Hostile filesystem owner races explicitly excluded."
+    },
+    {
+      "finding": "RunStatus comparison against string",
+      "result": "not a defect",
+      "evidence": "RunStatus inherits StrEnum. Real completed/blocked child process runs verified expected exit behavior."
+    }
+  ],
+  "additional_local_change": "New receipts require exact readback equality with generated audit records; added a regression test.",
+  "model_authored_tests": "Bounded packet DTO tests reviewed and corrected locally before acceptance; model did not execute tests."
+}

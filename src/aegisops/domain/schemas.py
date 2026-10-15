@@ -35,6 +35,7 @@ from aegisops.domain.policy_release import (
     PolicyReleaseState,
     SignedPolicyRelease,
 )
+from aegisops.domain.telemetry import TelemetryProvenance
 from aegisops.evaluation.suite import EvaluationReport
 from aegisops.feedback.models import FeedbackRecord, FeedbackSummary
 from aegisops.feedback.quality_models import QualityCase, QualityReport
@@ -51,8 +52,21 @@ from aegisops.llm.base import AnalysisDraft
 from aegisops.pipeline.models import PipelineResult
 from aegisops.runbooks.models import RunbookCatalog, RunbookDocument, RunbookSelection
 from aegisops.sources.synthetic import ScenarioSpec
+from aegisops.telemetry.contracts import (
+    CollectorTrust,
+    DeliveryResult,
+    IngestionReceipt,
+    SignedTelemetryBatch,
+    TelemetryBatch,
+)
 
 CONTRACTS: tuple[type[DTO], ...] = (
+    TelemetryProvenance,
+    CollectorTrust,
+    TelemetryBatch,
+    SignedTelemetryBatch,
+    IngestionReceipt,
+    DeliveryResult,
     PolicyReleaseBody,
     SignedPolicyRelease,
     PolicyReleaseState,

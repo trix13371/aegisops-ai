@@ -1345,6 +1345,51 @@
       "title": "SignedPolicyRelease",
       "type": "object"
     },
+    "TelemetryProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Batch Hash",
+          "type": "string"
+        },
+        "batch_id": {
+          "format": "uuid",
+          "title": "Batch Id",
+          "type": "string"
+        },
+        "cluster_id": {
+          "const": "kind-aegisops-demo",
+          "default": "kind-aegisops-demo",
+          "title": "Cluster Id",
+          "type": "string"
+        },
+        "collector_id": {
+          "const": "local-kind-reader",
+          "default": "local-kind-reader",
+          "title": "Collector Id",
+          "type": "string"
+        },
+        "key_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "registration_id": {
+          "format": "uuid",
+          "title": "Registration Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "batch_id",
+        "batch_hash",
+        "registration_id",
+        "key_id"
+      ],
+      "title": "TelemetryProvenance",
+      "type": "object"
+    },
     "TrustAnchor": {
       "additionalProperties": false,
       "properties": {
@@ -1522,6 +1567,17 @@
     },
     "status": {
       "$ref": "#/$defs/RunStatus"
+    },
+    "telemetry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TelemetryProvenance"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

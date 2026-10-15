@@ -14,6 +14,63 @@ from aegisops.sources.synthetic import ScenarioRepository
 
 
 @pytest.fixture
+def telemetry_case(tmp_path):
+    import hashlib
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from aegisops.domain.common import utc_now
+    from aegisops.domain.models import PodSnapshot
+    from aegisops.telemetry.contracts import (
+        MAX_LIFETIME,
+        CollectorTrust,
+        SignedTelemetryBatch,
+        TelemetryBatch,
+    )
+    from aegisops.telemetry.files import write_new
+    from aegisops.telemetry.verification import signing_bytes
+
+    root = tmp_path / "handoff/outputs/project"
+    root.mkdir(parents=True)
+    key = Ed25519PrivateKey.generate()
+    public = key.public_key().public_bytes_raw()
+    trust = CollectorTrust(
+        registration_id=uuid4(), public_key=public.hex(), key_id=hashlib.sha256(public).hexdigest()
+    )
+    write_new(root / ".local/telemetry/trust.json", trust.model_dump_json().encode())
+    write_new(
+        root.parents[1] / "work/collector-signing" / f"{trust.key_id}.pem",
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ),
+    )
+    now = utc_now()
+    raw = ScenarioRepository().load("crashloop-oom")[1].model_dump(mode="json")
+    raw.update(origin="local_kind", observed_at=now.isoformat())
+    snapshot = PodSnapshot.model_validate(raw)
+
+    def make(snapshots=None, **updates):
+        body = TelemetryBatch(
+            batch_id=uuid4(),
+            registration_id=trust.registration_id,
+            key_id=trust.key_id,
+            issued_at=now,
+            expires_at=now + MAX_LIFETIME,
+            snapshots=(snapshot,) if snapshots is None else snapshots,
+        )
+        if updates:
+            body = TelemetryBatch.model_validate({**body.model_dump(), **updates})
+        return SignedTelemetryBatch(body=body, signature=key.sign(signing_bytes(body)).hex())
+
+    return SimpleNamespace(root=root, trust=trust, key=key, now=now, snapshot=snapshot, make=make)
+
+
+@pytest.fixture
 def tls_operator():
     spec = importlib.util.spec_from_file_location(
         "operator_tls", Path(__file__).resolve().parents[1] / "scripts/opa-tls-local.py"

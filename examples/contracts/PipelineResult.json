@@ -25,7 +25,8 @@
       "dry_run_result": null,
       "llm": null,
       "context_hash": null,
-      "errors": []
+      "errors": [],
+      "telemetry": null
     }
   ],
   "status": "completed",

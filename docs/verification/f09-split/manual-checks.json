@@ -1,0 +1,50 @@
+{
+  "mode": "local-L0-two-processes-signed-files",
+  "checks": [
+    {
+      "case": "allow-and-separate-process-replay",
+      "batch_id": "7cbdee1d-7013-426e-b1a3-648f5573a9c0",
+      "snapshot_count": 10,
+      "incident_count": 5,
+      "audit_run_ids": [
+        "c8a42edc-6126-4785-97fd-33431713be30",
+        "f9fcaa7e-7633-4d71-b6e6-efbf6ec26c73",
+        "2c30e5f7-4045-45a9-86bb-d51b85f84b14",
+        "48a61e60-72b9-4f79-af1e-71b9f3f70b93",
+        "517ba789-5d12-4e0f-bd16-2bbbccce7348"
+      ],
+      "status": "completed",
+      "readback_equal": true,
+      "replay_same_receipt": true,
+      "replay_new_rows": 0,
+      "execution_performed": false
+    },
+    {
+      "case": "kill-switch",
+      "batch_id": "00efdb73-12c5-43b7-937d-db6953d58d9e",
+      "status": "blocked",
+      "snapshot_count": 10,
+      "incident_count": 5,
+      "audit_run_ids": [
+        "2a2265ca-b8ba-4909-962c-3da5cb739ab3",
+        "fef674e0-d934-42f5-a498-2234d5463ba9",
+        "5a1f0a13-a614-4a8a-abff-089b209debcc",
+        "b3accbfe-2bf4-4d08-b66a-1ba15fe8dc3f",
+        "cab8af3e-845c-4a4d-ae0d-841e8957bf16"
+      ],
+      "readback_equal": true,
+      "execution_performed": false
+    },
+    {
+      "case": "historical-expired-packet",
+      "batch_id": "f0661bfd-f106-40b0-a8c0-697a0e29f919",
+      "replayed": true,
+      "readback_equal": true,
+      "execution_performed": false
+    }
+  ],
+  "global_blocked": true,
+  "control_generation": 13,
+  "external_model_calls": 0,
+  "execution_count": 0
+}

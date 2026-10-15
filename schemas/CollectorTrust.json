@@ -1,0 +1,47 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/CollectorTrust.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cluster_id": {
+      "const": "kind-aegisops-demo",
+      "default": "kind-aegisops-demo",
+      "title": "Cluster Id",
+      "type": "string"
+    },
+    "collector_id": {
+      "const": "local-kind-reader",
+      "default": "local-kind-reader",
+      "title": "Collector Id",
+      "type": "string"
+    },
+    "format": {
+      "const": "aegisops-collector-v1",
+      "default": "aegisops-collector-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "key_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Key Id",
+      "type": "string"
+    },
+    "public_key": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Public Key",
+      "type": "string"
+    },
+    "registration_id": {
+      "format": "uuid",
+      "title": "Registration Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "registration_id",
+    "public_key",
+    "key_id"
+  ],
+  "title": "CollectorTrust",
+  "type": "object"
+}

@@ -20,6 +20,8 @@ dependencies = [
 
 [project.scripts]
 aegisops = "aegisops.cli.app:app"
+aegisops-collector = "aegisops.collector.cli:main"
+aegisops-control = "aegisops.controlplane.cli:main"
 
 [dependency-groups]
 dev = [
@@ -100,6 +102,24 @@ name = "Application cannot invoke external commands"
 type = "forbidden"
 source_modules = ["aegisops"]
 forbidden_modules = ["subprocess", "pty"]
+
+[[tool.importlinter.contracts]]
+name = "Collector cannot import models, policy, audit, database or Control Plane"
+type = "forbidden"
+source_modules = ["aegisops.collector"]
+forbidden_modules = [
+  "aegisops.llm", "aegisops.policy", "aegisops.authorization", "aegisops.audit",
+  "aegisops.db", "aegisops.config", "aegisops.controlplane", "aegisops.review",
+  "aegisops.cli", "sqlalchemy",
+]
+
+[[tool.importlinter.contracts]]
+name = "Control Plane and processing kernel cannot reach collector or Kubernetes"
+type = "forbidden"
+source_modules = ["aegisops.controlplane", "aegisops.pipeline.processing"]
+forbidden_modules = [
+  "aegisops.collector", "aegisops.sources", "kubernetes", "aegisops.cli",
+]
 
 [[tool.importlinter.contracts]]
 name = "Detection and context cannot access services or credentials"

@@ -1,0 +1,19 @@
+{
+  "wheel": "aegisops_ai-0.1.0-py3-none-any.whl",
+  "built_from_sdist": true,
+  "secret_files_packaged": false,
+  "entry_points_present": true,
+  "checks": [
+    {
+      "role": "collector",
+      "import_from_wheel": true,
+      "role_imports_valid": true
+    },
+    {
+      "role": "controlplane",
+      "import_from_wheel": true,
+      "role_imports_valid": true
+    }
+  ],
+  "dependencies": "current local venv; not an isolated fresh dependency installation"
+}
