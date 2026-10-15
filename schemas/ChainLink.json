@@ -1,0 +1,35 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/ChainLink.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "entry_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Entry Hash",
+      "type": "string"
+    },
+    "prev_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Prev Hash",
+      "type": "string"
+    },
+    "row_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Row Hash",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "row_hash",
+    "prev_hash",
+    "entry_hash"
+  ],
+  "title": "ChainLink",
+  "type": "object"
+}

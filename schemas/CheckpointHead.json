@@ -1,0 +1,29 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/CheckpointHead.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "chain_id": {
+      "format": "uuid",
+      "title": "Chain Id",
+      "type": "string"
+    },
+    "checkpoint_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Checkpoint Hash",
+      "type": "string"
+    },
+    "checkpoint_id": {
+      "format": "uuid",
+      "title": "Checkpoint Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "chain_id",
+    "checkpoint_id",
+    "checkpoint_hash"
+  ],
+  "title": "CheckpointHead",
+  "type": "object"
+}

@@ -32,12 +32,28 @@ from aegisops.domain.models import (
 from aegisops.evaluation.suite import EvaluationReport
 from aegisops.feedback.models import FeedbackRecord, FeedbackSummary
 from aegisops.feedback.quality_models import QualityCase, QualityReport
+from aegisops.integrity.models import (
+    ChainLink,
+    CheckpointBody,
+    CheckpointHead,
+    RowDigest,
+    SignedCheckpoint,
+    TrustAnchor,
+    VerificationReport,
+)
 from aegisops.llm.base import AnalysisDraft
 from aegisops.pipeline.models import PipelineResult
 from aegisops.runbooks.models import RunbookCatalog, RunbookDocument, RunbookSelection
 from aegisops.sources.synthetic import ScenarioSpec
 
 CONTRACTS: tuple[type[DTO], ...] = (
+    RowDigest,
+    ChainLink,
+    CheckpointBody,
+    SignedCheckpoint,
+    TrustAnchor,
+    CheckpointHead,
+    VerificationReport,
     AuthorizationControl,
     OpaInput,
     OpaResult,

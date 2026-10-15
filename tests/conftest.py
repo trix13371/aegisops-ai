@@ -1,5 +1,8 @@
 """Common minimal authorization inputs; no credentials or live clients."""
 
+import importlib.util
+from pathlib import Path
+
 import pytest
 
 from aegisops.context.builder import ContextBuilder
@@ -20,3 +23,14 @@ def authz_case():
 @pytest.fixture
 def open_control():
     return AuthorizationControl(generation=1, global_blocked=False)
+
+
+@pytest.fixture
+def integrity_signer():
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "test_local_signer", root / "scripts/audit-integrity-local.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

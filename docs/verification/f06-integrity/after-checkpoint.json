@@ -1,0 +1,12 @@
+{
+  "format": "aegisops-audit-verification-v1",
+  "status": "verified",
+  "chain_id": "73ed0595-de13-4b7f-a070-b9c41f970760",
+  "checkpoint_id": "c48e81c7-0569-4ab3-8a1a-4205f2a55d85",
+  "checkpoint_hash": "10ee83486dd9fb771ae2a0c3a30a0d28af9468ed2e0698da315a94516e0c755e",
+  "protected_records": 688,
+  "current_records": 688,
+  "missing_records": 0,
+  "modified_records": 0,
+  "unanchored_records": 0
+}

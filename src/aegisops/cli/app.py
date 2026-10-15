@@ -25,6 +25,8 @@ from aegisops.domain.models import CauseCategory, Origin, PodSnapshot
 from aegisops.evaluation.suite import EvaluationError, evaluate_suite
 from aegisops.feedback.models import Assessment, FeedbackError, IncidentOutcome
 from aegisops.feedback.postgres import PostgresFeedbackStore
+from aegisops.integrity.models import IntegrityError
+from aegisops.integrity.postgres import verify_database
 from aegisops.llm.base import LLMClient, LLMError
 from aegisops.llm.engine import AnalysisEngine
 from aegisops.llm.fake import FakeLLMClient, UnavailableLLMClient
@@ -263,6 +265,21 @@ def audit_list(limit: int = typer.Option(25, "--limit", min=1, max=100)) -> None
         typer.echo("audit: FAILED (local audit read rejected)")
         raise typer.Exit(code=1) from None
     typer.echo(output)
+
+
+@audit_app.command("verify")
+def audit_verify() -> None:
+    """Verify current audit against the operator-pinned signed checkpoint; no signing or writes."""
+    try:
+        report = verify_database()
+    except IntegrityError:
+        typer.echo(
+            "audit verify: FAILED (trusted checkpoint, signature or bounded database read rejected)"
+        )
+        raise typer.Exit(code=1) from None
+    typer.echo(report.model_dump_json(indent=2))
+    if report.status != "verified":
+        raise typer.Exit(code=1)
 
 
 @audit_app.command("show")

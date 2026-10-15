@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "ChainLink": {
+      "additionalProperties": false,
+      "properties": {
+        "entry_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Entry Hash",
+          "type": "string"
+        },
+        "prev_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Prev Hash",
+          "type": "string"
+        },
+        "row_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Row Hash",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "row_hash",
+        "prev_hash",
+        "entry_hash"
+      ],
+      "title": "ChainLink",
+      "type": "object"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/CheckpointBody.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "chain_id": {
+      "format": "uuid",
+      "title": "Chain Id",
+      "type": "string"
+    },
+    "checkpoint_id": {
+      "format": "uuid",
+      "title": "Checkpoint Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/ChainLink"
+      },
+      "maxItems": 10000,
+      "title": "Entries",
+      "type": "array"
+    },
+    "format": {
+      "const": "aegisops-audit-snapshot-v1",
+      "default": "aegisops-audit-snapshot-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "head_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Head Hash",
+      "type": "string"
+    },
+    "key_id": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Key Id",
+      "type": "string"
+    },
+    "previous_checkpoint_hash": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Previous Checkpoint Hash"
+    },
+    "record_count": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Record Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "chain_id",
+    "checkpoint_id",
+    "created_at",
+    "key_id",
+    "previous_checkpoint_hash",
+    "entries",
+    "record_count",
+    "head_hash"
+  ],
+  "title": "CheckpointBody",
+  "type": "object"
+}

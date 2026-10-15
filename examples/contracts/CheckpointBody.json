@@ -1,0 +1,18 @@
+{
+  "format": "aegisops-audit-snapshot-v1",
+  "chain_id": "00000000-0000-0000-0000-000000000002",
+  "checkpoint_id": "00000000-0000-0000-0000-000000000003",
+  "created_at": "2026-10-15T00:00:00Z",
+  "key_id": "0817cd8cea4ddcfce00b281bac1d56607d6a03fbbca96bb36d0aba961b598e76",
+  "previous_checkpoint_hash": null,
+  "entries": [
+    {
+      "run_id": "00000000-0000-0000-0000-000000000001",
+      "row_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "entry_hash": "70822eff81f348766782e179fad858c5e55dd6cfb572a2e7497290053d49dd77"
+    }
+  ],
+  "record_count": 1,
+  "head_hash": "70822eff81f348766782e179fad858c5e55dd6cfb572a2e7497290053d49dd77"
+}

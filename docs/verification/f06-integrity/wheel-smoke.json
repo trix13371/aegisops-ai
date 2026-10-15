@@ -1,0 +1,7 @@
+{
+  "import_from_extracted_wheel": true,
+  "public_key_verification": "verified",
+  "test_fixture_records": 1,
+  "no_signing_key_or_operator_tool_packaged": true,
+  "cryptography": "50.0.2"
+}

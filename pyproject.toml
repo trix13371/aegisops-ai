@@ -8,8 +8,14 @@ version = "0.1.0"
 description = "Local L0 AegisOps analysis pipeline and safety foundation"
 requires-python = ">=3.12,<3.14"
 dependencies = [
-  "pydantic>=2.10,<3", "typer>=0.15,<1", "SQLAlchemy>=2.0,<2.1",
-  "alembic>=1.14,<2", "psycopg[binary]>=3.2,<4", "PyYAML>=6,<7", "kubernetes>=36,<37",
+  "pydantic>=2.10,<3",
+  "typer>=0.15,<1",
+  "SQLAlchemy>=2.0,<2.1",
+  "alembic>=1.14,<2",
+  "psycopg[binary]>=3.2,<4",
+  "PyYAML>=6,<7",
+  "kubernetes>=36,<37",
+  "cryptography>=50,<51",
 ]
 
 [project.scripts]
@@ -61,6 +67,15 @@ ignore_missing_imports = true
 [tool.importlinter]
 root_package = "aegisops"
 include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Integrity verifier has no model, network, writer or execution access"
+type = "forbidden"
+source_modules = ["aegisops.integrity.chain", "aegisops.integrity.models", "aegisops.integrity.repository"]
+forbidden_modules = [
+  "aegisops.llm", "aegisops.sources", "aegisops.config", "aegisops.db",
+  "aegisops.audit", "aegisops.integrity.postgres", "http", "socket", "subprocess",
+]
 
 [[tool.importlinter.contracts]]
 name = "PEP and projection cannot import transports, models or infrastructure"

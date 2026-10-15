@@ -1,0 +1,80 @@
+{
+  "$id": "https://aegisops.invalid/schemas/v1/VerificationReport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "chain_id": {
+      "format": "uuid",
+      "title": "Chain Id",
+      "type": "string"
+    },
+    "checkpoint_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Checkpoint Hash",
+      "type": "string"
+    },
+    "checkpoint_id": {
+      "format": "uuid",
+      "title": "Checkpoint Id",
+      "type": "string"
+    },
+    "current_records": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Current Records",
+      "type": "integer"
+    },
+    "format": {
+      "const": "aegisops-audit-verification-v1",
+      "default": "aegisops-audit-verification-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "missing_records": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Missing Records",
+      "type": "integer"
+    },
+    "modified_records": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Modified Records",
+      "type": "integer"
+    },
+    "protected_records": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Protected Records",
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "verified",
+        "unanchored",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "unanchored_records": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Unanchored Records",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "status",
+    "chain_id",
+    "checkpoint_id",
+    "checkpoint_hash",
+    "protected_records",
+    "current_records",
+    "missing_records",
+    "modified_records",
+    "unanchored_records"
+  ],
+  "title": "VerificationReport",
+  "type": "object"
+}
