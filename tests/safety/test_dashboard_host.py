@@ -260,6 +260,8 @@ def test_project_registration_scan_and_report_api_stay_local(host, tmp_path):
     status, _, result = request(f"/api/project-reports/{report.id}", auth=True)
     assert status == 200 and json.loads(result)["findings"][0]["code"] == "syntax"
     assert json.loads(result)["execution_performed"] is False
+    assert json.loads(result)["rules_version"] == "local-static-v2"
+    assert json.loads(result)["findings"][0]["recommendation"]
     job = json.dumps({"mode": "project", "project_id": str(identifier)})
     assert request("/api/jobs", method="POST", auth=True, body=job)[0] == 202
     remove = json.dumps({"project_id": str(identifier)})

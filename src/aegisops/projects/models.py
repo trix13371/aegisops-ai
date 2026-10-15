@@ -45,6 +45,10 @@ FindingCode = Literal[
     "host_namespace",
     "mutable_image",
     "missing_limits",
+    "capabilities",
+    "privilege_escalation",
+    "host_path",
+    "docker_socket",
     "limit",
 ]
 
@@ -55,10 +59,13 @@ class Finding(DTO):
     file: Annotated[StrictStr, Field(min_length=1, max_length=1024)]
     line: int | None = Field(default=None, strict=True, ge=1)
     message: Annotated[StrictStr, Field(min_length=1, max_length=300)]
+    location: Annotated[StrictStr, Field(min_length=1, max_length=300)] | None = None
+    recommendation: Annotated[StrictStr, Field(min_length=1, max_length=500)] | None = None
 
 
 class ProjectReport(DTO):
     format: Literal["aegisops-local-static-v1"] = "aegisops-local-static-v1"
+    rules_version: Literal["local-static-v1", "local-static-v2"] = "local-static-v1"
     id: UUID
     project_id: UUID
     started_at: UTCDateTime

@@ -13,6 +13,7 @@ from yaml.tokens import AliasToken
 
 from aegisops.domain.common import utc_now
 from aegisops.io import UniqueSafeLoader, unique_object
+from aegisops.projects.manifest import RECOMMENDATIONS, ManifestChecks
 from aegisops.projects.models import Finding, FindingCode, Project, ProjectReport
 from aegisops.projects.repository import plain_path, project_root
 
@@ -73,76 +74,28 @@ def scan_project(project: Project) -> ProjectReport:
     findings: list[Finding] = []
     stacks: set[str] = set()
 
-    def finding(
-        file: str, code: FindingCode, message: str, *, error: bool = False, line: int | None = None
-    ) -> None:
+    def emit(item: Finding) -> None:
         nonlocal partial
         if len(findings) >= 199:
             partial = True
             return
-        findings.append(
+        findings.append(item)
+
+    manifests = ManifestChecks(emit, stacks)
+
+    def finding(
+        file: str, code: FindingCode, message: str, *, error: bool = False, line: int | None = None
+    ) -> None:
+        emit(
             Finding(
                 severity="error" if error else "warning",
                 code=code,
                 file=file,
                 line=line,
                 message=message,
+                recommendation=RECOMMENDATIONS[code],
             )
         )
-
-    def manifest(document: object, relative: str) -> None:
-        if not isinstance(document, dict):
-            return
-        if document.get("apiVersion") and document.get("kind"):
-            stacks.add("Kubernetes")
-            spec = document.get("spec", {})
-            if not isinstance(spec, dict):
-                return
-            # Pod, Deployment/StatefulSet/DaemonSet/Job, CronJob pod spec.
-            for key in ("jobTemplate", "template"):
-                if isinstance(spec.get(key), dict):
-                    spec = spec[key].get("spec", {})
-                    if not isinstance(spec, dict):
-                        return
-            if isinstance(spec.get("template"), dict):
-                spec = spec["template"].get("spec", {})
-            if not isinstance(spec, dict):
-                return
-            if spec.get("hostNetwork") is True or spec.get("hostPID") is True:
-                finding(
-                    relative, "host_namespace", "Pod использует сетевое или PID-пространство хоста"
-                )
-            containers = spec.get("containers", [])
-            if not isinstance(containers, list):
-                return
-            for container in containers[:100]:
-                if not isinstance(container, dict):
-                    continue
-                security = container.get("securityContext", {})
-                resources = container.get("resources", {})
-                if isinstance(security, dict) and security.get("privileged") is True:
-                    finding(relative, "privileged", "Контейнер запускается с privileged: true")
-                if not isinstance(resources, dict) or not resources.get("limits"):
-                    finding(relative, "missing_limits", "Для контейнера не заданы resource limits")
-                image = container.get("image")
-                if (
-                    isinstance(image, str)
-                    and (image.endswith(":latest") or ":" not in image.rsplit("/", 1)[-1])
-                    and "@sha256:" not in image
-                ):
-                    finding(
-                        relative,
-                        "mutable_image",
-                        "Образ контейнера не закреплён явным тегом или digest",
-                    )
-        services = document.get("services")
-        if isinstance(services, dict):
-            stacks.add("Docker Compose")
-            for service in list(services.values())[:100]:
-                if isinstance(service, dict) and service.get("privileged") is True:
-                    finding(
-                        relative, "privileged", "Сервис Docker Compose использует privileged: true"
-                    )
 
     pending = [(root, 0)]
     while pending:
@@ -222,7 +175,7 @@ def scan_project(project: Project) -> ProjectReport:
                                     object_pairs_hook=unique_object,
                                     parse_constant=reject_constant,
                                 )
-                                manifest(document, relative)
+                                manifests.check(document, relative, "document[1]")
                             elif suffix == ".toml":
                                 tomllib.loads(text)
                             else:
@@ -246,7 +199,7 @@ def scan_project(project: Project) -> ProjectReport:
                                     if index >= 32:
                                         partial = True
                                         break
-                                    manifest(document, relative)
+                                    manifests.check(document, relative, f"document[{index + 1}]")
                         checked += 1
                     except UnicodeDecodeError:
                         partial = True
@@ -277,6 +230,7 @@ def scan_project(project: Project) -> ProjectReport:
             finding(
                 directory.relative_to(root).as_posix(), "read_failed", "Папка недоступна для чтения"
             )
+    partial = partial or manifests.partial
     if checked == 0:
         partial = True
         finding(".", "limit", "Не найдено файлов, которые удалось проверить этим профилем")
@@ -287,9 +241,11 @@ def scan_project(project: Project) -> ProjectReport:
                 code="limit",
                 file=".",
                 message="Проверка частичная: достигнут лимит или часть файлов недоступна",
+                recommendation=RECOMMENDATIONS["limit"],
             )
         )
     return ProjectReport(
+        rules_version="local-static-v2",
         id=uuid4(),
         project_id=project.id,
         started_at=started,

@@ -364,13 +364,23 @@ async function openProjectReport(id,origin) {
     const stats=node("div","report-stats");
     for (const [value,label] of [[report.files_seen,"Файлов найдено"],[report.files_checked,"Файлов проверено"],[report.skipped,"Пропусков: файлы и папки"]]) {const cell=node("div","report-stat"); cell.append(node("strong","",value),node("span","",label)); stats.append(cell);} body.append(stats);
     const summary=section("Область проверки");
+    pair(summary,"Версия правил",report.rules_version || "local-static-v1");
     summary.append(node("p","",report.stacks.length ? report.stacks.join(" · ") : "Стек не определён"));
     summary.append(node("p","","Синтаксис Python и файлов JSON/YAML/TOML; несколько правил Kubernetes и Docker Compose. JavaScript/TypeScript — только определение по структуре."));
+    if (report.rules_version === "local-static-v2") summary.append(node("p","","Kubernetes: основные, init- и временные контейнеры, Pod-шаблоны и List. Compose: привилегии, пространства хоста, образы и прямое подключение Docker socket. Настройки не исправляются автоматически."));
     if (report.partial) summary.append(node("p","","Результат частичный: часть файлов недоступна, использует неподдержанные конструкции или достигнут лимит проверки."));
     body.append(summary);
     const findings=section(`Замечания: ${report.findings.length}`);
     if (!report.findings.length) findings.append(node("p","","В рамках выполненных проверок замечаний не найдено. Это не подтверждает отсутствие ошибок в проекте."));
-    for (const item of report.findings) {const card=node("div",`finding-card ${item.severity}`); card.append(node("strong","",`${item.file}${item.line ? ` · строка ${item.line}` : ""}`),node("p","",item.message)); findings.append(card);} body.append(findings);
+    for (const item of report.findings) {
+      const card=node("div",`finding-card ${item.severity}`);
+      card.append(node("span","finding-severity",item.severity === "error" ? "Ошибка формата" : "Требует внимания"),node("strong","",`${item.file}${item.line ? ` · строка ${item.line}` : ""}`));
+      if (item.location) card.append(node("code","finding-location",item.location));
+      card.append(node("p","",item.message));
+      if (item.recommendation) {const action=node("div","finding-action"); action.append(node("strong","","Что сделать"),node("p","",item.recommendation)); card.append(action);}
+      findings.append(card);
+    } body.append(findings);
+    if (report.rules_version === "local-static-v2") findings.append(node("p","detail-subtitle","document — номер YAML-документа с 1; индексы в [ ] — с 0; services[#N] — сервис по порядку с 1. Рекомендации требуют проверки с учётом назначения приложения."));
     pair(body,"ID отчёта",report.id);
   } catch(problem) {if(sequence===detailSequence && !$("drawer").hidden) $("detail-body").replaceChildren(node("h2","","Отчёт недоступен"),node("p","detail-callout",problem.message));}
 }
