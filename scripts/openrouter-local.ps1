@@ -14,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 $openRouterRoot = Split-Path -Parent $PSScriptRoot
 $openRouterPython = Join-Path $openRouterRoot '.venv/Scripts/python.exe'
 $openRouterOldKey = $env:AEGISOPS_LLM_API_KEY
+$openRouterRuntimeKey = $env:AEGISOPS_RUNTIME_LLM_API_KEY
 $openRouterOldEncoding = $env:PYTHONIOENCODING
 $openRouterConsoleEncoding = [Console]::OutputEncoding
 $openRouterSecret = $null
@@ -39,9 +40,10 @@ try {
         $openRouterDoctor = & $openRouterPython scripts/with-local-env.py aegisops doctor 2>&1
         if ($LASTEXITCODE -ne 0) { Stop-OpenRouterLaunch 'Local audit database is not ready; no model request was made.' }
     }
-    if ($CredentialFile -or -not $openRouterOldKey) {
+    # Never implicitly reuse the development helpers' credential or generic CLI env.
+    if ($CredentialFile -or -not $openRouterRuntimeKey) {
         if (-not $CredentialFile) {
-            $CredentialFile = Join-Path $openRouterRoot '../../work/agent-credentials/openrouter.dpapi'
+            $CredentialFile = Join-Path $openRouterRoot '../../work/aegisops-runtime-credentials/openrouter.dpapi'
         }
         try {
             $openRouterSecure = ConvertTo-SecureString ([IO.File]::ReadAllText($CredentialFile).Trim())
@@ -50,8 +52,8 @@ try {
                 try { $openRouterSecret = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($openRouterPointer) }
                 finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($openRouterPointer) }
             } finally { $openRouterSecure.Dispose() }
-        } catch { Stop-OpenRouterLaunch 'Cannot read the protected credential for this Windows user. Do not paste keys in chat.' }
-    } else { $openRouterSecret = $openRouterOldKey }
+        } catch { Stop-OpenRouterLaunch 'Cannot read the project credential. Run Connect-AegisOps-OpenRouter.cmd with a separate runtime key.' }
+    } else { $openRouterSecret = $openRouterRuntimeKey }
     if (-not $openRouterSecret -or $openRouterSecret.Length -gt 4096 -or $openRouterSecret -match '[^\x21-\x7e]') {
         Stop-OpenRouterLaunch 'Invalid API credential; no model request was made.'
     }
@@ -131,6 +133,7 @@ try {
     [Console]::OutputEncoding = $openRouterConsoleEncoding
     $openRouterSecret = $null
     $openRouterOldKey = $null
+    $openRouterRuntimeKey = $null
     $openRouterStatus = $null
     Pop-Location
 }

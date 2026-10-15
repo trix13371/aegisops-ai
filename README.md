@@ -310,7 +310,8 @@ uv run aegisops analyze --scenario crashloop-oom --llm openrouter
 uv run aegisops analyze --scenario crashloop-oom --llm local --model local-model --local-url http://127.0.0.1:11434/v1/chat/completions
 ```
 
-Для Windows добавлен **`Analyze-OpenRouter.cmd`** в корне проекта: двойной клик
+Для Windows добавлен **`Analyze-OpenRouter.cmd`** в корне проекта: после
+подключения отдельного ключа двойной клик
 делает платный анализ одного учебного OOM-сценария и показывает краткий результат
 по-русски. Docker и БД для этого не требуются. Параметры PowerShell-запуска:
 
@@ -323,13 +324,27 @@ uv run aegisops analyze --scenario crashloop-oom --llm local --model local-model
 & scripts/openrouter-local.ps1 -Mode review -Scenario crashloop-oom
 ```
 
-Launcher использует `AEGISOPS_LLM_API_KEY` из окружения процесса или сохранённый
-DPAPI-ключ `../../work/agent-credentials/openrouter.dpapi` этой рабочей среды.
+Для проекта нужен **отдельный ключ OpenRouter**, отличный от ключа помощников
+разработки. Создайте его с именем `aegisops-runtime` и общим лимитом, например $1,
+без периодического сброса. Затем запустите **`Connect-AegisOps-OpenRouter.cmd`**
+в корне проекта и вставьте новый ключ в скрытое поле. Это только проверка
+ключа и локальное сохранение, без платного анализа. Повторно существующий файл
+не перезаписывается; совпадение с локальным ключом разработки отклоняется.
+
+Launcher использует `AEGISOPS_RUNTIME_LLM_API_KEY` из окружения процесса или
+DPAPI-ключ `../../work/aegisops-runtime-credentials/openrouter.dpapi` этой среды.
+Ключ помощников в `work/agent-credentials/` и общая переменная
+`AEGISOPS_LLM_API_KEY` не используются как резервное подключение. Пока отдельный
+ключ не настроен, платный запуск отклоняется. Для дочернего CLI runtime-ключ
+временно передаётся под ожидаемым им именем `AEGISOPS_LLM_API_KEY`, затем
+исходное окружение восстанавливается.
+
 `-CredentialFile` задаёт другой файл формата PowerShell `ConvertFrom-SecureString`
 без `-Key`, зашифрованный для текущего Windows-пользователя. Такой файл имеет
 приоритет над окружением; ключ не передаётся аргументом команды и не хранится
 в репозитории или `.env`. На другой машине нужен собственный ключ. Старый
-персональный launcher в `../aegisops-agent-kit/` также остаётся доступен.
+персональный Analyze-launcher в `../aegisops-agent-kit/` вызывает тот же скрипт
+проекта и тоже требует runtime-ключ. Подключение помощников разработки отдельно.
 
 Перед анализом проверяются общий лимит ключа **не более $5 без периодического
 сброса** и остаток не менее $0.10. Это предел ключа OpenRouter, не оценка цены
