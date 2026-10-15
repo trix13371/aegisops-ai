@@ -1,0 +1,18 @@
+{
+  "pytest_passed": 949,
+  "pytest_skipped": 2,
+  "paid_tests_deselected": 2,
+  "dashboard_safety_tests": 27,
+  "mypy_source_files": 92,
+  "import_contracts_kept": 16,
+  "schemas": 57,
+  "ruff": "passed",
+  "format": "passed",
+  "wheel_static_assets": [
+    "index.html",
+    "style.css",
+    "app.js",
+    "favicon.svg"
+  ],
+  "wheel_secret_files": false
+}

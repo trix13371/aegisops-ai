@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-15",
+  "url": "http://127.0.0.1:8765/",
+  "verified_in_browser": true,
+  "checks": [
+    "real local-kind launch and persisted audit detail",
+    "synthetic OOM scenario",
+    "source filters and search",
+    "overview/history/system navigation",
+    "idle UI shutdown and restart through Start-AegisOps.cmd",
+    "responsive layout at 390px and desktop at 1366px",
+    "visible skipped-invalid-record warning"
+  ],
+  "last_job": {
+    "id": "c54796a2-9683-41f7-9400-408bea2c006f",
+    "mode": "local_kind",
+    "state": "blocked",
+    "snapshot_count": 10,
+    "incident_count": 6,
+    "audit_ids": [
+      "789e6b13-1da8-47fc-a726-549ae7e0c6c2",
+      "d1fbbc5b-ab2a-4697-a527-9578c50c37e9",
+      "394bfeee-ac0a-4466-9040-615d132c3740",
+      "515eea90-0c85-4116-9975-f9f65660fa78",
+      "945a9330-0455-476c-87f2-975bdfe30bb9",
+      "0688598c-ff1c-478b-98cf-b955e3c46ff8"
+    ]
+  },
+  "controls": "blocked",
+  "external_model_calls": 0,
+  "executions": 0,
+  "screenshot": ".local/dashboard/screenshots/overview.jpg (ignored; local only)"
+}

@@ -111,3 +111,11 @@ claim автоматически не перехватывается. TelemetryP
 batch/hash/collector/registration/key в JSONB без новой миграции. Старый Pipeline
 использует то же ядро через адаптер источника. Это один trusted OS user и файловый
 транспорт, без сетевого Cluster Agent, durable workflow или исполнения. См. ADR-018.
+
+UI01: браузер → локальный operator host (`scripts/dashboard-local.py`) → фиксированные
+CLI children. Host не является модельным tool или частью Control Plane. GET API
+читает bounded audit projection, POST запускает один local-kind/synthetic job с
+обязательным OPA либо останавливает idle UI. Новых полномочий на исполнение,
+policy/key management или снятие блокировки нет. Сам `aegisops.dashboard` содержит
+только представление AuditRecord и локальные assets; транспорт/SDK/credentials
+из него запрещены import-контрактом. См. ADR-019.
