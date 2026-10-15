@@ -3,6 +3,7 @@
 import json
 import os
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -12,6 +13,7 @@ from aegisops.audit.reader import PostgresAuditReader
 from aegisops.authorization.bundle import load_config
 from aegisops.authorization.http import OpaClient
 from aegisops.authorization.pep import DryRunPEP
+from aegisops.authorization.tls import client_context, load_material
 from aegisops.cli.app import app
 from aegisops.domain.authorization import OpaResult
 from aegisops.domain.policy_release import release_hash
@@ -126,6 +128,15 @@ def test_real_opa_with_real_signed_release(
 ):
     if os.environ.get("AEGISOPS_OPA_LIVE") != "1":
         pytest.skip("explicit OPA opt-in required")
+    # Only policy state is isolated below. Keep the real running PDP's TLS identity
+    # and current TLS clock; do not copy its private key into the test directory.
+    tls_root = Path.cwd()
+    monkeypatch.setattr(
+        "aegisops.authorization.http.client_context", lambda: client_context(tls_root)
+    )
+    monkeypatch.setattr(
+        "aegisops.authorization.http.load_material", lambda: load_material(tls_root)
+    )
     monkeypatch.chdir(tmp_path)
     state, key = tmp_path / ".local/policy-releases", tmp_path / "private/policy.key"
     policy_signer.initialize(state, key, clock=lambda: NOW - timedelta(minutes=2))

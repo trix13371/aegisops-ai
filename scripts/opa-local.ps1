@@ -25,7 +25,7 @@ if ($Command -eq 'stop') {
 }
 if ($Command -eq 'status') {
     $opaProcess = Get-OwnedOpa
-    Write-Output $(if ($opaProcess) { 'OPA process running on 127.0.0.1:18181 (no readiness claim)' } else { 'OPA stopped' })
+    Write-Output $(if ($opaProcess) { 'OPA process running on 127.0.0.1:18181 (verify mTLS readiness separately)' } else { 'OPA stopped' })
     exit 0
 }
 if ((Get-FileHash -LiteralPath $opaBinary -Algorithm SHA256).Hash.ToLowerInvariant() -ne $opaExpectedHash) {
@@ -42,11 +42,21 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Signed policy release rejected.' }
     & $opaPython scripts/opa-control.py init
     if ($LASTEXITCODE -ne 0) { throw 'Emergency control rejected.' }
-    if (Get-OwnedOpa) { Write-Output 'OPA already running.'; exit 0 }
+    $opaTlsDirectory = & $opaPython scripts/opa-tls-local.py paths
+    if ($LASTEXITCODE -ne 0) { throw 'OPA TLS identity rejected. Issue with scripts/opa-tls-local.py first.' }
+    if (Get-OwnedOpa) {
+        & $opaPython scripts/wait-opa.py
+        if ($LASTEXITCODE -ne 0) { throw 'Owned OPA is stale or insecure. Stop and restart it explicitly.' }
+        Write-Output 'OPA already running with verified mTLS.'
+        exit 0
+    }
     $opaListener = Get-NetTCPConnection -LocalPort 18181 -State Listen -ErrorAction SilentlyContinue
     if ($opaListener) { throw 'OPA port already occupied; refusing to reuse an unknown service.' }
     $opaPolicy = Join-Path $opaRoot 'policies/opa'
-    $opaArguments = @('run','--server','--addr=127.0.0.1:18181','--authorization=basic','--authentication=off','--disable-telemetry','--log-level=error',
+    $opaArguments = @('run','--server','--addr=https://127.0.0.1:18181','--authorization=basic','--authentication=tls','--min-tls-version=1.3','--disable-telemetry','--log-level=error',
+        ('--tls-cert-file="'+(Join-Path $opaTlsDirectory 'server.pem')+'"'),
+        ('--tls-private-key-file="'+(Join-Path $opaTlsDirectory 'server-key.pem')+'"'),
+        ('--tls-ca-cert-file="'+(Join-Path $opaTlsDirectory 'ca.pem')+'"'),
         ('"'+(Join-Path $opaPolicy 'decision.rego')+'"'),
         ('"'+(Join-Path $opaPolicy 'api_authz.rego')+'"'),
         ('"'+(Join-Path $opaPolicy 'data.json')+'"'))
@@ -55,5 +65,7 @@ try {
     $opaProcess.Refresh()
     if ($opaProcess.HasExited) { throw 'OPA failed to start; inspect local stderr.log.' }
     [IO.File]::WriteAllText($opaStateFile, (@{pid=$opaProcess.Id;startTicks=$opaProcess.StartTime.ToUniversalTime().Ticks.ToString()} | ConvertTo-Json))
-    Write-Output 'OPA started on 127.0.0.1:18181; controls preserved (initial state is blocked).'
+    & $opaPython scripts/wait-opa.py
+    if ($LASTEXITCODE -ne 0) { throw 'OPA started but mTLS readiness failed; no authorization granted.' }
+    Write-Output 'OPA mTLS started on 127.0.0.1:18181; controls preserved (initial state is blocked).'
 } finally { Pop-Location }

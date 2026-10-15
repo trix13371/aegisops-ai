@@ -1,0 +1,46 @@
+{
+  "mode": "local-L0-no-executor",
+  "checks": [
+    {
+      "case": "allowed",
+      "run_id": "fb224237-808f-4ffa-ac58-c734c328ffc9",
+      "status": "completed",
+      "reason": "allowed",
+      "readback_equal": true,
+      "execution_performed": false
+    },
+    {
+      "case": "stale-server",
+      "run_id": "fe6101a3-2c8d-45a1-82e7-d2f77e09462e",
+      "status": "blocked",
+      "reason": "opa_unavailable",
+      "readback_equal": true,
+      "execution_performed": false
+    },
+    {
+      "case": "rotated",
+      "run_id": "e6aebddf-cc80-4cf2-afe0-5984c512438b",
+      "status": "completed",
+      "reason": "allowed",
+      "readback_equal": true,
+      "execution_performed": false
+    },
+    {
+      "case": "kill-switch",
+      "run_id": "89b2046d-164b-478f-8d54-0e6e0cd9ef4b",
+      "status": "blocked",
+      "reason": "kill_switch",
+      "readback_equal": true,
+      "execution_performed": false
+    },
+    {
+      "case": "local-kind",
+      "status": "completed",
+      "snapshot_count": 10,
+      "incident_count": 6,
+      "readback_equal": true,
+      "execution_performed": false
+    }
+  ],
+  "kill_switch_restored": true
+}

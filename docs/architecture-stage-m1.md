@@ -83,3 +83,10 @@ FakeLLMClient обеспечивает бесплатные воспроизво
 Сначала synthetic_fixture; local_kind добавляется с read-only SA и guards.
 LLM предлагает структурированное действие из каталога. Поля безопасности
 и итог dry-run формирует приложение. Исполнителя в прототипе нет.
+
+F08: PEP → OpaClient → фиксированный HTTPS endpoint OPA. Отдельный pinned CA,
+TLS 1.3, server IP SAN и точный DER fingerprint проверяются до POST; OPA проверяет
+clientAuth и subject PEP. Trust/срок повторно проверяются после ответа.
+Оператор выпускает identity ≤24 часов вне приложения; native PEM-ключи вне Git,
+ACL/0600. CA-ключ не сохраняется. Это локальная аутентификация транспорта,
+не разделение OS identity, SPIFFE или Cluster Agent. См. ADR-017.

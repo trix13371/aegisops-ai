@@ -11,6 +11,7 @@ from aegisops.authorization.bundle import load_config
 from aegisops.authorization.http import OpaClient
 from aegisops.authorization.pep import DryRunPEP
 from aegisops.authorization.projection import build_input
+from aegisops.authorization.tls import client_context
 from aegisops.domain.models import Incident, Recommendation
 from aegisops.llm.engine import AnalysisEngine
 from aegisops.llm.fake import FakeLLMClient
@@ -105,7 +106,8 @@ def test_real_python_opa_parity(authz_case, action, params, reversibility, owner
     ],
 )
 def test_management_apis_forbidden(method, path):
-    connection = http.client.HTTPConnection("127.0.0.1", 18181, timeout=2)
+    context, _ = client_context()
+    connection = http.client.HTTPSConnection("127.0.0.1", 18181, timeout=2, context=context)
     try:
         connection.request(method, path, body=b"{}", headers={"Content-Type": "application/json"})
         response = connection.getresponse()
@@ -132,5 +134,32 @@ def test_real_pdp_receipt_survives_postgres_round_trip(
         ).review(authz_case[0])
     assert record.status == ("blocked" if blocked else "completed")
     assert record.pep_receipt.reason == ("kill_switch" if blocked else "allowed")
+    with PostgresAuditReader() as reader:
+        assert reader.show(record.run_id) == record
+
+
+def test_missing_tls_identity_blocks_and_persists_without_http(
+    tmp_path, monkeypatch, authz_case, open_control, valid_policy_reader
+):
+    if not os.environ.get("AEGISOPS_DATABASE_URL"):
+        pytest.skip("local PostgreSQL not configured")
+    monkeypatch.chdir(tmp_path)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Network attempted without TLS identity")
+
+    monkeypatch.setattr("aegisops.authorization.http.http.client.HTTPSConnection", forbidden)
+    monkeypatch.setattr("aegisops.authorization.http.http.client.HTTPConnection", forbidden)
+    with PostgresAuditStore() as store:
+        record = ReviewService(
+            AnalysisEngine(FakeLLMClient()),
+            store,
+            pep=DryRunPEP(
+                OpaClient(), control_reader=lambda: open_control, release_reader=valid_policy_reader
+            ),
+        ).review(authz_case[0])
+    assert record.status == "blocked" and record.pep_receipt.reason == "opa_invalid"
+    assert record.pep_receipt.result is None and record.dry_run_result is None
+    assert record.recommendation.execution_performed is False
     with PostgresAuditReader() as reader:
         assert reader.show(record.run_id) == record

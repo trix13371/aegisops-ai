@@ -1,6 +1,8 @@
 """Only a bounded, strictly bound decision response from the fixed loopback endpoint."""
 
+import hashlib
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -37,6 +39,28 @@ def response_payload(opa_request):
 
 
 def install(monkeypatch, payload, *, status=200, length=None):
+    context = object()
+    peer = b"unit-test-server-certificate"
+    trust = SimpleNamespace(server_sha256=hashlib.sha256(peer).hexdigest())
+    monkeypatch.setattr(
+        "aegisops.authorization.http.client_context",
+        lambda: (context, trust),
+    )
+    monkeypatch.setattr(
+        "aegisops.authorization.http.load_material", lambda: SimpleNamespace(trust=trust)
+    )
+
+    class Socket:
+        def getpeercert(self, *, binary_form):
+            assert binary_form is True
+            return peer
+
+        def settimeout(self, timeout):
+            pass
+
+        def shutdown(self, how):
+            pass
+
     class Response:
         def __init__(self):
             self.status, self.body = status, payload
@@ -52,11 +76,11 @@ def install(monkeypatch, payload, *, status=200, length=None):
             pass
 
     class Connection:
-        sock = None
+        sock = Socket()
         calls = []
 
         def __init__(self, host, port, **kwargs):
-            assert (host, port, kwargs) == ("127.0.0.1", 18181, {"timeout": 2})
+            assert (host, port, kwargs) == ("127.0.0.1", 18181, {"timeout": 2, "context": context})
 
         def connect(self):
             pass
@@ -70,7 +94,7 @@ def install(monkeypatch, payload, *, status=200, length=None):
         def close(self):
             pass
 
-    monkeypatch.setattr("aegisops.authorization.http.http.client.HTTPConnection", Connection)
+    monkeypatch.setattr("aegisops.authorization.http.http.client.HTTPSConnection", Connection)
     return Connection
 
 
@@ -149,7 +173,8 @@ def test_connection_failure_and_deadline_are_fixed_errors(monkeypatch, opa_reque
     def unavailable(*args, **kwargs):
         raise ConnectionRefusedError("password=NOT_FOR_OUTPUT")
 
-    monkeypatch.setattr("aegisops.authorization.http.http.client.HTTPConnection", unavailable)
+    install(monkeypatch, b"")
+    monkeypatch.setattr("aegisops.authorization.http.http.client.HTTPSConnection", unavailable)
     with pytest.raises(OpaError) as error:
         OpaClient().evaluate(opa_request)
     assert error.value.code == "unavailable" and "NOT_FOR_OUTPUT" not in str(error.value)
@@ -159,3 +184,36 @@ def test_connection_failure_and_deadline_are_fixed_errors(monkeypatch, opa_reque
     with pytest.raises(OpaError) as error:
         OpaClient().evaluate(opa_request)
     assert error.value.code == "unavailable"
+
+
+def test_server_pin_mismatch_never_sends_the_request(monkeypatch, opa_request):
+    connection = install(monkeypatch, json.dumps(response_payload(opa_request)).encode())
+    monkeypatch.setattr(connection.sock, "getpeercert", lambda **kwargs: b"imposter")
+    with pytest.raises(OpaError):
+        OpaClient().evaluate(opa_request)
+    assert connection.calls == []
+
+
+def test_missing_tls_identity_has_no_http_fallback(monkeypatch, opa_request):
+    from aegisops.authorization.tls import TlsError
+
+    def reject():
+        raise TlsError()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Network attempted without TLS identity")
+
+    monkeypatch.setattr("aegisops.authorization.http.client_context", reject)
+    monkeypatch.setattr("aegisops.authorization.http.http.client.HTTPConnection", forbidden)
+    monkeypatch.setattr("aegisops.authorization.http.http.client.HTTPSConnection", forbidden)
+    with pytest.raises(OpaError):
+        OpaClient().evaluate(opa_request)
+
+
+def test_tls_rotation_during_pdp_reply_cancels_result(monkeypatch, opa_request):
+    install(monkeypatch, json.dumps(response_payload(opa_request)).encode())
+    monkeypatch.setattr(
+        "aegisops.authorization.http.load_material", lambda: SimpleNamespace(trust=object())
+    )
+    with pytest.raises(OpaError):
+        OpaClient().evaluate(opa_request)

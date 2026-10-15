@@ -1,5 +1,6 @@
 """A single fixed loopback OPA decision endpoint, no proxies, tools or management API."""
 
+import hashlib
 import http.client
 import json
 import socket
@@ -7,6 +8,7 @@ import threading
 import time
 from typing import Literal
 
+from aegisops.authorization.tls import client_context, load_material
 from aegisops.domain.authorization import OpaInput, OpaResult
 from aegisops.io import unique_object
 
@@ -33,7 +35,8 @@ class OpaClient:
             ).encode("utf-8")
             if len(body) > 8192:
                 raise OpaError()
-            connection = http.client.HTTPConnection(OPA_HOST, OPA_PORT, timeout=2)
+            context, tls_trust = client_context()
+            connection = http.client.HTTPSConnection(OPA_HOST, OPA_PORT, timeout=2, context=context)
             deadline = time.monotonic() + 2
 
             def abort() -> None:
@@ -49,6 +52,14 @@ class OpaClient:
             timer.start()
             connection.connect()
             active_socket = connection.sock
+            if active_socket is None:
+                raise OpaError()
+            peer = active_socket.getpeercert(binary_form=True)
+            if (
+                type(peer) is not bytes
+                or hashlib.sha256(peer).hexdigest() != tls_trust.server_sha256
+            ):
+                raise OpaError()
             connection.request(
                 "POST", OPA_PATH, body=body, headers={"Content-Type": "application/json"}
             )
@@ -64,8 +75,10 @@ class OpaClient:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise OpaError("unavailable")
-                    if active_socket is not None:
-                        active_socket.settimeout(remaining)
+                    # HTTP/1.0 or Connection: close detaches the socket while response.fp
+                    # still owns the stream. Do not call settimeout on the closed wrapper.
+                    if connection.sock is not None:
+                        connection.sock.settimeout(remaining)
                     chunk = response.read1(min(4096, 8193 - len(data)))
                     data.extend(chunk)
                     if len(data) > 8192:
@@ -80,6 +93,9 @@ class OpaClient:
                     getattr(result, key) != getattr(request, key)
                     for key in ("policy_version", "bundle_hash", "catalog_hash", "input_hash")
                 ):
+                    raise OpaError()
+                # Expiry or rotation while the PDP was answering cancels this result.
+                if load_material().trust != tls_trust:
                     raise OpaError()
                 return result
             finally:

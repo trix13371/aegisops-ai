@@ -114,6 +114,18 @@ forbidden_modules = [
 packages = ["src/aegisops"]
 
 [[tool.importlinter.contracts]]
+name = "Analysis and pure policy cannot read OPA TLS credentials"
+type = "forbidden"
+source_modules = [
+  "aegisops.llm.engine", "aegisops.llm.prompt", "aegisops.llm.fallback",
+  "aegisops.detection", "aegisops.context", "aegisops.policy", "aegisops.dry_run",
+  "aegisops.authorization.pep", "aegisops.authorization.projection",
+  "aegisops.authorization.releases", "aegisops.domain", "aegisops.feedback",
+  "aegisops.runbooks", "aegisops.integrity",
+]
+forbidden_modules = ["aegisops.authorization.tls"]
+
+[[tool.importlinter.contracts]]
 name = "Model processing cannot reach infrastructure or the HTTP adapter"
 type = "forbidden"
 source_modules = ["aegisops.llm.engine", "aegisops.llm.fallback", "aegisops.llm.prompt"]

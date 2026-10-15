@@ -56,6 +56,12 @@ Restricted обрабатывается резервными правилами 
 и возрастающую revision в OPA-режим. Проверки до/после PDP сохраняются в v2
 receipt. Приёмка: [VERIFICATION-F07.md](VERIFICATION-F07.md).
 
+**F08: mTLS между PEP и OPA** заменяет обычный loopback HTTP на TLS 1.3,
+отдельные короткоживущие сертификаты и точное закрепление CA/сертификатов.
+OPA допускает только identity PEP и свой decision API. Это локальный срез
+идентификации сервисов, не SPIFFE/SPIRE и не завершённый Control Plane.
+Приёмка: [VERIFICATION-F08.md](VERIFICATION-F08.md).
+
 ## Сценарии без БД и LLM
 
 ```powershell
@@ -697,6 +703,9 @@ PEP допускает только описательный dry-run при со
 
 ```powershell
 # OPA 1.21.2 уже установлен локально в work/tooling/opa/opa.exe вне репозитория.
+# На новой установке выпустить отдельные TLS-идентичности (максимум 24 часа):
+.venv/Scripts/python.exe scripts/opa-tls-local.py issue
+.venv/Scripts/python.exe scripts/opa-tls-local.py check
 & scripts/opa-local.ps1 up
 .venv/Scripts/python.exe scripts/wait-opa.py
 # Изначально аварийная блокировка включена. Разрешить учебные dry-run:
@@ -715,11 +724,36 @@ PEP допускает только описательный dry-run при со
 сохранённый как `../../work/tooling/opa/opa.exe`. Ожидаемый SHA-256:
 `0089fa7ad8cdea7ff9e56ff86fa9202462afb63ef74506e2b547a24b4a987ccb`.
 
-Управляющие HTTP API закрыты; разрешён только POST фиксированного decision API.
+Управляющие API закрыты; разрешён только POST фиксированного decision API
+от TLS-клиента с subject `CN=aegisops-pep`. Обычного HTTP-слушателя нет.
 Запрос содержит проекцию идентификаторов и параметров без логов, evidence и
-текста модели; размер ответа ограничен 8192 байтами, общий deadline — 2 секунды.
+текста модели; размер ответа ограничен 8192 байтами. Таймаут сокета и deadline
+чтения — по 2 секунды; это не строгий общий предел файловых операций и TLS.
 Хеши bundle/catalog/input связывают локальный контракт, но не являются подписью
-или доказательством подлинности процесса на loopback-порту.
+или доказательством подлинности процесса. После F08 подлинность TLS-peer
+проверяется отдельным pinned CA, IP SAN и точным SHA-256 сертификата до POST.
+
+Публичный TLS trust находится в `.local/authorization/tls/trust.json`, сертификаты
+и ключи — в `../../work/opa-mtls/<identity_id>/`. Сертификаты живут не более 24 часов.
+Ключи TLS — отдельные PEM, доступные текущему Windows SID через ACL или владельцу
+POSIX с режимом 0600. Это не DPAPI/KMS: native OPA читает свой PEM непосредственно.
+CA-ключ после выпуска не сохраняется; ключи аудита, политики и OpenRouter не
+переиспользуются. Автоматического выпуска и HTTP fallback нет.
+
+Повторный `issue` выпускает новую identity и атомарно меняет pins. Для обновления:
+
+```powershell
+.venv/Scripts/python.exe scripts/opa-tls-local.py issue --ttl-hours 24
+& scripts/opa-local.ps1 stop
+& scripts/opa-local.ps1 up
+```
+
+Между выпуском и рестартом старый сервер отвергается новыми клиентами. Истечение,
+отсутствие файлов или изменение trust во время ответа не дают разрешения.
+Launcher проверяет mTLS readiness и не переиспользует устаревший HTTP-процесс.
+State/revocations F07 и kill switch при этом сохраняются. Если изменилась сама
+Rego-политика, дополнительно нужен новый подписанный policy-релиз F07.
+Решение: [ADR-017](docs/decisions/ADR-017-local-opa-mtls.md).
 
 Файл `.local/authorization/control.json` читается перед OPA и перед dry-run.
 Отсутствие, повреждение или изменение поколения блокирует запуск. Через

@@ -1,7 +1,7 @@
 {
   "aegisops_config": {
     "policy_version": "opa-l0-1",
-    "bundle_hash": "57b929265740195251ddd640ceda9d16d23b2163f789c62de0cb1032bf2563d2",
+    "bundle_hash": "6e875d1d51567a934f01fdf98c5a6a8951b20ef7cab1773ca51e18256e262347",
     "catalog_hash": "8f920ec176d2f4ac1c27786a29f70851206a1e44ff40f9b841239458776b4e3a"
   }
 }

@@ -14,6 +14,38 @@ from aegisops.sources.synthetic import ScenarioRepository
 
 
 @pytest.fixture
+def tls_operator():
+    spec = importlib.util.spec_from_file_location(
+        "operator_tls", Path(__file__).resolve().parents[1] / "scripts/opa-tls-local.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def tls_root(tmp_path, tls_operator):
+    root = tmp_path / "outputs/project"
+    root.mkdir(parents=True)
+    tls_operator.issue(root)
+    return root
+
+
+@pytest.fixture
+def known_pki(tmp_path, tls_operator):
+    from unittest.mock import patch
+
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    root = tmp_path / "identity with spaces/outputs/project"
+    root.mkdir(parents=True)
+    keys = [ec.generate_private_key(ec.SECP256R1()) for _ in range(3)]
+    with patch.object(tls_operator.ec, "generate_private_key", side_effect=keys):
+        tls_operator.issue(root)
+    return root, keys[0]
+
+
+@pytest.fixture
 def authz_case():
     incident = DetectionEngine().detect([ScenarioRepository().load("crashloop-oom")[1]])[0]
     result = AnalysisEngine(FakeLLMClient()).analyze(incident, ContextBuilder().build(incident))

@@ -56,8 +56,11 @@ jobs:
       - name: Test with real local OPA and PostgreSQL
         env:
           AEGISOPS_OPA_LIVE: '1'
+          AEGISOPS_OPA_BIN: /tmp/aegisops-opa
         run: |
-          /tmp/aegisops-opa run --server --addr=127.0.0.1:18181 --authorization=basic --authentication=off --disable-telemetry --log-level=error policies/opa/decision.rego policies/opa/api_authz.rego policies/opa/data.json > /tmp/aegisops-opa.log 2>&1 &
+          uv run --frozen python scripts/opa-tls-local.py issue
+          OPA_TLS_DIR=$(uv run --frozen python scripts/opa-tls-local.py paths)
+          /tmp/aegisops-opa run --server --addr=https://127.0.0.1:18181 --authorization=basic --authentication=tls --min-tls-version=1.3 --tls-cert-file="$OPA_TLS_DIR/server.pem" --tls-private-key-file="$OPA_TLS_DIR/server-key.pem" --tls-ca-cert-file="$OPA_TLS_DIR/ca.pem" --disable-telemetry --log-level=error policies/opa/decision.rego policies/opa/api_authz.rego policies/opa/data.json > /tmp/aegisops-opa.log 2>&1 &
           OPA_PID=$!
           trap 'kill "$OPA_PID"' EXIT
           uv run --frozen python scripts/wait-opa.py

@@ -1,0 +1,7 @@
+{
+  "import_from_extracted_wheel": true,
+  "tls_minimum": "TLSv1_3",
+  "tls_trust_loaded": true,
+  "bundle_valid": true,
+  "credential_files_packaged": false
+}
