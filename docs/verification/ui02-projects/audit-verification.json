@@ -1,1 +1,12 @@
-audit verify: FAILED (trusted checkpoint, signature or bounded database read rejected)
+{
+  "format": "aegisops-audit-verification-v1",
+  "status": "verified",
+  "chain_id": "73ed0595-de13-4b7f-a070-b9c41f970760",
+  "checkpoint_id": "79ae1591-e00e-40c0-b98b-4381a2e43364",
+  "checkpoint_hash": "c25d1d9c78b3f1aa0df56b471b70c68ef7b736ff8fc5c2c82a63d9ba1cb46961",
+  "protected_records": 1275,
+  "current_records": 1275,
+  "missing_records": 0,
+  "modified_records": 0,
+  "unanchored_records": 0
+}
