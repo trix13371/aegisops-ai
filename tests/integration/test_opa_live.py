@@ -116,7 +116,9 @@ def test_management_apis_forbidden(method, path):
 
 
 @pytest.mark.parametrize("blocked", [False, True])
-def test_real_pdp_receipt_survives_postgres_round_trip(authz_case, open_control, blocked):
+def test_real_pdp_receipt_survives_postgres_round_trip(
+    authz_case, open_control, blocked, valid_policy_reader
+):
     if not os.environ.get("AEGISOPS_DATABASE_URL"):
         pytest.skip("local PostgreSQL not configured")
     control = open_control.model_copy(update={"global_blocked": blocked})
@@ -124,7 +126,9 @@ def test_real_pdp_receipt_survives_postgres_round_trip(authz_case, open_control,
         record = ReviewService(
             AnalysisEngine(FakeLLMClient()),
             store,
-            pep=DryRunPEP(OpaClient(), control_reader=lambda: control),
+            pep=DryRunPEP(
+                OpaClient(), control_reader=lambda: control, release_reader=valid_policy_reader
+            ),
         ).review(authz_case[0])
     assert record.status == ("blocked" if blocked else "completed")
     assert record.pep_receipt.reason == ("kill_switch" if blocked else "allowed")

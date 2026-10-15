@@ -1,0 +1,11 @@
+{
+  "format": "aegisops-local-policy-v1",
+  "release_id": "7f8aa89b-5010-4edc-b839-8852b4e03426",
+  "revision": 1,
+  "policy_version": "opa-l0-1",
+  "bundle_hash": "57b929265740195251ddd640ceda9d16d23b2163f789c62de0cb1032bf2563d2",
+  "catalog_hash": "8f920ec176d2f4ac1c27786a29f70851206a1e44ff40f9b841239458776b4e3a",
+  "key_id": "a77cb3e7492c33237a407e2b3f5b7ab45780d8bc25edb8021577decc6c332245",
+  "issued_at": "2026-10-15T12:25:02.707581Z",
+  "expires_at": "2026-10-16T12:25:02.707581Z"
+}

@@ -5,6 +5,7 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, StrictBool, StrictInt, model_validator
 
 from aegisops.domain.common import DTO, Identifier, ScalarMap, Sha256
+from aegisops.domain.policy_release import PolicyReleaseCheck, policy_pair_reason
 
 ActionName = Literal[
     "escalate_to_human", "collect_more_evidence", "restart_workload", "rollback_deployment"
@@ -57,12 +58,15 @@ class OpaResult(DTO):
 
 
 class PepReceipt(DTO):
-    mode: Literal["opa-dry-run-v1"] = "opa-dry-run-v1"
+    mode: Literal["opa-dry-run-v1", "opa-dry-run-v2"] = "opa-dry-run-v1"
     request: OpaInput
     python_allowed: StrictBool
     control_before: AuthorizationControl | None
     control_after: AuthorizationControl | None
     result: OpaResult | None
+    bundle_valid: StrictBool | None = None
+    release_before: PolicyReleaseCheck | None = None
+    release_after: PolicyReleaseCheck | None = None
     allowed_for_dry_run: StrictBool
     reason: Literal[
         "allowed",
@@ -73,10 +77,44 @@ class PepReceipt(DTO):
         "opa_unavailable",
         "opa_invalid",
         "opa_denied",
+        "policy_missing",
+        "policy_invalid",
+        "policy_not_yet_valid",
+        "policy_expired",
+        "policy_revoked",
+        "policy_rollback",
+        "policy_mismatch",
+        "policy_changed",
+        "policy_clock_rollback",
     ]
 
     @model_validator(mode="after")
     def consistent(self) -> Self:
+        policy_reason = None
+        if self.mode == "opa-dry-run-v1":
+            if any(
+                value is not None
+                for value in (self.bundle_valid, self.release_before, self.release_after)
+            ):
+                raise ValueError("legacy receipt cannot contain policy-release fields")
+        else:
+            if (
+                self.bundle_valid is None
+                or self.release_before is None
+                or self.release_after is None
+            ):
+                raise ValueError("signed policy checks required")
+            for check in (self.release_before, self.release_after):
+                check.validate_for(
+                    bundle_hash=self.request.bundle_hash,
+                    catalog_hash=self.request.catalog_hash,
+                    policy_version=self.request.policy_version,
+                )
+            policy_reason = (
+                "opa_invalid"
+                if not self.bundle_valid
+                else policy_pair_reason(self.release_before, self.release_after)
+            )
         if self.result is not None and any(
             getattr(self.result, key) != getattr(self.request, key)
             for key in ("policy_version", "bundle_hash", "catalog_hash", "input_hash")
@@ -99,6 +137,8 @@ class PepReceipt(DTO):
             expected = "kill_switch"
         elif self.control_before != self.control_after:
             expected = "control_changed"
+        elif policy_reason is not None:
+            expected = policy_reason
         elif self.result is None:
             if self.reason not in {"opa_unavailable", "opa_invalid"}:
                 raise ValueError("missing PDP response requires a safe error")

@@ -24,6 +24,12 @@ from aegisops.review.service import ReviewService
 pytestmark = pytest.mark.safety
 
 
+@pytest.fixture(autouse=True)
+def signed_policy_fixture(monkeypatch, valid_policy_reader):
+    # F05 assertions isolate PDP/control failures using an explicitly trusted F07 test release.
+    monkeypatch.setattr("aegisops.authorization.pep.load_release_check", valid_policy_reader)
+
+
 class Client:
     def __init__(self, behavior="allow"):
         self.behavior, self.calls = behavior, 0

@@ -38,6 +38,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'OPA policy metadata rejected.' }
     & $opaPython scripts/sync-assets.py --check
     if ($LASTEXITCODE -ne 0) { throw 'Packaged policy rejected.' }
+    & $opaPython scripts/policy-release-local.py check
+    if ($LASTEXITCODE -ne 0) { throw 'Signed policy release rejected.' }
     & $opaPython scripts/opa-control.py init
     if ($LASTEXITCODE -ne 0) { throw 'Emergency control rejected.' }
     if (Get-OwnedOpa) { Write-Output 'OPA already running.'; exit 0 }

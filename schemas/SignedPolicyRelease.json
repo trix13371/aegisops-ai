@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "PolicyReleaseBody": {
+      "additionalProperties": false,
+      "properties": {
+        "bundle_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Bundle Hash",
+          "type": "string"
+        },
+        "catalog_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Catalog Hash",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "format": {
+          "const": "aegisops-local-policy-v1",
+          "default": "aegisops-local-policy-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "issued_at": {
+          "format": "date-time",
+          "title": "Issued At",
+          "type": "string"
+        },
+        "key_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "const": "opa-l0-1",
+          "default": "opa-l0-1",
+          "title": "Policy Version",
+          "type": "string"
+        },
+        "release_id": {
+          "format": "uuid",
+          "title": "Release Id",
+          "type": "string"
+        },
+        "revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "release_id",
+        "revision",
+        "bundle_hash",
+        "catalog_hash",
+        "key_id",
+        "issued_at",
+        "expires_at"
+      ],
+      "title": "PolicyReleaseBody",
+      "type": "object"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/SignedPolicyRelease.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "$ref": "#/$defs/PolicyReleaseBody"
+    },
+    "signature": {
+      "pattern": "^[0-9a-f]{128}$",
+      "title": "Signature",
+      "type": "string"
+    }
+  },
+  "required": [
+    "body",
+    "signature"
+  ],
+  "title": "SignedPolicyRelease",
+  "type": "object"
+}

@@ -43,6 +43,9 @@
     "autonomy_level": "L0",
     "execution_performed": false
   },
+  "bundle_valid": null,
+  "release_before": null,
+  "release_after": null,
   "allowed_for_dry_run": true,
   "reason": "allowed"
 }

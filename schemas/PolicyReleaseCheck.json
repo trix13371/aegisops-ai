@@ -1,0 +1,224 @@
+{
+  "$defs": {
+    "PolicyReleaseBody": {
+      "additionalProperties": false,
+      "properties": {
+        "bundle_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Bundle Hash",
+          "type": "string"
+        },
+        "catalog_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Catalog Hash",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "format": {
+          "const": "aegisops-local-policy-v1",
+          "default": "aegisops-local-policy-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "issued_at": {
+          "format": "date-time",
+          "title": "Issued At",
+          "type": "string"
+        },
+        "key_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "policy_version": {
+          "const": "opa-l0-1",
+          "default": "opa-l0-1",
+          "title": "Policy Version",
+          "type": "string"
+        },
+        "release_id": {
+          "format": "uuid",
+          "title": "Release Id",
+          "type": "string"
+        },
+        "revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "release_id",
+        "revision",
+        "bundle_hash",
+        "catalog_hash",
+        "key_id",
+        "issued_at",
+        "expires_at"
+      ],
+      "title": "PolicyReleaseBody",
+      "type": "object"
+    },
+    "PolicyReleaseState": {
+      "additionalProperties": false,
+      "properties": {
+        "active_release_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Active Release Hash"
+        },
+        "changed_at": {
+          "format": "date-time",
+          "title": "Changed At",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "minimum_revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Minimum Revision",
+          "type": "integer"
+        },
+        "revoked_revisions": {
+          "default": [],
+          "items": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 128,
+          "title": "Revoked Revisions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "generation",
+        "minimum_revision",
+        "active_release_hash",
+        "changed_at"
+      ],
+      "title": "PolicyReleaseState",
+      "type": "object"
+    },
+    "SignedPolicyRelease": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/PolicyReleaseBody"
+        },
+        "signature": {
+          "pattern": "^[0-9a-f]{128}$",
+          "title": "Signature",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body",
+        "signature"
+      ],
+      "title": "SignedPolicyRelease",
+      "type": "object"
+    },
+    "TrustAnchor": {
+      "additionalProperties": false,
+      "properties": {
+        "key_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "public_key": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Public Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "public_key",
+        "key_id"
+      ],
+      "title": "TrustAnchor",
+      "type": "object"
+    }
+  },
+  "$id": "https://aegisops.invalid/schemas/v1/PolicyReleaseCheck.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checked_at": {
+      "format": "date-time",
+      "title": "Checked At",
+      "type": "string"
+    },
+    "release": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SignedPolicyRelease"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "state": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PolicyReleaseState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "status": {
+      "enum": [
+        "valid",
+        "policy_missing",
+        "policy_invalid",
+        "policy_not_yet_valid",
+        "policy_expired",
+        "policy_revoked",
+        "policy_rollback",
+        "policy_mismatch"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "trust": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TrustAnchor"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "checked_at",
+    "status"
+  ],
+  "title": "PolicyReleaseCheck",
+  "type": "object"
+}

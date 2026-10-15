@@ -48,6 +48,11 @@ jobs:
           /tmp/aegisops-opa check --strict policies/opa
           /tmp/aegisops-opa fmt --fail --list policies/opa
           /tmp/aegisops-opa test policies/opa
+      - name: Prepare isolated operator policy key and signed release
+        run: |
+          uv run --frozen python scripts/policy-release-local.py init
+          uv run --frozen python scripts/policy-release-local.py issue
+          uv run --frozen python scripts/policy-release-local.py check
       - name: Test with real local OPA and PostgreSQL
         env:
           AEGISOPS_OPA_LIVE: '1'

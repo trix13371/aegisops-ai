@@ -1,0 +1,29 @@
+{
+  "checked_at": "2026-10-15T12:31:45.315347Z",
+  "status": "valid",
+  "release": {
+    "body": {
+      "format": "aegisops-local-policy-v1",
+      "release_id": "7f8aa89b-5010-4edc-b839-8852b4e03426",
+      "revision": 1,
+      "policy_version": "opa-l0-1",
+      "bundle_hash": "57b929265740195251ddd640ceda9d16d23b2163f789c62de0cb1032bf2563d2",
+      "catalog_hash": "8f920ec176d2f4ac1c27786a29f70851206a1e44ff40f9b841239458776b4e3a",
+      "key_id": "a77cb3e7492c33237a407e2b3f5b7ab45780d8bc25edb8021577decc6c332245",
+      "issued_at": "2026-10-15T12:25:02.707581Z",
+      "expires_at": "2026-10-16T12:25:02.707581Z"
+    },
+    "signature": "83b95247ecf52f5c1a541836fd25aebe5ab75670fa29e9aaae9d72eaa45a831aa66570f67a303bd823f8c3aeaa9661cf6eeaf42c46a9cf9a4ba9aa07077e7308"
+  },
+  "state": {
+    "generation": 2,
+    "minimum_revision": 1,
+    "active_release_hash": "5d80e2ce1bda6ebbd2d07ed7876e4b58314d422dc3b21ba7d2c4b5fb8290691d",
+    "revoked_revisions": [],
+    "changed_at": "2026-10-15T12:25:02.707581Z"
+  },
+  "trust": {
+    "public_key": "08ad51dfbc2ee81b34067b31f83abb8b930f6946573703bdcad59a5c05738c18",
+    "key_id": "a77cb3e7492c33237a407e2b3f5b7ab45780d8bc25edb8021577decc6c332245"
+  }
+}

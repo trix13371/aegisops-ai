@@ -1,0 +1,75 @@
+{
+  "stage": "F07",
+  "autonomy_level": "L0",
+  "execution_performed": false,
+  "pytest": {
+    "tests": 801,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 800
+  },
+  "new_f07_tests": 62,
+  "paid_tests_deselected": 2,
+  "rego_tests_passed": 25,
+  "cli_cases": [
+    {
+      "case": "allowed",
+      "run_id": "82a28163-093f-4bd2-a8e3-9a4d6d89bc76",
+      "status": "completed",
+      "reason": "allowed",
+      "revision": 1,
+      "receipt_mode": "opa-dry-run-v2",
+      "dry_run_present": true,
+      "durable_readback_equal": true
+    },
+    {
+      "case": "revoked",
+      "run_id": "8d04f323-c369-41a0-9d76-7cc9096095c7",
+      "status": "blocked",
+      "reason": "policy_revoked",
+      "revision": 1,
+      "receipt_mode": "opa-dry-run-v2",
+      "dry_run_present": false,
+      "durable_readback_equal": true
+    },
+    {
+      "case": "renewed",
+      "run_id": "a1c9bbbb-cc0c-466f-92a5-23caf9862058",
+      "status": "completed",
+      "reason": "allowed",
+      "revision": 2,
+      "receipt_mode": "opa-dry-run-v2",
+      "dry_run_present": true,
+      "durable_readback_equal": true
+    }
+  ],
+  "kind_pipeline": {
+    "status": "completed",
+    "snapshot_count": 10,
+    "incident_count": 6,
+    "signed_policy_receipts": 6,
+    "revision": 2,
+    "durable_readback_equal": true,
+    "llm": "fixture-v2"
+  },
+  "active_release": {
+    "revision": 2,
+    "issued_at": "2026-10-15T12:33:37.933165+00:00",
+    "expires_at": "2026-10-16T12:33:37.933165+00:00",
+    "minimum_revision": 2,
+    "revoked_revisions": [
+      1
+    ],
+    "status_at_verification": "valid"
+  },
+  "separate_policy_and_audit_public_keys": true,
+  "final_emergency_control": {
+    "generation": 7,
+    "global_blocked": true,
+    "blocked_clusters": [],
+    "blocked_actions": []
+  },
+  "native_opa_jws_bundle_signing": false,
+  "remote_ci_executed": false
+}

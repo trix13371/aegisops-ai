@@ -29,6 +29,12 @@ from aegisops.domain.models import (
     Recommendation,
     RecommendationDraft,
 )
+from aegisops.domain.policy_release import (
+    PolicyReleaseBody,
+    PolicyReleaseCheck,
+    PolicyReleaseState,
+    SignedPolicyRelease,
+)
 from aegisops.evaluation.suite import EvaluationReport
 from aegisops.feedback.models import FeedbackRecord, FeedbackSummary
 from aegisops.feedback.quality_models import QualityCase, QualityReport
@@ -47,6 +53,10 @@ from aegisops.runbooks.models import RunbookCatalog, RunbookDocument, RunbookSel
 from aegisops.sources.synthetic import ScenarioSpec
 
 CONTRACTS: tuple[type[DTO], ...] = (
+    PolicyReleaseBody,
+    SignedPolicyRelease,
+    PolicyReleaseState,
+    PolicyReleaseCheck,
     RowDigest,
     ChainLink,
     CheckpointBody,

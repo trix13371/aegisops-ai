@@ -34,3 +34,76 @@ def integrity_signer():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture
+def valid_policy_reader():
+    """Ephemeral signed release for older PEP tests; never depends on operator files."""
+    from datetime import timedelta
+    from uuid import uuid4
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from aegisops.domain.policy_release import (
+        PolicyReleaseBody,
+        PolicyReleaseCheck,
+        PolicyReleaseState,
+        SignedPolicyRelease,
+        release_bytes,
+        release_hash,
+        release_status,
+    )
+    from aegisops.integrity.chain import key_id
+    from aegisops.integrity.models import TrustAnchor
+
+    key = Ed25519PrivateKey.generate()
+    public = key.public_key().public_bytes_raw().hex()
+    trust = TrustAnchor(public_key=public, key_id=key_id(public))
+    cache = {}
+
+    def reader(config, now):
+        identity = (config.bundle_hash, config.catalog_hash)
+        if identity not in cache:
+            body = PolicyReleaseBody(
+                release_id=uuid4(),
+                revision=1,
+                bundle_hash=config.bundle_hash,
+                catalog_hash=config.catalog_hash,
+                key_id=trust.key_id,
+                issued_at=now - timedelta(minutes=1),
+                expires_at=now + timedelta(hours=1),
+            )
+            signed = SignedPolicyRelease(body=body, signature=key.sign(release_bytes(body)).hex())
+            state = PolicyReleaseState(
+                generation=2,
+                minimum_revision=1,
+                active_release_hash=release_hash(signed),
+                changed_at=body.issued_at,
+            )
+            cache[identity] = signed, state
+        signed, state = cache[identity]
+        status = release_status(
+            signed,
+            state,
+            trust,
+            now,
+            bundle_hash=config.bundle_hash,
+            catalog_hash=config.catalog_hash,
+            policy_version=config.policy_version,
+        )
+        return PolicyReleaseCheck(
+            checked_at=now, status=status, release=signed, state=state, trust=trust
+        )
+
+    return reader
+
+
+@pytest.fixture
+def policy_signer():
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "test_policy_signer", root / "scripts/policy-release-local.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

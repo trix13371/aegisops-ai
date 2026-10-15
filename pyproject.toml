@@ -69,6 +69,15 @@ root_package = "aegisops"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
+name = "Signed policy verification has no transport, infrastructure or model access"
+type = "forbidden"
+source_modules = ["aegisops.domain.policy_release", "aegisops.authorization.releases"]
+forbidden_modules = [
+  "aegisops.llm", "aegisops.sources", "aegisops.db", "aegisops.config",
+  "aegisops.authorization.http", "http", "socket", "subprocess", "kubernetes",
+]
+
+[[tool.importlinter.contracts]]
 name = "Integrity verifier has no model, network, writer or execution access"
 type = "forbidden"
 source_modules = ["aegisops.integrity.chain", "aegisops.integrity.models", "aegisops.integrity.repository"]
