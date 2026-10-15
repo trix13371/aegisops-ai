@@ -1,7 +1,8 @@
 """Local operator UI host. Fixed child commands only; never part of model capabilities.
 
 Loopback-only, per-launch capability, HttpOnly/SameSite cookie, strict Host/Origin.
-The web API cannot change controls, issue identities, choose commands, or call a paid model.
+The web API cannot change controls, issue identities or choose commands. Explicit
+project-summary consent permits one bounded paid request per saved static report.
 """
 
 from __future__ import annotations
@@ -30,6 +31,9 @@ from aegisops.authorization.releases import load_release_check
 from aegisops.dashboard.view import present_record
 from aegisops.io import read_text, unique_object
 from aegisops.pipeline.models import PipelineResult
+from aegisops.project_ai.models import MODEL, PROFILE
+from aegisops.project_ai.projection import project_summary
+from aegisops.project_ai.repository import AnalysisRepository
 from aegisops.projects.models import ProjectError
 from aegisops.projects.repository import ProjectRepository
 from aegisops.projects.scanner import scan_project
@@ -71,6 +75,7 @@ class Dashboard:
         self.health_at = 0
         self.health = None
         self.projects = ProjectRepository(ROOT / ".local/projects")
+        self.analyses = AnalysisRepository(ROOT / ".local/project-ai")
         self.python = str(ROOT / ".venv/Scripts/python.exe")
         if os.name != "nt":
             self.python = sys.executable
@@ -136,6 +141,39 @@ class Dashboard:
             self.health, self.health_at = services, time.monotonic()
             return services
 
+    def project_ai_child(self, identifier):
+        identifier = str(UUID(str(identifier)))
+        if os.name != "nt":
+            raise ProjectError("Защищённое подключение OpenRouter настроено для Windows")
+        # PowerShell 7's inherited module path breaks Windows PowerShell 5.1's
+        # Security module autoload in a Python background process. Rebuild its defaults.
+        runtime_environment = {
+            key: value for key, value in role_environment().items() if key.upper() != "PSMODULEPATH"
+        }
+        result = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-File",
+                str(ROOT / "scripts/openrouter-local.ps1"),
+                "-Mode",
+                "project-report",
+                "-ReportId",
+                identifier,
+            ],
+            cwd=ROOT,
+            env=runtime_environment,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            encoding="utf-8",
+            timeout=80,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            check=False,
+        )
+        if result.returncode != 0 or json.loads(result.stdout) != {"ok": True}:
+            raise ProjectError("Не удалось получить подтверждённый ответ модели")
+
     def overview(self):
         records, omitted, database_error = [], 0, False
         try:
@@ -193,6 +231,14 @@ class Dashboard:
         elif mode == "project" and set(payload) == {"mode", "project_id"}:
             scenario = str(UUID(payload["project_id"]))
             self.projects.get(UUID(scenario))
+        elif (
+            mode == "project_ai"
+            and set(payload) == {"mode", "report_id", "consent"}
+            and payload.get("consent") == PROFILE
+        ):
+            scenario = str(UUID(payload["report_id"]))
+            report = self.projects.read_report(UUID(scenario))
+            self.projects.get(report.project_id)
         else:
             raise ValueError("invalid request")
         with self.lock:
@@ -200,6 +246,8 @@ class Dashboard:
                 raise ValueError("dashboard is closing")
             if self.job and self.job["state"] == "running":
                 return dict(self.job), False
+            if mode == "project_ai":
+                self.analyses.claim(report)
             self.job = {
                 "id": str(uuid4()),
                 "mode": mode,
@@ -210,6 +258,10 @@ class Dashboard:
             }
             if mode == "project":
                 self.job.update(project_id=scenario, message="Читаем структуру проекта…")
+            if mode == "project_ai":
+                self.job.update(
+                    report_id=scenario, message="Запрошен разбор сводки через OpenRouter…"
+                )
             job = dict(self.job)
         threading.Thread(target=self.run_job, args=(mode, scenario), daemon=True).start()
         return job, True
@@ -220,6 +272,25 @@ class Dashboard:
 
     def run_job(self, mode, scenario):
         try:
+            if mode == "project_ai":
+                identifier = UUID(scenario)
+                try:
+                    self.project_ai_child(identifier)
+                except Exception:  # noqa: S110 -- never expose credential-bearing provider errors
+                    pass  # Fixed failure record below, never raw PowerShell/provider details.
+                self.analyses.fail(identifier)
+                report = self.projects.read_report(identifier)
+                analysis = self.analyses.state(report)
+                completed = analysis["status"] == "completed"
+                self.update(
+                    state="completed" if completed else "failed",
+                    stage="done",
+                    report_id=scenario,
+                    message="Нейросетевой разбор сохранён. Откройте отчёт."
+                    if completed
+                    else "Нейросетевой разбор не подтверждён. Подробности в отчёте; повтора нет.",
+                )
+                return
             if mode == "project":
                 project = self.projects.get(UUID(scenario))
                 self.update(stage="processing", message="Проверяем форматы и конфигурацию проекта…")
@@ -402,6 +473,19 @@ class Handler(BaseHTTPRequestHandler):
                     report = self.dashboard.projects.read_report(identifier)
                     self.dashboard.projects.get(report.project_id)
                     return self.send_json(200, report.model_dump(mode="json"))
+                if self.path.startswith("/api/project-ai/"):
+                    identifier = UUID(self.path[len("/api/project-ai/") :])
+                    report = self.dashboard.projects.read_report(identifier)
+                    self.dashboard.projects.get(report.project_id)
+                    return self.send_json(
+                        200,
+                        {
+                            "profile": PROFILE,
+                            "model": MODEL,
+                            "payload": project_summary(report).model_dump(mode="json"),
+                            "analysis": self.dashboard.analyses.state(report),
+                        },
+                    )
                 if self.path.startswith("/api/audit/"):
                     identifier = UUID(self.path[11:])
                     with PostgresAuditReader() as reader:

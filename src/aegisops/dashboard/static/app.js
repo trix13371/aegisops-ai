@@ -117,13 +117,15 @@ function renderJob(job) {
   $("mode").disabled = running; $("scenario").disabled = running;
   $("project-select").disabled = running;
   document.querySelectorAll(".project-scan,.project-remove").forEach(button => {button.disabled = running;});
+  document.querySelectorAll(".project-ai-start").forEach(button => {button.disabled = running || !document.getElementById(button.dataset.consentId)?.checked;});
   $("run-label").textContent = running ? "Проверяем…" : "Запустить проверку";
   $("job-banner").hidden = !job;
   if (!job) return;
   $("job-banner").className = `job-banner ${job.state}`;
   $("job-icon").replaceChildren(icon(running ? "activity" : ["completed","passed"].includes(job.state) ? "check" : "shield"));
   $("job-message").textContent = job.message;
-  $("job-caption").textContent = job.mode === "project" && job.files_checked !== undefined
+  $("job-caption").textContent = job.mode === "project_ai" ? "Разбор сводки через OpenRouter · без передачи исходников"
+    : job.mode === "project" && job.files_checked !== undefined
     ? `Проверено файлов: ${job.files_checked} · Замечаний: ${job.findings_count} · Статическая проверка`
     : job.snapshot_count !== undefined
     ? `Наблюдений: ${job.snapshot_count} · Инцидентов: ${job.incident_count} · ${sourceLabel(job.mode === "synthetic" ? "synthetic_fixture" : "local_kind")}`
@@ -270,7 +272,7 @@ document.addEventListener("keydown", event => {
   if ($("drawer").hidden) return;
   if (event.key === "Escape") closeDetail();
   if (event.key === "Tab") {
-    const elements = [...$("drawer").querySelectorAll("button:not([disabled])")];
+    const elements = [...$("drawer").querySelectorAll("button:not([disabled]),input:not([disabled]),summary")].filter(element=>element.getClientRects().length);
     const first = elements[0], last = elements[elements.length-1];
     if (event.shiftKey && document.activeElement === first) {last.focus(); event.preventDefault();}
     else if (!event.shiftKey && document.activeElement === last) {first.focus(); event.preventDefault();}
@@ -370,6 +372,9 @@ async function openProjectReport(id,origin) {
     if (report.rules_version === "local-static-v2") summary.append(node("p","","Kubernetes: основные, init- и временные контейнеры, Pod-шаблоны и List. Compose: привилегии, пространства хоста, образы и прямое подключение Docker socket. Настройки не исправляются автоматически."));
     if (report.partial) summary.append(node("p","","Результат частичный: часть файлов недоступна, использует неподдержанные конструкции или достигнут лимит проверки."));
     body.append(summary);
+    const aiPanel=await projectAiSection(report);
+    if(sequence!==detailSequence || $("drawer").hidden) return;
+    body.append(aiPanel);
     const findings=section(`Замечания: ${report.findings.length}`);
     if (!report.findings.length) findings.append(node("p","","В рамках выполненных проверок замечаний не найдено. Это не подтверждает отсутствие ошибок в проекте."));
     for (const item of report.findings) {
@@ -383,6 +388,47 @@ async function openProjectReport(id,origin) {
     if (report.rules_version === "local-static-v2") findings.append(node("p","detail-subtitle","document — номер YAML-документа с 1; индексы в [ ] — с 0; services[#N] — сервис по порядку с 1. Рекомендации требуют проверки с учётом назначения приложения."));
     pair(body,"ID отчёта",report.id);
   } catch(problem) {if(sequence===detailSequence && !$("drawer").hidden) $("detail-body").replaceChildren(node("h2","","Отчёт недоступен"),node("p","detail-callout",problem.message));}
+}
+
+async function projectAiSection(report) {
+  const panel=section("Нейросетевой разбор"); panel.classList.add("project-ai-panel");
+  panel.append(node("p","","Модель объясняет сводку найденных замечаний. Исходники она не читает; это не ревью кода и не запуск тестов."));
+  try {
+    const data=await api(`/api/project-ai/${report.id}`), analysis=data.analysis;
+    pair(panel,"Провайдер / модель",`OpenRouter · ${data.model}`);
+    if (analysis.status === "completed") {
+      panel.append(node("span","status passed","Ответ модели получен"),node("p","ai-summary",analysis.response.summary));
+      const priorities={high:"Высокий",medium:"Средний",low:"Низкий"};
+      for (const action of analysis.response.actions) {
+        const card=node("div","ai-action"); card.append(node("strong","",`Приоритет: ${priorities[action.priority]}`),node("p","",action.explanation),node("strong","","Следующий шаг"),node("p","",action.next_step));
+        const matches=report.findings.filter(item=>item.code===action.code);
+        card.append(node("small","finding-location",`В отчёте: ${matches.slice(0,3).map(item=>`${item.file}${item.location ? ` · ${item.location}` : ""}`).join("; ")}${matches.length>3 ? `; ещё ${matches.length-3}` : ""}`));
+        panel.append(card);
+      }
+      panel.append(node("p","detail-callout",analysis.response.limitations),node("p","detail-subtitle","Это мнение модели по сводке. Рекомендации требуют ручной проверки; файлы и настройки не изменялись."));
+    } else if (analysis.status === "pending") {
+      panel.append(node("p","detail-callout","Разбор уже запрошен. Дождитесь завершения и откройте отчёт снова. Если приложение прервалось, состояние запроса неизвестно; повтор автоматически не отправляется."));
+    } else if (analysis.status === "failed") {
+      panel.append(node("p","detail-callout","Ответ модели не подтверждён. Возможны ошибка подключения, лимит ключа или неподдержанный ответ. Статический отчёт сохранён. Повтора нет: при обрыве запрос мог быть оплачен. Проверьте отдельный ключ проекта и его лимит; для новой попытки создайте новый статический отчёт."));
+    } else {
+      panel.append(node("p","","В OpenRouter отправятся только версия правил, статус, число проверенных файлов/пропусков и коды замечаний с их количеством. Названия, пути, строки исходников и значения конфигурации не отправляются."));
+      const preview=node("details","ai-preview"); preview.append(node("summary","","Посмотреть отправляемую сводку"),node("pre","",JSON.stringify(data.payload,null,2))); panel.append(preview);
+      panel.append(node("p","detail-subtitle","Один платный запрос, до 1600 выходных токенов. Используется отдельный ключ AegisOps с общим лимитом до $5. Для одного отчёта — одна попытка, без автоматического повтора."));
+      const label=node("label","ai-consent"), consent=node("input"); consent.type="checkbox"; consent.id=`ai-consent-${report.id}`;
+      label.append(consent,document.createTextNode("Отправить эту сводку в OpenRouter и выполнить один платный разбор"));
+      const run=node("button","primary-button project-ai-start","Разобрать с нейросетью"); run.dataset.consentId=consent.id; run.disabled=true;
+      consent.addEventListener("change",()=>{run.disabled=!consent.checked || state.job?.state === "running";});
+      run.addEventListener("click",async()=>{
+        run.disabled=true;
+        try {
+          const result=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_ai",report_id:report.id,consent:data.profile})});
+          closeDetail(); renderJob(result.job); toast("Состояние запроса показано над списком проектов.");
+        } catch(problem) {panel.append(node("p","detail-callout",`${problem.message} Обновите отчёт перед дальнейшими действиями; запрос не повторяется автоматически.`));}
+      });
+      panel.append(label,run);
+    }
+  } catch(problem) {panel.append(node("p","detail-callout","Состояние нейросетевого разбора недоступно. Новый запрос не отправлен. Откройте отчёт повторно после проверки локального хранилища."));}
+  return panel;
 }
 
 refresh();

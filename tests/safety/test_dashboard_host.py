@@ -12,6 +12,7 @@ import pytest
 
 from aegisops.dashboard.view import present_record
 from aegisops.domain.models import AuditRecord
+from aegisops.project_ai.repository import AnalysisRepository
 from aegisops.projects.repository import ProjectRepository
 
 pytestmark = pytest.mark.safety
@@ -32,6 +33,7 @@ def operator():
 def host(operator, monkeypatch, tmp_path):
     dashboard = operator.Dashboard()
     dashboard.projects = ProjectRepository(tmp_path / "private-registry")
+    dashboard.analyses = AnalysisRepository(tmp_path / "private-ai")
     monkeypatch.setattr(dashboard, "overview", lambda: {"records": [], "private": False})
     monkeypatch.setattr(dashboard, "run_job", lambda *args: None)
     server = ThreadingHTTPServer(("127.0.0.1", 0), operator.Handler)
@@ -301,3 +303,159 @@ def test_project_worker_does_not_launch_any_child_process(operator, tmp_path, mo
     dashboard.run_job("project", str(project.id))
     assert dashboard.job["state"] == "passed"
     assert dashboard.projects.history(project.id)[0].files_checked == 1
+
+
+def ai_report(dashboard, tmp_path):
+    from aegisops.projects.scanner import scan_project
+
+    root = tmp_path / "ai-source"
+    root.mkdir()
+    (root / "compose.yaml").write_text("services:\n  PRIVATE_NAME_CANARY:\n    privileged: true\n")
+    project = dashboard.projects.add("PRIVATE_NAME_CANARY", str(root))
+    report = scan_project(project)
+    dashboard.projects.save_report(report)
+    return report
+
+
+def test_project_ai_preview_is_authenticated_source_free_and_never_calls_provider(host, tmp_path):
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    path = f"/api/project-ai/{report.id}"
+    assert request(path)[0] == 401
+    status, _, body = request(path, auth=True)
+    data = json.loads(body)
+    assert status == 200 and data["analysis"] == {"status": "not_requested"}
+    assert data["payload"]["categories"] == [
+        {"code": "privileged", "severity": "warning", "count": 1}
+    ]
+    assert b"PRIVATE_NAME_CANARY" not in body and b"compose.yaml" not in body
+    assert dashboard.analyses.read_claim(report.id) is None
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"consent": False},
+        {"consent": "other"},
+        {"consent": "project-summary-v1", "model": "other"},
+        {"consent": "project-summary-v1", "endpoint": "http://attacker"},
+        {"consent": "project-summary-v1", "api_key": "PRIVATE_KEY_CANARY"},
+        {"consent": "project-summary-v1", "payload": {"source": "PRIVATE_SOURCE_CANARY"}},
+    ],
+)
+def test_project_ai_cannot_be_requested_without_consent_or_expand_payload(host, tmp_path, extra):
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    body = json.dumps({"mode": "project_ai", "report_id": str(report.id), **extra})
+    assert request("/api/jobs", method="POST", auth=True, body=body)[0] == 400
+    assert dashboard.analyses.read_claim(report.id) is None
+
+
+def test_project_ai_claim_blocks_duplicate_even_after_idle_or_restart(host, tmp_path, operator):
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    payload = {"mode": "project_ai", "report_id": str(report.id), "consent": "project-summary-v1"}
+    assert request("/api/jobs", method="POST", body=json.dumps(payload))[0] == 401
+    assert (
+        request(
+            "/api/jobs",
+            method="POST",
+            auth=True,
+            body=json.dumps(payload),
+            headers={"Origin": "https://attacker.example"},
+        )[0]
+        == 403
+    )
+    assert request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))[0] == 202
+    assert dashboard.analyses.state(report)["status"] == "pending"
+    assert request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))[0] == 409
+    dashboard.job["state"] = "failed"
+    assert request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))[0] == 400
+    reopened = operator.Dashboard()
+    reopened.projects, reopened.analyses = dashboard.projects, dashboard.analyses
+    with pytest.raises(Exception, match="уже запрошен"):
+        reopened.start(payload)
+
+
+def test_project_ai_failure_preserves_static_report_and_never_leaks_provider_details(
+    host,
+    tmp_path,
+    monkeypatch,
+):
+    dashboard, _ = host
+    report = ai_report(dashboard, tmp_path)
+    dashboard.analyses.claim(report)
+    dashboard.job = {"state": "running"}
+    calls = []
+
+    def rejected(identifier):
+        calls.append(identifier)
+        raise RuntimeError("PRIVATE_PROVIDER_CANARY")
+
+    monkeypatch.setattr(dashboard, "project_ai_child", rejected)
+    type(dashboard).run_job(dashboard, "project_ai", str(report.id))
+    assert len(calls) == 1 and dashboard.job["state"] == "failed"
+    assert dashboard.analyses.state(report)["status"] == "failed"
+    assert "PRIVATE_PROVIDER_CANARY" not in json.dumps(dashboard.job)
+    assert dashboard.projects.read_report(report.id) == report
+
+
+def test_project_ai_completion_is_read_back_from_private_result(host, tmp_path, monkeypatch):
+    from aegisops.domain.common import utc_now
+    from aegisops.project_ai.models import Explanation, Result
+
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    claim = dashboard.analyses.claim(report)
+    dashboard.job = {"state": "running"}
+
+    def completed(identifier):
+        result = Result(
+            report_id=identifier,
+            report_sha256=claim.report_sha256,
+            completed_at=utc_now(),
+            status="completed",
+            response=Explanation(summary="Разбор", actions=(), limitations="Сводка"),
+        )
+        dashboard.analyses.write(identifier, "result", result.model_dump_json())
+
+    monkeypatch.setattr(dashboard, "project_ai_child", completed)
+    type(dashboard).run_job(dashboard, "project_ai", str(report.id))
+    assert dashboard.job["state"] == "completed"
+    status, _, body = request(f"/api/project-ai/{report.id}", auth=True)
+    assert status == 200 and json.loads(body)["analysis"]["response"]["summary"] == "Разбор"
+
+
+def test_project_ai_fixed_child_never_inherits_dev_or_database_credentials(operator, monkeypatch):
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    if operator.os.name != "nt":
+        pytest.skip("Windows runtime credential launcher")
+    for name in (
+        "AEGISOPS_LLM_API_KEY",
+        "AEGISOPS_RUNTIME_LLM_API_KEY",
+        "PGPASSWORD",
+        "KUBECONFIG",
+    ):
+        monkeypatch.setenv(name, "PRIVATE_ROLE_CANARY")
+    monkeypatch.setenv("PSModulePath", "INCOMPATIBLE_SHELL_MODULE_PATH")
+    calls = []
+
+    def child(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout='{"ok":true}')
+
+    monkeypatch.setattr(operator.subprocess, "run", child)
+    identifier = uuid4()
+    operator.Dashboard().project_ai_child(identifier)
+    command, options = calls[0]
+    assert command[0] == "powershell.exe"
+    assert command[-4:] == ["-Mode", "project-report", "-ReportId", str(identifier)]
+    assert "PRIVATE_ROLE_CANARY" not in options["env"].values()
+    assert not any(key.upper() == "PSMODULEPATH" for key in options["env"])
+    assert (
+        options["timeout"] == 80
+        and options["creationflags"] == operator.subprocess.CREATE_NO_WINDOW
+    )
