@@ -34,8 +34,10 @@ from aegisops.pipeline.models import PipelineResult
 from aegisops.project_ai.models import MODEL, PROFILE
 from aegisops.project_ai.projection import project_summary
 from aegisops.project_ai.repository import AnalysisRepository
+from aegisops.project_runner.comparison import compare_runs
 from aegisops.project_runner.models import PROFILE as RUNNER_PROFILE
 from aegisops.project_runner.repository import RunRepository
+from aegisops.projects.comparison import compare_reports
 from aegisops.projects.models import ProjectError
 from aegisops.projects.repository import ProjectRepository
 from aegisops.projects.scanner import scan_project
@@ -520,6 +522,32 @@ class Handler(BaseHTTPRequestHandler):
                             "analysis": self.dashboard.analyses.state(report),
                         },
                     )
+                if self.path.startswith("/api/project-comparison/"):
+                    identifiers = self.path[len("/api/project-comparison/") :].split("/")
+                    if len(identifiers) != 2:
+                        raise ValueError("invalid comparison")
+                    base, target = (
+                        self.dashboard.projects.read_report(UUID(value)) for value in identifiers
+                    )
+                    self.dashboard.projects.get(base.project_id)
+                    self.dashboard.projects.get(target.project_id)
+                    return self.send_json(
+                        200, compare_reports(base, target).model_dump(mode="json")
+                    )
+                if self.path.startswith("/api/run-comparison/"):
+                    identifiers = self.path[len("/api/run-comparison/") :].split("/")
+                    if len(identifiers) != 2:
+                        raise ValueError("invalid comparison")
+                    base, target = (self.dashboard.runs.claim(UUID(value)) for value in identifiers)
+                    self.dashboard.projects.get(base.project_id)
+                    self.dashboard.projects.get(target.project_id)
+                    comparison = compare_runs(
+                        base,
+                        target,
+                        self.dashboard.runs.result(base.id),
+                        self.dashboard.runs.result(target.id),
+                    )
+                    return self.send_json(200, comparison.model_dump(mode="json"))
                 if self.path.startswith("/api/project-runs/"):
                     identifier = UUID(self.path[len("/api/project-runs/") :])
                     self.dashboard.projects.get(identifier)

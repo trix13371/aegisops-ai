@@ -274,7 +274,7 @@ document.addEventListener("keydown", event => {
   if ($("drawer").hidden) return;
   if (event.key === "Escape") closeDetail();
   if (event.key === "Tab") {
-    const elements = [...$("drawer").querySelectorAll("button:not([disabled]),input:not([disabled]),summary")].filter(element=>element.getClientRects().length);
+    const elements = [...$("drawer").querySelectorAll("button:not([disabled]),input:not([disabled]),select:not([disabled]),summary")].filter(element=>element.getClientRects().length);
     const first = elements[0], last = elements[elements.length-1];
     if (event.shiftKey && document.activeElement === first) {last.focus(); event.preventDefault();}
     else if (!event.shiftKey && document.activeElement === last) {first.focus(); event.preventDefault();}
@@ -349,6 +349,8 @@ async function projectHistory(project) {
   try {
     const data=await api(`/api/projects/${project.id}`); if (sequence!==historySequence) return;
     $("project-history-list").replaceChildren();
+    if(data.reports.length>=2) $("project-history-list").append(comparisonControls(data.reports.map(item=>({id:item.id,time:item.completed_at})),"project",$("project-history-list")));
+    if(data.reports.length===1) $("project-history-list").append(node("p","detail-callout","Для сравнения нужны два сохранённых статических отчёта этого проекта."));
     if (!data.reports.length) $("project-history-list").append(node("p","detail-callout","У этого проекта пока нет проверок."));
     for (const report of data.reports) {
       const row=node("div","project-history-row"); row.append(statusBadge(report.status),node("time","",formatTime(report.completed_at,true)),node("span","",`Файлов: ${report.files_checked}`));
@@ -465,6 +467,8 @@ async function projectRuns(project,origin) {
   try {
     const data=await api(`/api/project-runs/${project.id}`); if(sequence!==detailSequence || $("drawer").hidden) return;
     if(!data.runs.length) history.append(node("p","","Запусков пока нет."));
+    if(data.runs.length>=2) history.append(comparisonControls(data.runs.map(item=>({id:item.claim.id,time:item.claim.created_at})),"run",origin));
+    if(data.runs.length===1) history.append(node("p","detail-subtitle","Для сравнения нужны два сохранённых запуска этого проекта."));
     for(const item of data.runs) {
       const row=node("div","runner-history-row"), open=node("button","text-button","Открыть запуск");
       row.append(node("strong","",runLabels[item.result?.status || "pending"]),node("time","",formatTime(item.claim.created_at,true)));
@@ -493,6 +497,52 @@ async function openRunReport(id,origin) {
     body.append(node("p","detail-subtitle","Вывод получен из контейнера с кодом проекта и остаётся локальным. Он не является независимым доказательством корректности тестов."));
     pair(body,"ID запуска",data.claim.id);
   } catch(problem) {if(sequence===detailSequence) body.append(node("p","detail-callout","Результат запуска недоступен. Повтор автоматически не выполняется."));}
+}
+
+function comparisonControls(items,kind,origin) {
+  const controls=node("div","comparison-controls"), base=node("select"), target=node("select");
+  base.setAttribute("aria-label","Исходный отчёт для сравнения"); target.setAttribute("aria-label","Новый отчёт для сравнения");
+  const baseLabel=node("label","","Исходный отчёт"), targetLabel=node("label","","Сравнить с");
+  items.forEach((item,index)=>{
+    for(const select of [base,target]) {const option=node("option","",`${formatTime(item.time,true)} · ${item.id.slice(0,8)}${index===0 ? " · последний" : ""}`);option.value=item.id;select.append(option);}
+  });
+  base.value=items[1].id; target.value=items[0].id;
+  const compare=node("button","text-button","Сравнить отчёты"); compare.append(icon("layers"));
+  const update=()=>{compare.disabled=base.value===target.value;}; base.addEventListener("change",update);target.addEventListener("change",update);
+  compare.addEventListener("click",()=>openComparison(kind,base.value,target.value,kind==="run" ? origin : compare));
+  baseLabel.append(base);targetLabel.append(target);controls.append(baseLabel,targetLabel,compare);return controls;
+}
+async function openComparison(kind,base,target,origin) {
+  const sequence=openRunnerDrawer(kind==="run" ? "Сравнение запусков Python" : "Сравнение статических отчётов",origin), body=$("detail-body");
+  pair(body,"Исходный отчёт",base);pair(body,"Новый отчёт",target);
+  try {
+    const prefix=kind==="run" ? "run-comparison" : "project-comparison";
+    const data=await api(`/api/${prefix}/${base}/${target}`);if(sequence!==detailSequence || $("drawer").hidden) return;
+    if(!data.comparable) {
+      const reasons={rules_changed:"Версии правил различаются. Появление и исчезновение замечаний нельзя оценить автоматически.",partial:"Один из отчётов частичный. Отсутствие замечания не означает, что оно устранено.",unfinished:"Один из запусков ещё не имеет подтверждённого результата.",unconfirmed:"Область проверки или результат одного из запусков не подтверждены полностью.",image_changed:"Образы проверок различаются. Автоматическое сравнение отключено."};
+      body.append(node("p","detail-callout",reasons[data.reason]));
+      if(kind!=="run") {pair(body,"Версии правил",`${data.base_rules} → ${data.target_rules}`);pair(body,"Всего замечаний",`${data.base_total} → ${data.target_total}`);}
+      return;
+    }
+    if(kind==="run") {
+      body.append(node("p","detail-callout","Сравниваются статусы Ruff и pytest в одном образе. Это не сравнение отдельных тестов, количества ошибок или доказательство исправления кода."));
+      pair(body,"Снимок файлов",data.same_snapshot ? "Совпадает" : "Изменился");
+      const statuses={passed:"Пройдено",failed:"Найдены ошибки",error:"Ошибка инструмента или среды",timeout:"Время истекло",no_tests:"Тесты не найдены"};
+      const changes={unchanged:"Статус не изменился",now_passed:"Теперь пройдено",no_longer_passed:"Больше не проходит",changed:"Статус изменился"};
+      for(const item of data.transitions) {const card=section(item.tool);card.append(node("strong","",changes[item.change]),node("p","",`${statuses[item.before]} → ${statuses[item.after]}`));body.append(card);}
+      if(data.same_snapshot) body.append(node("p","detail-subtitle","Одинаковый снимок может давать разные результаты из-за поведения тестов. Порядок выполнения и окружение внутри контейнера не аттестованы."));
+    } else {
+      pair(body,"Версия правил",data.target_rules);
+      const stats=node("div","report-stats");
+      for(const [value,label] of [[data.added.length,"Появились"],[data.removed.length,"Больше не обнаружены"],[data.unchanged,"Остались"]]) {const cell=node("div","report-stat");cell.append(node("strong","",value),node("span","",label));stats.append(cell);}body.append(stats);
+      body.append(node("p","detail-callout","Сравниваются замечания по файлу, коду и координатам при одинаковых правилах. Переименование файла или сдвиг строки могут выглядеть как исчезновение и появление. Это не доказательство исправления ошибки."));
+      for(const [title,items] of [["Появились",data.added],["Больше не обнаружены",data.removed]]) {
+        const group=section(`${title}: ${items.length}`);
+        for(const item of items) {const card=node("div",`finding-card ${item.severity}`);card.append(node("strong","",`${item.file}${item.line ? ` · строка ${item.line}` : ""}`));if(item.location)card.append(node("code","finding-location",item.location));card.append(node("p","",item.message));group.append(card);}body.append(group);
+      }
+    }
+    body.append(node("p","detail-subtitle","Сравнение использует сохранённые результаты. Новые проверки и запросы нейросети не запускаются."));
+  } catch(problem) {if(sequence===detailSequence && !$("drawer").hidden)body.append(node("p","detail-callout","Не удалось сравнить отчёты. Проверьте выбор и доступность истории."));}
 }
 
 refresh();

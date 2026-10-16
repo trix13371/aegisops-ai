@@ -530,3 +530,66 @@ def test_runner_worker_uses_fixed_script_and_preserves_unknown_state(host, tmp_p
     type(dashboard).run_job(dashboard, "project_runner", str(claim.id))
     assert calls == [(["scripts/project-runner-local.py", str(claim.id)], {"timeout": 220})]
     assert dashboard.job["state"] == "failed" and dashboard.runs.result(claim.id) is None
+
+
+def test_static_comparison_api_reads_saved_reports_without_new_jobs(host, tmp_path, monkeypatch):
+    from aegisops.projects.scanner import scan_project
+
+    dashboard, request = host
+    first = ai_report(dashboard, tmp_path)
+    project = dashboard.projects.get(first.project_id)
+    Path(project.path, "compose.yaml").write_text("services:\n  app:\n    image: app:1.2\n")
+    second = scan_project(project)
+    dashboard.projects.save_report(second)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("comparison started a child or model")
+
+    monkeypatch.setattr(dashboard, "child", forbidden)
+    monkeypatch.setattr(dashboard, "project_ai_child", forbidden)
+    path = f"/api/project-comparison/{first.id}/{second.id}"
+    assert request(path)[0] == 401
+    status, _, body = request(path, auth=True)
+    data = json.loads(body)
+    assert status == 200 and data["comparable"]
+    assert len(data["removed"]) == 1 and not data["added"]
+    assert dashboard.job is None
+    assert request(f"/api/project-comparison/{first.id}/{first.id}", auth=True)[0] == 503
+    other_root = tmp_path / "other-project"
+    other_root.mkdir()
+    (other_root / "main.py").write_text("pass\n")
+    other = dashboard.projects.add("Other", str(other_root))
+    other_report = scan_project(other)
+    dashboard.projects.save_report(other_report)
+    assert request(f"/api/project-comparison/{first.id}/{other_report.id}", auth=True)[0] == 503
+    dashboard.projects.remove(first.project_id)
+    assert request(path, auth=True)[0] == 503
+
+
+def test_run_comparison_api_handles_unfinished_and_removed_projects(host, tmp_path):
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    first = dashboard.runs.create(report.project_id)
+    second = dashboard.runs.create(report.project_id)
+    path = f"/api/run-comparison/{first.id}/{second.id}"
+    assert request(path)[0] == 401
+    status, _, body = request(path, auth=True)
+    data = json.loads(body)
+    assert status == 200 and data["reason"] == "unfinished" and not data["transitions"]
+    assert request(f"/api/run-comparison/{first.id}/{first.id}", auth=True)[0] == 503
+    dashboard.projects.remove(report.project_id)
+    assert request(path, auth=True)[0] == 503
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/project-comparison/not-a-uuid/missing",
+        "/api/project-comparison/too/many/segments",
+        "/api/run-comparison/not-a-uuid/missing",
+    ],
+)
+def test_comparison_malformed_ids_return_safe_read_failure(host, path):
+    _, request = host
+    status, _, body = request(path, auth=True)
+    assert status == 503 and json.loads(body) == {"error": "Данные временно недоступны"}
