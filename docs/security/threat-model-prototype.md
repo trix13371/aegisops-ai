@@ -281,3 +281,12 @@ profile не может подменить label cleanup или пару инс�
 JS/TS в контейнере может подделывать вывод так же, как Python: нет аттестации
 или доказательства качества assertions. JSX/TSX/framework tests не поддержаны.
 См. ADR-027.
+
+UI09: package declarations недоверенные, bounded/strict, без scripts/сырого текста
+в API. Подсказка браузера не является разрешением: gate повторяется по captured
+snapshot до create. Недоступные direct deps/Jest/workspaces/custom environment
+directives блокируют выбранный preset. Результат отказа не может быть passed.
+Vitest не загружает project config; guest tsconfig заменяется только в копии,
+PostCSS/env/public/cache параметры фиксированы; optional package installer отказан.
+Предварительный npm ci имеет pinned lock/integrity, lifecycle scripts отключены.
+При тестах прежние network/key/resource/cleanup границы сохраняются. См. ADR-028.

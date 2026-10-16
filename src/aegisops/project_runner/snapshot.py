@@ -3,12 +3,20 @@
 import hashlib
 import io
 import os
+import re
 import tarfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from aegisops.project_runner.models import JS_PROFILE, PROFILE, Profile, SnapshotInfo
+from aegisops.project_runner.compatibility import PackageCompatibility, inspect_package
+from aegisops.project_runner.models import (
+    JS_PROFILE,
+    PROFILE,
+    VITEST_PROFILE,
+    Profile,
+    SnapshotInfo,
+)
 from aegisops.projects.models import Project, ProjectError
 from aegisops.projects.repository import plain_path, project_root
 from aegisops.projects.scanner import EXCLUDED, excluded_file
@@ -21,10 +29,12 @@ JS_SUFFIXES = frozenset({".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"})
 class Snapshot:
     data: bytes
     info: SnapshotInfo
+    compatibility: PackageCompatibility | None = None
+    environment_directive: bool = False
 
 
 def snapshot_project(project: Project, profile: Profile = PROFILE) -> Snapshot:
-    if profile not in {PROFILE, JS_PROFILE}:
+    if profile not in {PROFILE, JS_PROFILE, VITEST_PROFILE}:
         raise ProjectError("Неизвестный профиль проверки")
     root = project_root(project)
     pending = [(root, 0)]
@@ -67,7 +77,7 @@ def snapshot_project(project: Project, profile: Profile = PROFILE) -> Snapshot:
                         skipped += 1
                         continue
                     if (
-                        profile == JS_PROFILE
+                        profile != PROFILE
                         and path.suffix.lower() in JS_SUFFIXES
                         and path.suffix not in JS_SUFFIXES
                     ):
@@ -93,7 +103,7 @@ def snapshot_project(project: Project, profile: Profile = PROFILE) -> Snapshot:
                     javascript_files += path.suffix.lower() in JS_SUFFIXES
                     contents.append((relative, data))
         project_root(project)
-        if not (javascript_files if profile == JS_PROFILE else python_files):
+        if not (python_files if profile == PROFILE else javascript_files):
             raise ProjectError("В папке нет файлов выбранного языка")
         output = io.BytesIO()
         with tarfile.open(fileobj=output, mode="w", format=tarfile.PAX_FORMAT) as archive:
@@ -104,8 +114,25 @@ def snapshot_project(project: Project, profile: Profile = PROFILE) -> Snapshot:
         data = output.getvalue()
         if len(data) > 10 * 1024 * 1024:
             raise ProjectError("Превышен размер архива снимка")
+        compatibility = None
+        environment_directive = False
+        if profile != PROFILE:
+            raw_package = next((body for name, body in contents if name == "package.json"), None)
+            try:
+                compatibility = inspect_package(
+                    raw_package.decode("utf-8") if raw_package is not None else None
+                )
+            except UnicodeError:
+                compatibility = inspect_package("")
+            environment_directive = profile == VITEST_PROFILE and any(
+                re.search(rb"@(?:vitest|jest)-environment\b", body, re.IGNORECASE)
+                for name, body in contents
+                if Path(name).suffix in JS_SUFFIXES
+            )
         return Snapshot(
             data=data,
+            compatibility=compatibility,
+            environment_directive=environment_directive,
             info=SnapshotInfo(
                 sha256=hashlib.sha256(data).hexdigest(),
                 files=seen,

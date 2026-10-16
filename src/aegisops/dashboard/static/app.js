@@ -117,7 +117,7 @@ function renderJob(job) {
   $("mode").disabled = running; $("scenario").disabled = running;
   $("project-select").disabled = running;
   document.querySelectorAll(".project-scan,.project-remove").forEach(button => {button.disabled = running;});
-  document.querySelectorAll(".project-ai-start,.runner-start").forEach(button => {button.disabled = running || !document.getElementById(button.dataset.consentId)?.checked;});
+  document.querySelectorAll(".project-ai-start,.runner-start").forEach(button => {button.disabled = running || button.dataset.compatible === "false" || !document.getElementById(button.dataset.consentId)?.checked;});
   $("run-label").textContent = running ? "Проверяем…" : "Запустить проверку";
   $("job-banner").hidden = !job;
   if (!job) return;
@@ -445,31 +445,55 @@ function openRunnerDrawer(title,origin) {
   const heading=node("h2","",title); heading.id="detail-title"; $("detail-body").replaceChildren(heading);
   $("close-detail").focus(); return sequence;
 }
-const environmentLabels={minimal:"Базовое · Ruff и pytest", "python-data-v1":"Данные · Pydantic и PyYAML", "node-js-v1":"Node.js · JavaScript/TypeScript"};
-const toolLabels={ruff:"Ruff · ошибки Python",pytest:"pytest · тесты проекта",typescript:"TypeScript · синтаксис и типы", "node-test":"Node.js · тесты проекта"};
+const environmentLabels={minimal:"Базовое · Ruff и pytest", "python-data-v1":"Данные · Pydantic и PyYAML", "node-js-v1":"Node.js · встроенные тесты", "node-vitest-v1":"Vitest · подготовленные зависимости"};
+const toolLabels={ruff:"Ruff · ошибки Python",pytest:"pytest · тесты проекта",typescript:"TypeScript · синтаксис и типы", "node-test":"Node.js · тесты проекта",vitest:"Vitest · тесты проекта"};
 const runLabels={passed:"Проверки пройдены",issues:"Есть замечания",error:"Ошибка проверки",timeout:"Превышено время",not_supported:"Профиль не подошёл",pending:"Результат неизвестен"};
+const compatibilityIssueLabels={package_unsupported:"Формат или зависимости package.json не поддерживаются.",dependencies_unavailable:"В подготовленном окружении нет всех объявленных зависимостей.",framework_mismatch:"Выбран другой тестовый инструмент.",environment_directive:"Обнаружена директива смены окружения теста. Поддерживается только фиксированное Node-окружение."};
+const compatibilityReasonLabels={package_missing:"package.json не найден; доступны встроенные тесты Node.js.",package_invalid:"package.json не удалось безопасно прочитать или разобрать.",dependency_limit:"Превышен лимит объявлений зависимостей.",invalid_dependency:"Некорректное объявление зависимости.",workspace_project:"Workspaces пока не поддерживаются.",non_registry_dependency:"Локальные, git и alias-зависимости пока не поддерживаются.",jest_unsupported:"Jest пока не поддерживается.",mixed_frameworks:"Объявлены разные тестовые инструменты; автоматического выбора нет.",additional_dependencies:"Есть зависимости за пределами подготовленного набора.",dependency_versions_unverified:"Используются закреплённые версии окружения; ограничения версий и lock проекта не воспроизводятся."};
+function renderCompatibility(panel,data) {
+  const frameworks={node:"Встроенные тесты Node.js",vitest:"Vitest",jest:"Jest",mixed:"Несколько инструментов",unknown:"Не определён"};
+  pair(panel,"Инструмент",frameworks[data.framework] || "Не определён");
+  for(const reason of data.reasons || [])panel.append(node("p","detail-subtitle",compatibilityReasonLabels[reason] || "Совместимость ограничена."));
+  if(data.dependencies?.length)panel.append(node("p","detail-subtitle",`Объявленные пакеты: ${data.dependencies.slice(0,8).join(", ")}${data.dependencies.length>8 ? ` и ещё ${data.dependencies.length-8}` : ""}`));
+}
 async function projectRuns(project,origin,language="python") {
-  const js=language==="javascript", profile=js ? "javascript-checks-v1" : "python-checks-v1";
+  const js=language==="javascript";
   const sequence=openRunnerDrawer(`Проверки ${js ? "JS/TS" : "Python"} · ${project.name}`,origin), body=$("detail-body");
-  body.append(node("p","detail-callout",js ? "TypeScript проверит синтаксис JavaScript и типы TypeScript с фиксированными настройками. Node.js запустит тесты встроенного node:test. Проверяется копия файлов в контейнере." : "Ruff проверит ошибки Python, pytest запустит существующие тесты в отдельном контейнере. Копия файлов может изменяться внутри контейнера; исходная папка не подключается."));
+  body.append(node("p","detail-callout",js ? "TypeScript проверит синтаксис JavaScript и типы TypeScript. Выберите встроенные тесты Node.js или подготовленное окружение Vitest. Проверяется копия файлов в контейнере." : "Ruff проверит ошибки Python, pytest запустит существующие тесты в отдельном контейнере. Копия файлов может изменяться внутри контейнера; исходная папка не подключается."));
   body.append(node("p","","Сеть отключена; ключи AegisOps и Docker socket не передаются. Лимиты: 512 МБ, 1 CPU, 64 процесса; инструменты — до 60 секунд суммарно. Контейнер удаляется после запуска."));
-  body.append(node("p","",js ? "Node.js 24, TypeScript 5.9.3: strict, noEmit, NodeNext; JavaScript проверяется на синтаксис (checkJs=false). tsconfig, npm scripts и установка зависимостей проекта не используются. Поддержаны *.test.* / *.spec.* и test.* / spec.*. Jest/Vitest, JSX/TSX и сборка фронтенда пока не поддерживаются." : "Python 3.12: выберите заранее подготовленное окружение. «Данные» добавляет Pydantic 2.14.1 и PyYAML 6.0.3 с закреплёнными версиями. requirements.txt проекта не устанавливается; плагины автоматически не загружаются. Настройки инструментов проекта игнорируются; conftest.py выполняется внутри контейнера."));
+  body.append(node("p","",js ? "Node.js 24 и TypeScript 5.9.3. Vitest 4.0.18 / Vite 7.3.1 используют подготовленные зависимости и Node-окружение. Версии и lock проекта не воспроизводятся. Настройки проекта и npm scripts не запускаются; JSX/TSX, Jest, React и сборка приложения пока не поддерживаются." : "Python 3.12: выберите заранее подготовленное окружение. «Данные» добавляет Pydantic 2.14.1 и PyYAML 6.0.3 с закреплёнными версиями. requirements.txt проекта не устанавливается; плагины автоматически не загружаются. Настройки инструментов проекта игнорируются; conftest.py выполняется внутри контейнера."));
   body.append(node("p","detail-subtitle","В снимок входят файлы выбранного языка и .json, .yaml/.yml, .toml, .ini, .txt, .csv. JS/TS: .js/.mjs/.cjs/.ts/.mts/.cts; Python: .py. Типичные секретные файлы, ссылки, зависимости и служебные папки исключены. Локальные логи могут содержать фрагменты исходников; нейросети они не отправляются."));
   const environment=node("select"); environment.setAttribute("aria-label",js ? "Окружение Node.js" : "Окружение Python");
-  for(const [value,title] of Object.entries(environmentLabels)) {if((value==="node-js-v1")!==js) continue;const option=node("option","",title);option.value=value;environment.append(option);}
+  for(const [value,title] of Object.entries(environmentLabels)) {if(value.startsWith("node-")!==js) continue;const option=node("option","",title);option.value=value;environment.append(option);}
   const environmentLabel=node("label","",js ? "Окружение Node.js" : "Окружение Python"); environmentLabel.append(environment);body.append(environmentLabel);
+  const compatibilityPanel=section("Совместимость проекта"); if(js) {compatibilityPanel.append(node("p","","Читаем package.json без запуска кода…"));body.append(compatibilityPanel);}
+  let compatibility=null;
   const consent=node("input"); consent.type="checkbox"; consent.id=`run-consent-${project.id}`;
   const label=node("label","ai-consent"); label.append(consent,document.createTextNode("Запустить код тестов этого проекта в контейнере Docker"));
-  const run=node("button","primary-button runner-start",js ? "Запустить проверки JS/TS" : "Запустить Ruff и pytest"); run.dataset.consentId=consent.id; run.disabled=true;
-  consent.addEventListener("change",()=>{run.disabled=!consent.checked || state.job?.state === "running";});
+  const run=node("button","primary-button runner-start",js ? "Запустить проверки JS/TS" : "Запустить Ruff и pytest"); run.dataset.consentId=consent.id; run.dataset.compatible=js ? "false" : "true"; run.disabled=true;
+  const updateRunner=()=>{
+    const allowed=environment.value==="node-vitest-v1" ? ["vitest","vite","typescript","@types/node"] : ["typescript","@types/node"];
+    const expected=environment.value==="node-vitest-v1" ? "vitest" : "node";
+    const compatible=!js || (compatibility && compatibility.status!=="unsupported" && compatibility.framework===expected && compatibility.dependencies.every(name=>allowed.includes(name)));
+    run.dataset.compatible=compatible ? "true" : "false";
+    run.disabled=!compatible || !consent.checked || state.job?.state === "running";
+    if(js && compatibility) {compatibilityPanel.replaceChildren(node("h3","","Совместимость проекта"));renderCompatibility(compatibilityPanel,compatibility);if(!compatible)compatibilityPanel.append(node("p","detail-callout","Выбранное окружение не поддерживает эти объявления. Установка отсутствующих пакетов автоматически не выполняется."));}
+  };
+  consent.addEventListener("change",updateRunner);
+  environment.addEventListener("change",()=>{consent.checked=false;updateRunner();});
+  if(js) environment.disabled=true;
   run.addEventListener("click",async()=>{
     run.disabled=true;
     try {
-      const data=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_runner",project_id:project.id,consent:profile,environment:environment.value})});
+      const data=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_runner",project_id:project.id,consent:environment.value==="node-vitest-v1" ? "javascript-vitest-v1" : js ? "javascript-checks-v1" : "python-checks-v1",environment:environment.value})});
       closeDetail(); renderJob(data.job);
     } catch(problem) {body.append(node("p","detail-callout",`${problem.message} Автоматического повтора нет. Проверьте историю перед новым запуском.`));}
   });
   body.append(label,run);
+  if(js) {
+    try {const data=await api(`/api/project-compatibility/${project.id}`);if(sequence!==detailSequence || $("drawer").hidden)return;compatibility=data;if(data.suggested_environment)environment.value=data.suggested_environment;environment.disabled=false;updateRunner();}
+    catch(problem) {if(sequence!==detailSequence || $("drawer").hidden)return;compatibilityPanel.replaceChildren(node("p","detail-callout","Не удалось проверить package.json. Запуск недоступен; сохранённую историю можно читать."));}
+  }
   const history=section("Последние запуски"); body.append(history);
   try {
     const data=await api(`/api/project-runs/${project.id}`); if(sequence!==detailSequence || $("drawer").hidden) return;
@@ -491,14 +515,16 @@ async function openRunReport(id,origin) {
     body.append(node("p","detail-subtitle",formatTime(data.claim.created_at,true)),node("span",`status ${result?.status === "passed" ? "passed" : "issues"}`,runLabels[result?.status || "pending"]));
     pair(body,"Окружение",environmentLabels[data.claim.environment || "minimal"]);
     if(!result) {body.append(node("p","detail-callout","Подтверждённого результата пока нет. Дождитесь завершения. После прерывания контейнер мог остаться активным; автоматического повторного запуска нет.")); return;}
-    const reasons={runner_unavailable:"Образ выбранного окружения не подготовлен или Docker Desktop недоступен.",snapshot_rejected:"Не удалось подготовить снимок: нет файлов выбранного языка, достигнут лимит, папка недоступна или изменилась.",sandbox_failed:"Ошибка контейнера, недопустимый ответ или очистка не подтверждена. Успешным этот запуск не считается.",deadline:"Превышено общее время запуска. Проверьте подтверждение удаления контейнера.",uncertain:"Состояние запуска не подтверждено.",checks_completed:"Проверки завершены в рамках выбранного профиля. Это не подтверждает полную работоспособность или безопасность проекта."};
+    const reasons={runner_unavailable:"Образ выбранного окружения не подготовлен или Docker Desktop недоступен.",project_incompatible:"Объявления проекта или настройки тестов не поддерживаются выбранным окружением. Код не запускался.",snapshot_rejected:"Не удалось подготовить снимок: нет файлов выбранного языка, достигнут лимит, папка недоступна или изменилась.",sandbox_failed:"Ошибка контейнера, недопустимый ответ или очистка не подтверждена. Успешным этот запуск не считается.",deadline:"Превышено общее время запуска. Проверьте подтверждение удаления контейнера.",uncertain:"Состояние запуска не подтверждено.",checks_completed:"Проверки завершены в рамках выбранного профиля. Это не подтверждает полную работоспособность или безопасность проекта."};
     body.append(node("p","detail-callout",reasons[result.reason]));
     if(result.reason === "runner_unavailable") body.append(node("p","detail-subtitle",`Подготовка окружения: .venv/Scripts/python.exe scripts/prepare-project-runner.py${data.claim.environment && data.claim.environment !== "minimal" ? ` --environment ${data.claim.environment}` : ""}`));
+    if(result.compatibility) {const panel=section("Совместимость снимка");renderCompatibility(panel,result.compatibility);for(const issue of result.compatibility_issues || [])panel.append(node("p","detail-callout",compatibilityIssueLabels[issue] || "Окружение не поддерживает проект."));body.append(panel);}
     if(data.missing_modules?.length) {
       body.append(node("p","detail-callout",`Недоступны модули: ${data.missing_modules.join(", ")}. Это может быть внешняя зависимость или часть самого проекта. Имя модуля может отличаться от имени пакета.`));
       body.append(node("p","","Для pydantic и yaml выберите окружение «Данные». Другие зависимости пока не поддерживаются готовыми окружениями. Пакеты автоматически не устанавливаются; диагноз основан на выводе тестов."));
     }
-    pair(body,"Контейнер удалён",result.container_removed ? "Да" : "Не подтверждено");
+    if(result.execution_scope==="not_started" && ["project_incompatible","snapshot_rejected","runner_unavailable"].includes(result.reason)) pair(body,"Контейнер","Не создавался");
+    else pair(body,"Контейнер удалён",result.container_removed ? "Да" : "Не подтверждено");
     if(result.snapshot) {pair(body,"Файлов в снимке",result.snapshot.files);pair(body,"Пропущено файлов/папок",result.snapshot.skipped);pair(body,"SHA256 снимка",result.snapshot.sha256);}
     const labels={passed:"Пройдено",failed:"Найдены ошибки",error:"Ошибка инструмента или среды",timeout:"Время истекло",no_tests:"Тесты не найдены"};
     for(const check of result.checks) {

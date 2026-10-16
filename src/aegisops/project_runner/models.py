@@ -4,20 +4,29 @@ from uuid import UUID
 from pydantic import Field, StrictBool, StrictStr, model_validator
 
 from aegisops.domain.common import DTO, Sha256, UTCDateTime
+from aegisops.project_runner.compatibility import PackageCompatibility
 
 PROFILE: Final = "python-checks-v1"
 JS_PROFILE: Final = "javascript-checks-v1"
-Profile = Literal["python-checks-v1", "javascript-checks-v1"]
-Environment = Literal["minimal", "python-data-v1", "node-js-v1"]
-ENVIRONMENTS = ("minimal", "python-data-v1", "node-js-v1")
-ToolName = Literal["ruff", "pytest", "typescript", "node-test"]
+VITEST_PROFILE: Final = "javascript-vitest-v1"
+Profile = Literal["python-checks-v1", "javascript-checks-v1", "javascript-vitest-v1"]
+Environment = Literal["minimal", "python-data-v1", "node-js-v1", "node-vitest-v1"]
+ENVIRONMENTS = ("minimal", "python-data-v1", "node-js-v1", "node-vitest-v1")
+ToolName = Literal["ruff", "pytest", "typescript", "node-test", "vitest"]
+CompatibilityIssue = Literal[
+    "package_unsupported", "dependencies_unavailable", "framework_mismatch", "environment_directive"
+]
 
 
 def profile_for(environment: Environment) -> Profile:
+    if environment == "node-vitest-v1":
+        return VITEST_PROFILE
     return JS_PROFILE if environment == "node-js-v1" else PROFILE
 
 
 def tools_for(profile: Profile) -> tuple[ToolName, ToolName]:
+    if profile == VITEST_PROFILE:
+        return ("typescript", "vitest")
     return ("typescript", "node-test") if profile == JS_PROFILE else ("ruff", "pytest")
 
 
@@ -64,7 +73,7 @@ class ToolCheck(DTO):
         if self.status == "failed" and self.exit_code != 1:
             raise ValueError("invalid tool result")
         if self.status == "no_tests" and (
-            self.tool not in {"pytest", "node-test"} or self.exit_code != 5
+            self.tool not in {"pytest", "node-test", "vitest"} or self.exit_code != 5
         ):
             raise ValueError("invalid tool result")
         return self
@@ -81,11 +90,14 @@ class RunResult(DTO):
         "checks_completed",
         "runner_unavailable",
         "snapshot_rejected",
+        "project_incompatible",
         "sandbox_failed",
         "deadline",
         "uncertain",
     ]
     snapshot: SnapshotInfo | None = None
+    compatibility: PackageCompatibility | None = None
+    compatibility_issues: tuple[CompatibilityIssue, ...] = Field(default=(), max_length=4)
     image_id: Annotated[StrictStr, Field(pattern=r"^sha256:[0-9a-f]{64}$")] | None = None
     checks: tuple[ToolCheck, ...] = Field(default=(), max_length=2)
     container_removed: StrictBool = False
@@ -96,10 +108,18 @@ class RunResult(DTO):
     def consistent(self) -> Self:
         if self.profile != profile_for(self.environment):
             raise ValueError("profile does not match environment")
+        if self.compatibility_issues and (
+            self.compatibility is None
+            or self.reason != "project_incompatible"
+            or self.status != "not_supported"
+            or self.checks
+            or self.execution_scope != "not_started"
+        ):
+            raise ValueError("invalid compatibility rejection")
         if self.snapshot is not None and (
             self.profile == PROFILE
             and self.snapshot.python_files == 0
-            or self.profile == JS_PROFILE
+            or self.profile in {JS_PROFILE, VITEST_PROFILE}
             and self.snapshot.javascript_files == 0
         ):
             raise ValueError("snapshot does not match profile")

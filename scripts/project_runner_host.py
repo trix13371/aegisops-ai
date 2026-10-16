@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import UUID
 
 from aegisops.io import read_text, unique_object
-from aegisops.project_runner.models import ENVIRONMENTS, JS_PROFILE, profile_for
+from aegisops.project_runner.models import ENVIRONMENTS, JS_PROFILE, VITEST_PROFILE, profile_for
 from aegisops.projects.repository import plain_path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,7 +45,22 @@ def context_hash(environment="minimal"):
         if environment == "node-js-v1"
         else ("Dockerfile", "requirements.txt", "data-requirements.txt", "entry.py")
     )
-    context = ROOT / "runner" if environment == "node-js-v1" else ROOT / "runner/python-v1"
+    if environment == "node-vitest-v1":
+        names = (
+            ".dockerignore",
+            "python-v1/entry.py",
+            "vitest-v1/Dockerfile",
+            "vitest-v1/package.json",
+            "vitest-v1/package-lock.json",
+            "vitest-v1/entry.py",
+            "vitest-v1/check.mjs",
+            "vitest-v1/run.mjs",
+        )
+    context = (
+        ROOT / "runner"
+        if environment in {"node-js-v1", "node-vitest-v1"}
+        else ROOT / "runner/python-v1"
+    )
     for name in names:
         digest.update(name.encode())
         digest.update((context / name).read_bytes())
@@ -150,7 +165,7 @@ def container_arguments(run_id: UUID, image_id: str, profile=PROFILE):
     if (
         type(run_id) is not UUID
         or re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None
-        or profile not in {PROFILE, JS_PROFILE}
+        or profile not in {PROFILE, JS_PROFILE, VITEST_PROFILE}
     ):
         raise RunnerFailure("sandbox_failed")
     return [
@@ -186,7 +201,11 @@ def container_arguments(run_id: UUID, image_id: str, profile=PROFILE):
 
 
 def inspect_owned(identifier, run_id, profile=PROFILE):
-    if re.fullmatch(r"[0-9a-f]{64}", identifier) is None or profile not in {PROFILE, JS_PROFILE}:
+    if re.fullmatch(r"[0-9a-f]{64}", identifier) is None or profile not in {
+        PROFILE,
+        JS_PROFILE,
+        VITEST_PROFILE,
+    }:
         raise RunnerFailure("sandbox_failed")
     value = json.loads(docker(["inspect", identifier]), object_pairs_hook=unique_object)
     if (

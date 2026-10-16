@@ -35,6 +35,7 @@ from aegisops.project_ai.models import MODEL, PROFILE
 from aegisops.project_ai.projection import project_summary
 from aegisops.project_ai.repository import AnalysisRepository
 from aegisops.project_runner.comparison import compare_runs
+from aegisops.project_runner.inspection import inspect_project_package
 from aegisops.project_runner.models import ENVIRONMENTS, profile_for
 from aegisops.project_runner.repository import RunRepository
 from aegisops.projects.comparison import compare_reports
@@ -559,6 +560,10 @@ class Handler(BaseHTTPRequestHandler):
                     identifier = UUID(self.path[len("/api/project-runs/") :])
                     self.dashboard.projects.get(identifier)
                     return self.send_json(200, {"runs": self.dashboard.runs.history(identifier)})
+                if self.path.startswith("/api/project-compatibility/"):
+                    identifier = UUID(self.path[len("/api/project-compatibility/") :])
+                    package = inspect_project_package(self.dashboard.projects.get(identifier))
+                    return self.send_json(200, package.model_dump(mode="json"))
                 if self.path.startswith("/api/project-run/"):
                     identifier = UUID(self.path[len("/api/project-run/") :])
                     claim = self.dashboard.runs.claim(identifier)

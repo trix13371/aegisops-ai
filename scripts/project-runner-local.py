@@ -18,6 +18,7 @@ from project_runner_host import (
 
 from aegisops.domain.common import utc_now
 from aegisops.io import unique_object
+from aegisops.project_runner.compatibility_gate import environment_issues
 from aegisops.project_runner.models import RunResult, ToolCheck, tools_for
 from aegisops.project_runner.repository import RunRepository
 from aegisops.project_runner.snapshot import snapshot_project
@@ -30,6 +31,7 @@ def main():
     claim = container_id = snapshot = image_id = None
     started = executing = removed = False
     checks = ()
+    compatibility_issues = ()
     status, reason = "error", "uncertain"
     try:
         if len(sys.argv) != 2:
@@ -52,6 +54,13 @@ def main():
         except ProjectError:
             status, reason = "not_supported", "snapshot_rejected"
             raise
+        if snapshot.compatibility is not None:
+            compatibility_issues = environment_issues(snapshot.compatibility, claim.environment)
+            if snapshot.environment_directive:
+                compatibility_issues = (*compatibility_issues, "environment_directive")
+            if compatibility_issues:
+                status, reason = "not_supported", "project_incompatible"
+                raise ValueError("incompatible preset")
         # Refuse to start alongside a leftover owned container from an interrupted job.
         active = docker(["ps", "--quiet", "--filter", "label=org.aegisops.project-run"]).strip()
         if active:
@@ -112,6 +121,8 @@ def main():
                     status=status,
                     reason=reason,
                     snapshot=snapshot.info if snapshot else None,
+                    compatibility=snapshot.compatibility if snapshot else None,
+                    compatibility_issues=compatibility_issues,
                     image_id=image_id,
                     checks=checks,
                     container_removed=removed,

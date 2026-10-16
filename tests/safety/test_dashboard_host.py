@@ -567,6 +567,51 @@ def test_javascript_api_requires_matching_consent_and_persists_profile(host, tmp
     assert value["claim"]["environment"] == "node-js-v1"
 
 
+def test_package_compatibility_api_is_authenticated_bounded_and_does_not_execute(
+    host, tmp_path, monkeypatch
+):
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    root = Path(dashboard.projects.get(report.project_id).path)
+    (root / "package.json").write_text(
+        json.dumps(
+            {
+                "devDependencies": {"vitest": "^4", "typescript": "^5"},
+                "scripts": {"test": "PRIVATE_SCRIPT_MUST_NOT_EXECUTE"},
+            }
+        )
+    )
+    monkeypatch.setattr(dashboard, "child", lambda *args, **kwargs: pytest.fail("executed project"))
+    path = f"/api/project-compatibility/{report.project_id}"
+    assert request(path)[0] == 401
+    status, _, body = request(path, auth=True)
+    value = json.loads(body)
+    assert status == 200 and value["framework"] == "vitest"
+    assert value["suggested_environment"] == "node-vitest-v1"
+    assert "dependency_versions_unverified" in value["reasons"]
+    assert b"PRIVATE_SCRIPT" not in body and not dashboard.current_job()
+    assert dashboard.runs.history(report.project_id) == []
+    (root / "package.json").write_text('{"dependencies":{},"dependencies":{}}')
+    value = json.loads(request(path, auth=True)[2])
+    assert value["status"] == "unsupported" and value["reasons"] == ["package_invalid"]
+
+
+def test_vitest_job_uses_its_own_fixed_consent_and_environment(host, tmp_path):
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    payload = {
+        "mode": "project_runner",
+        "project_id": str(report.project_id),
+        "environment": "node-vitest-v1",
+        "consent": "javascript-checks-v1",
+    }
+    assert request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))[0] == 400
+    payload["consent"] = "javascript-vitest-v1"
+    assert request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))[0] == 202
+    claim = dashboard.runs.claim(UUID(dashboard.job["run_id"]))
+    assert claim.profile == "javascript-vitest-v1" and claim.environment == "node-vitest-v1"
+
+
 def test_static_comparison_api_reads_saved_reports_without_new_jobs(host, tmp_path, monkeypatch):
     from aegisops.projects.scanner import scan_project
 

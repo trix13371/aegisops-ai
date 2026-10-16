@@ -110,13 +110,16 @@ def test_no_tests_and_missing_environment_are_not_passed():
         ToolCheck(tool="ruff", status="no_tests", exit_code=5, output="", output_truncated=False)
 
 
-def test_fixed_container_profile_has_no_mounts_keys_or_remote_daemon(monkeypatch):
+@pytest.mark.parametrize(
+    "profile", ["python-checks-v1", "javascript-checks-v1", "javascript-vitest-v1"]
+)
+def test_fixed_container_profile_has_no_mounts_keys_or_remote_daemon(monkeypatch, profile):
     from uuid import uuid4
 
     monkeypatch.syspath_prepend(str(ROOT / "scripts"))
     import project_runner_host as host
 
-    arguments = host.container_arguments(uuid4(), "sha256:" + "1" * 64)
+    arguments = host.container_arguments(uuid4(), "sha256:" + "1" * 64, profile)
     assert all(
         flag in arguments
         for flag in (

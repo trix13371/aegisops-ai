@@ -30,8 +30,7 @@ def real_run(tmp_path, monkeypatch):
     import project_runner_host as host
 
     # Preserve real image pin lookup; worker registries are isolated temporary directories.
-    images = {name: host.read_image(name) for name in ("minimal", "python-data-v1", "node-js-v1")}
-    monkeypatch.setattr(worker, "read_image", lambda environment="minimal": images[environment])
+    monkeypatch.setattr(worker, "read_image", host.read_image)
     monkeypatch.setattr(worker, "ROOT", tmp_path)
     root = tmp_path / "source"
     root.mkdir()
@@ -280,3 +279,118 @@ def test_node_excessive_output_is_bounded_and_not_success(real_run):
     result = launch("node-js-v1")
     assert result.status == "error" and result.checks[1].output_truncated
     assert result.container_removed and len(result.checks[1].output) <= 24000
+
+
+def vitest_project(root):
+    (root / "package.json").write_text(
+        '{"type":"module","devDependencies":{"vitest":"^4.0.0",'
+        '"typescript":"^5.0.0"},"scripts":{"test":"exit 123","postinstall":"exit 123"}}'
+    )
+    (root / "add.ts").write_text(
+        "export function add(a: number, b: number): number { return a+b; }\n"
+    )
+
+
+def test_vitest_runs_real_typescript_tests_with_prepared_dependencies_and_ignores_config(real_run):
+    root, launch = real_run
+    vitest_project(root)
+    (root / "vitest.config.ts").write_text("throw new Error('PROJECT_CONFIG_MUST_NOT_EXECUTE');\n")
+    (root / "vite.config.js").write_text("throw new Error('VITE_CONFIG_MUST_NOT_EXECUTE');\n")
+    (root / "tsconfig.json").write_text('{"extends":"./MISSING_CONFIG.json"}')
+    (root / ".env").write_text("PRIVATE_VITEST_CANARY")
+    (root / "add.test.ts").write_text(
+        """import {test,expect} from 'vitest';
+import fs from 'node:fs';
+import net from 'node:net';
+import {add} from './add';
+test('addition and isolation', async () => {
+  expect(add(2,3)).toBe(5);
+  expect(process.getuid!()).toBe(65532);
+  expect(process.env.OPENROUTER_API_KEY).toBeUndefined();
+  expect(process.env.AEGISOPS_LLM_API_KEY).toBeUndefined();
+  expect(fs.existsSync('.env')).toBe(false);
+  expect(fs.existsSync('/var/run/docker.sock')).toBe(false);
+  expect(fs.readFileSync('/sys/fs/cgroup/memory.max','utf8').trim()).toBe('536870912');
+  expect(fs.readFileSync('/sys/fs/cgroup/pids.max','utf8').trim()).toBe('64');
+  expect(() => fs.writeFileSync('/opt/aegisops/run.mjs','bad')).toThrow();
+  await new Promise<void>((resolve,reject) => {
+    const socket=net.connect({host:'1.1.1.1',port:53});
+    socket.on('error',()=>{socket.destroy();resolve();});
+    socket.on('connect',()=>{socket.destroy();reject(new Error('network available'));});
+  });
+  fs.writeFileSync('add.ts','changed only inside container');
+});
+""",
+        encoding="utf-8",
+    )
+    before = (root / "add.ts").read_bytes()
+    result = launch("node-vitest-v1")
+    assert result.status == "passed", "\n".join(item.output for item in result.checks)
+    assert result.container_removed and result.profile == "javascript-vitest-v1"
+    assert result.compatibility.framework == "vitest" and not result.compatibility_issues
+    assert (root / "add.ts").read_bytes() == before
+    assert "PRIVATE_VITEST_CANARY" not in result.model_dump_json()
+
+
+@pytest.mark.parametrize("mode", ["assertion", "types", "only"])
+def test_vitest_reports_failures_instead_of_no_tests(real_run, mode):
+    root, launch = real_run
+    vitest_project(root)
+    (root / "add.test.ts").write_text(
+        "import {test,expect} from 'vitest';\nimport {add} from './add';\n"
+        + ("test.only" if mode == "only" else "test")
+        + "('addition',()=>expect(add(2,3)).toBe("
+        + ("6" if mode == "assertion" else "5")
+        + "));\n"
+    )
+    if mode == "types":
+        (root / "add.ts").write_text(
+            "export function add(a: number,b: number): number { return 'wrong'; }\n"
+        )
+    result = launch("node-vitest-v1")
+    assert result.status == "issues" and result.container_removed
+    assert result.checks[1].status == "failed"
+    if mode == "types":
+        assert result.checks[0].status == "failed"
+
+
+def test_vitest_no_test_files_is_not_passed(real_run):
+    root, launch = real_run
+    vitest_project(root)
+    result = launch("node-vitest-v1")
+    assert result.status == "issues" and result.container_removed
+    assert result.checks[0].status == "passed" and result.checks[1].status == "no_tests"
+
+
+def test_vitest_sync_hang_is_stopped_by_outer_deadline(real_run):
+    root, launch = real_run
+    vitest_project(root)
+    (root / "hang.test.js").write_text(
+        "import {test} from 'vitest';\ntest('hang',()=>{while(true) {}});\n"
+    )
+    result = launch("node-vitest-v1")
+    assert result.status == "timeout" and result.checks[1].status == "timeout"
+    assert result.container_removed
+
+
+def test_vitest_output_is_bounded(real_run):
+    root, launch = real_run
+    vitest_project(root)
+    (root / "logs.test.js").write_text(
+        "import {test} from 'vitest';\ntest('logs',()=>console.log('X'.repeat(300000)));\n"
+    )
+    result = launch("node-vitest-v1")
+    assert result.status == "error" and result.checks[1].output_truncated
+    assert result.container_removed and len(result.checks[1].output) <= 24000
+
+
+def test_vitest_unavailable_declared_dependency_is_rejected_before_execution(real_run):
+    root, launch = real_run
+    vitest_project(root)
+    (root / "package.json").write_text(
+        '{"devDependencies":{"vitest":"4.0.18"},"dependencies":{"react":"19"}}'
+    )
+    result = launch("node-vitest-v1")
+    assert result.status == "not_supported" and result.reason == "project_incompatible"
+    assert result.execution_scope == "not_started" and not result.checks
+    assert "dependencies_unavailable" in result.compatibility_issues

@@ -16,8 +16,14 @@ def main():
         arguments = parser.parse_args()
         environment = arguments.environment
         tag = f"aegisops-python-checks:{'v1' if environment == 'minimal' else environment}"
-        if environment == "node-js-v1":
-            tag = "aegisops-javascript-checks:v1"
+        javascript = environment in {"node-js-v1", "node-vitest-v1"}
+        directory_name = "vitest-v1" if environment == "node-vitest-v1" else "javascript-v1"
+        if javascript:
+            tag = (
+                "aegisops-vitest-checks:v1"
+                if environment == "node-vitest-v1"
+                else "aegisops-javascript-checks:v1"
+            )
         requirements = "requirements.txt" if environment == "minimal" else "data-requirements.txt"
         if not arguments.use_built:
             build = (
@@ -27,10 +33,10 @@ def main():
                     "--tag",
                     tag,
                     "--file",
-                    str(ROOT / "runner/javascript-v1/Dockerfile"),
+                    str(ROOT / "runner" / directory_name / "Dockerfile"),
                     str(ROOT / "runner"),
                 ]
-                if environment == "node-js-v1"
+                if javascript
                 else [
                     "build",
                     "--pull=false",

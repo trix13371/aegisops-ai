@@ -9,3 +9,11 @@ javascript-v1/*
 !javascript-v1/check.mjs
 !javascript-v1/package.json
 !javascript-v1/package-lock.json
+!vitest-v1/
+vitest-v1/*
+!vitest-v1/Dockerfile
+!vitest-v1/entry.py
+!vitest-v1/check.mjs
+!vitest-v1/run.mjs
+!vitest-v1/package.json
+!vitest-v1/package-lock.json
