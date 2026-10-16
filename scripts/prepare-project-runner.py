@@ -3,9 +3,9 @@
 import argparse
 import json
 
-from project_runner_host import PROFILE, ROOT, context_hash, docker
+from project_runner_host import ROOT, context_hash, docker
 
-from aegisops.project_runner.models import ENVIRONMENTS
+from aegisops.project_runner.models import ENVIRONMENTS, profile_for
 
 
 def main():
@@ -16,10 +16,22 @@ def main():
         arguments = parser.parse_args()
         environment = arguments.environment
         tag = f"aegisops-python-checks:{'v1' if environment == 'minimal' else environment}"
+        if environment == "node-js-v1":
+            tag = "aegisops-javascript-checks:v1"
         requirements = "requirements.txt" if environment == "minimal" else "data-requirements.txt"
         if not arguments.use_built:
-            docker(
+            build = (
                 [
+                    "build",
+                    "--pull=false",
+                    "--tag",
+                    tag,
+                    "--file",
+                    str(ROOT / "runner/javascript-v1/Dockerfile"),
+                    str(ROOT / "runner"),
+                ]
+                if environment == "node-js-v1"
+                else [
                     "build",
                     "--pull=false",
                     "--tag",
@@ -27,21 +39,21 @@ def main():
                     "--build-arg",
                     f"DEPENDENCIES={requirements}",
                     str(ROOT / "runner/python-v1"),
-                ],
-                timeout=300,
+                ]
             )
+            docker(build, timeout=300)
         inspected = json.loads(docker(["image", "inspect", tag]))[0]
         image_id = inspected["Id"]
         if inspected["Os"] != "linux" or inspected["Config"].get("Volumes"):
             raise ValueError("unsupported image")
         directory = ROOT / ".local/project-runner"
         directory.mkdir(parents=True, exist_ok=True)
-        filename = "image.json" if environment == "minimal" else "python-data-v1.json"
+        filename = "image.json" if environment == "minimal" else f"{environment}.json"
         temporary = directory / f"{filename}.tmp"
         temporary.write_text(
             json.dumps(
                 {
-                    "profile": PROFILE,
+                    "profile": profile_for(environment),
                     "environment": environment,
                     "image_id": image_id,
                     "context_sha256": context_hash(environment),
@@ -50,7 +62,7 @@ def main():
             encoding="utf-8",
         )
         temporary.replace(directory / filename)
-        print("Python checks runner ready; project code was not executed.")
+        print("Project checks runner ready; project code was not executed.")
         return 0
     except Exception:
         print("Runner setup failed. Check local Docker Desktop; no project was executed.")

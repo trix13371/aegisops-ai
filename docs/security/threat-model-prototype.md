@@ -272,3 +272,12 @@ UI07 разрешает только два environment ID из закрытог
 pip flags, команды или image override. Сеть при тестах остаётся none.
 Missing-module подсказки недоверенные, не являются командами установки и
 выводятся текстом. Смена окружения не считается исправлением кода. См. ADR-026.
+
+UI08 добавляет только фиксированное node-js-v1 с отдельным consent/profile.
+npm install/scripts проекта и tsconfig/plugins не используются. Доверенный
+build npm ci отключает lifecycle scripts; registry artifacts закреплены integrity.
+Новый профиль сохраняет прежние Docker/resource/network/key boundaries. Выбор
+profile не может подменить label cleanup или пару инструментов в результате.
+JS/TS в контейнере может подделывать вывод так же, как Python: нет аттестации
+или доказательства качества assertions. JSX/TSX/framework tests не поддержаны.
+См. ADR-027.

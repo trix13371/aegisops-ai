@@ -8,12 +8,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from aegisops.project_runner.models import SnapshotInfo
+from aegisops.project_runner.models import JS_PROFILE, PROFILE, Profile, SnapshotInfo
 from aegisops.projects.models import Project, ProjectError
 from aegisops.projects.repository import plain_path, project_root
 from aegisops.projects.scanner import EXCLUDED, excluded_file
 
 SUFFIXES = frozenset({".py", ".json", ".yaml", ".yml", ".toml", ".ini", ".txt", ".csv"})
+JS_SUFFIXES = frozenset({".js", ".mjs", ".cjs", ".ts", ".mts", ".cts"})
 
 
 @dataclass(frozen=True)
@@ -22,10 +23,13 @@ class Snapshot:
     info: SnapshotInfo
 
 
-def snapshot_project(project: Project) -> Snapshot:
+def snapshot_project(project: Project, profile: Profile = PROFILE) -> Snapshot:
+    if profile not in {PROFILE, JS_PROFILE}:
+        raise ProjectError("Неизвестный профиль проверки")
     root = project_root(project)
     pending = [(root, 0)]
-    seen = skipped = total = python_files = entries = 0
+    seen = skipped = total = python_files = javascript_files = entries = 0
+    suffixes = SUFFIXES if profile == PROFILE else (SUFFIXES - {".py"}) | JS_SUFFIXES
     deadline = time.monotonic() + 20
     contents: list[tuple[str, bytes]] = []
     try:
@@ -59,9 +63,15 @@ def snapshot_project(project: Project) -> Snapshot:
                     if not item.is_file(follow_symlinks=False):
                         skipped += 1
                         continue
-                    if excluded_file(item.name) or path.suffix.lower() not in SUFFIXES:
+                    if excluded_file(item.name) or path.suffix.lower() not in suffixes:
                         skipped += 1
                         continue
+                    if (
+                        profile == JS_PROFILE
+                        and path.suffix.lower() in JS_SUFFIXES
+                        and path.suffix not in JS_SUFFIXES
+                    ):
+                        raise ProjectError("JS/TS требует расширения файлов в нижнем регистре")
                     seen += 1
                     if seen > 1000:
                         raise ProjectError("В снимке больше 1000 файлов")
@@ -80,10 +90,11 @@ def snapshot_project(project: Project) -> Snapshot:
                     if len(data) > 262144 or total > 8 * 1024 * 1024:
                         raise ProjectError("Превышен размер снимка проекта")
                     python_files += path.suffix.lower() == ".py"
+                    javascript_files += path.suffix.lower() in JS_SUFFIXES
                     contents.append((relative, data))
         project_root(project)
-        if not python_files:
-            raise ProjectError("Профиль поддерживает проекты с Python-файлами")
+        if not (javascript_files if profile == JS_PROFILE else python_files):
+            raise ProjectError("В папке нет файлов выбранного языка")
         output = io.BytesIO()
         with tarfile.open(fileobj=output, mode="w", format=tarfile.PAX_FORMAT) as archive:
             for relative, data in sorted(contents):
@@ -99,6 +110,7 @@ def snapshot_project(project: Project) -> Snapshot:
                 sha256=hashlib.sha256(data).hexdigest(),
                 files=seen,
                 python_files=python_files,
+                javascript_files=javascript_files,
                 bytes=total,
                 skipped=min(skipped, 4000),
             ),

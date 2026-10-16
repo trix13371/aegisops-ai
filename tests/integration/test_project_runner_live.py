@@ -30,7 +30,7 @@ def real_run(tmp_path, monkeypatch):
     import project_runner_host as host
 
     # Preserve real image pin lookup; worker registries are isolated temporary directories.
-    images = {name: host.read_image(name) for name in ("minimal", "python-data-v1")}
+    images = {name: host.read_image(name) for name in ("minimal", "python-data-v1", "node-js-v1")}
     monkeypatch.setattr(worker, "read_image", lambda environment="minimal": images[environment])
     monkeypatch.setattr(worker, "ROOT", tmp_path)
     root = tmp_path / "source"
@@ -179,3 +179,104 @@ def test_actual_runner_bounds_output_and_stops_excessive_logs(real_run):
     assert result.status == "error" and result.container_removed
     assert result.checks[1].output_truncated
     assert len(result.checks[1].output) <= 24000
+
+
+def test_node_typescript_and_native_tests_pass_with_same_container_boundaries(real_run):
+    root, launch = real_run
+    (root / "main.ts").write_text(
+        "export function add(a: number, b: number): number {return a+b;}\n"
+    )
+    (root / ".env").write_text("PRIVATE_NODE_CANARY")
+    (root / "package.json").write_text(
+        '{"type":"module","scripts":{"test":"exit 123","postinstall":"exit 123"}}'
+    )
+    (root / "tsconfig.json").write_text('{"extends":"./MUST_NOT_LOAD.json"}')
+    (root / "main.test.ts").write_text(
+        """import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import net from 'node:net';
+import {add} from './main.ts';
+test('profile', async () => {
+  assert.equal(add(2, 3), 5);
+  assert.equal(process.getuid!(), 65532);
+  assert.equal(process.env.OPENROUTER_API_KEY, undefined);
+  assert.equal(process.env.AEGISOPS_LLM_API_KEY, undefined);
+  assert.equal(fs.existsSync('.env'), false);
+  assert.equal(fs.existsSync('/var/run/docker.sock'), false);
+  assert.equal(fs.readFileSync('/sys/fs/cgroup/memory.max','utf8').trim(), '536870912');
+  assert.equal(fs.readFileSync('/sys/fs/cgroup/pids.max','utf8').trim(), '64');
+  const status = fs.readFileSync('/proc/self/status','utf8');
+  assert.match(status, /CapEff:\\s+0000000000000000/);
+  assert.match(status, /NoNewPrivs:\\s+1/);
+  assert.match(status, /Seccomp:\\s+2/);
+  assert.throws(() => fs.writeFileSync('/opt/aegisops/check.mjs','bad'));
+  await new Promise<void>((resolve, reject) => {
+    const socket = net.connect({host:'1.1.1.1',port:53});
+    socket.on('error',() => {socket.destroy(); resolve();});
+    socket.on('connect',() => {socket.destroy(); reject(new Error('network available'));});
+  });
+  fs.writeFileSync('main.ts','container copy only');
+});
+""",
+        encoding="utf-8",
+    )
+    original = (root / "main.ts").read_bytes()
+    result = launch("node-js-v1")
+    assert result.status == "passed", [item.output for item in result.checks]
+    assert result.profile == "javascript-checks-v1" and result.container_removed
+    assert (root / "main.ts").read_bytes() == original
+    assert "PRIVATE_NODE_CANARY" not in result.model_dump_json()
+
+
+@pytest.mark.parametrize("mode", ["syntax", "types", "test_failure", "missing_package"])
+def test_node_reports_syntax_types_assertions_and_missing_dependencies(real_run, mode):
+    root, launch = real_run
+    source = {
+        "syntax": "export const broken = ;\n",
+        "types": "export const value: number = 'wrong';\n",
+        "test_failure": "export const value = 2;\n",
+        "missing_package": "import 'noninstalled-aegisops-package';\n",
+    }[mode]
+    (root / "main.mts").write_text(source)
+    (root / "main.test.mts").write_text(
+        "import {test} from 'node:test';\nimport assert from 'node:assert/strict';\n"
+        "import './main.mts';\ntest('expected', () => assert.equal(2+2,5));\n"
+    )
+    result = launch("node-js-v1")
+    assert result.status == "issues" and result.container_removed
+    assert result.checks[1].status == "failed"
+    if mode in {"syntax", "types"}:
+        assert result.checks[0].status == "failed"
+        assert "main.mts" in result.checks[0].output
+    elif mode == "missing_package":
+        assert "ERR_MODULE_NOT_FOUND" in result.checks[1].output
+
+
+def test_node_no_tests_never_looks_like_full_success(real_run):
+    root, launch = real_run
+    (root / "main.cjs").write_text("module.exports = {answer: 42};\n")
+    result = launch("node-js-v1")
+    assert result.status == "issues" and result.checks[0].status == "passed"
+    assert result.checks[1].status == "no_tests" and result.container_removed
+
+
+def test_node_hanging_tests_are_stopped_and_container_removed(real_run):
+    root, launch = real_run
+    (root / "wait.test.mjs").write_text(
+        "import {test} from 'node:test';\n"
+        "test('hang', async () => {await new Promise(r => setTimeout(r, 70000));});\n"
+    )
+    result = launch("node-js-v1")
+    assert result.status == "timeout" and result.checks[1].status == "timeout"
+    assert result.container_removed
+
+
+def test_node_excessive_output_is_bounded_and_not_success(real_run):
+    root, launch = real_run
+    (root / "logs.test.mjs").write_text(
+        "import {test} from 'node:test';\ntest('logs', () => {console.log('X'.repeat(300000));});\n"
+    )
+    result = launch("node-js-v1")
+    assert result.status == "error" and result.checks[1].output_truncated
+    assert result.container_removed and len(result.checks[1].output) <= 24000

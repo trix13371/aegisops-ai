@@ -18,7 +18,7 @@ from project_runner_host import (
 
 from aegisops.domain.common import utc_now
 from aegisops.io import unique_object
-from aegisops.project_runner.models import RunResult, ToolCheck
+from aegisops.project_runner.models import RunResult, ToolCheck, tools_for
 from aegisops.project_runner.repository import RunRepository
 from aegisops.project_runner.snapshot import snapshot_project
 from aegisops.projects.models import ProjectError
@@ -48,7 +48,7 @@ def main():
             raise
         projects = ProjectRepository(ROOT / ".local/projects")
         try:
-            snapshot = snapshot_project(projects.get(claim.project_id))
+            snapshot = snapshot_project(projects.get(claim.project_id), claim.profile)
         except ProjectError:
             status, reason = "not_supported", "snapshot_rejected"
             raise
@@ -56,11 +56,11 @@ def main():
         active = docker(["ps", "--quiet", "--filter", "label=org.aegisops.project-run"]).strip()
         if active:
             raise RunnerFailure("sandbox_failed")
-        created = docker(container_arguments(identifier, image_id)).decode().strip()
+        created = docker(container_arguments(identifier, image_id, claim.profile)).decode().strip()
         if re.fullmatch(r"[0-9a-f]{64}", created) is None:
             raise RunnerFailure("sandbox_failed")
         container_id = created
-        inspect = inspect_owned(container_id, identifier)
+        inspect = inspect_owned(container_id, identifier, claim.profile)
         validate_container(inspect, image_id)
         executing = True
         raw = docker(
@@ -69,14 +69,14 @@ def main():
             timeout=75,
             maximum=131072,
         )
-        inspect = inspect_owned(container_id, identifier)
+        inspect = inspect_owned(container_id, identifier, claim.profile)
         if inspect["State"].get("OOMKilled") or inspect["State"].get("ExitCode") != 0:
             raise RunnerFailure("sandbox_failed")
         value = json.loads(raw, object_pairs_hook=unique_object)
         if not isinstance(value, dict) or set(value) != {"checks"}:
             raise RunnerFailure("sandbox_failed")
         checks = tuple(ToolCheck.model_validate(item) for item in value["checks"])
-        if tuple(item.tool for item in checks) != ("ruff", "pytest"):
+        if tuple(item.tool for item in checks) != tools_for(claim.profile):
             checks = ()
             raise RunnerFailure("sandbox_failed")
         status = (
@@ -98,7 +98,7 @@ def main():
     finally:
         if container_id is not None and claim is not None:
             try:
-                removed = remove_owned(container_id, claim.id)
+                removed = remove_owned(container_id, claim.id, claim.profile)
             except Exception:
                 status, reason = "error", "sandbox_failed"
         if claim is not None and started:
@@ -107,6 +107,7 @@ def main():
                     id=claim.id,
                     project_id=claim.project_id,
                     environment=claim.environment,
+                    profile=claim.profile,
                     completed_at=utc_now(),
                     status=status,
                     reason=reason,
@@ -140,13 +141,14 @@ def cleanup(identifier):
         .split()
     )
     for container in found:
-        remove_owned(container, identifier)
+        remove_owned(container, identifier, claim.profile)
     if repository.result(identifier) is None:
         repository.save(
             RunResult(
                 id=claim.id,
                 project_id=claim.project_id,
                 environment=claim.environment,
+                profile=claim.profile,
                 completed_at=utc_now(),
                 status="error",
                 reason="uncertain",

@@ -196,6 +196,41 @@ def test_dependency_environment_change_is_not_a_code_fix_even_with_same_image():
         )
 
 
+def test_javascript_run_comparison_uses_its_own_tools():
+    project = uuid4()
+    base, left = run(project, ("failed", "failed"))
+    target, right = run(project)
+
+    def js(claim, result):
+        claim = RunClaim.model_validate(
+            {**claim.model_dump(), "environment": "node-js-v1", "profile": "javascript-checks-v1"}
+        )
+        result = RunResult.model_validate(
+            {
+                **result.model_dump(),
+                "environment": "node-js-v1",
+                "profile": "javascript-checks-v1",
+                "snapshot": {
+                    **result.snapshot.model_dump(),
+                    "python_files": 0,
+                    "javascript_files": 1,
+                },
+                "checks": [
+                    {**check.model_dump(), "tool": tool}
+                    for check, tool in zip(result.checks, ("typescript", "node-test"), strict=True)
+                ],
+            }
+        )
+        return claim, result
+
+    base, left = js(base, left)
+    target, right = js(target, right)
+    comparison = compare_runs(base, target, left, right)
+    assert comparison.comparable
+    assert [item.tool for item in comparison.transitions] == ["typescript", "node-test"]
+    assert all(item.change == "now_passed" for item in comparison.transitions)
+
+
 def test_runner_unconfirmed_scope_or_truncated_output_blocks_comparison():
     project = uuid4()
     base, left = run(project)

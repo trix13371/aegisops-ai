@@ -1,0 +1,11 @@
+*
+!python-v1/
+python-v1/*
+!python-v1/entry.py
+!javascript-v1/
+javascript-v1/*
+!javascript-v1/Dockerfile
+!javascript-v1/entry.py
+!javascript-v1/check.mjs
+!javascript-v1/package.json
+!javascript-v1/package-lock.json

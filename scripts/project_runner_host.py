@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import UUID
 
 from aegisops.io import read_text, unique_object
-from aegisops.project_runner.models import ENVIRONMENTS
+from aegisops.project_runner.models import ENVIRONMENTS, JS_PROFILE, profile_for
 from aegisops.projects.repository import plain_path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,20 +32,34 @@ def context_hash(environment="minimal"):
         raise RunnerFailure("runner_unavailable")
     digest = hashlib.sha256()
     digest.update(environment.encode())
-    for name in ("Dockerfile", "requirements.txt", "data-requirements.txt", "entry.py"):
+    names = (
+        (
+            ".dockerignore",
+            "python-v1/entry.py",
+            "javascript-v1/Dockerfile",
+            "javascript-v1/package.json",
+            "javascript-v1/package-lock.json",
+            "javascript-v1/check.mjs",
+            "javascript-v1/entry.py",
+        )
+        if environment == "node-js-v1"
+        else ("Dockerfile", "requirements.txt", "data-requirements.txt", "entry.py")
+    )
+    context = ROOT / "runner" if environment == "node-js-v1" else ROOT / "runner/python-v1"
+    for name in names:
         digest.update(name.encode())
-        digest.update((ROOT / "runner/python-v1" / name).read_bytes())
+        digest.update((context / name).read_bytes())
     return digest.hexdigest()
 
 
 def read_image(environment="minimal"):
     if environment not in ENVIRONMENTS:
         raise RunnerFailure("runner_unavailable")
-    filename = "image.json" if environment == "minimal" else "python-data-v1.json"
+    filename = "image.json" if environment == "minimal" else f"{environment}.json"
     value = json.loads(read_text(plain_path(ROOT / ".local/project-runner" / filename), 2048))
     if (
         not isinstance(value, dict)
-        or value.get("profile") != PROFILE
+        or value.get("profile") != profile_for(environment)
         or value.get("environment", "minimal") != environment
         or value.get("context_sha256") != context_hash(environment)
         or not isinstance(value.get("image_id"), str)
@@ -132,8 +146,12 @@ def docker(arguments, *, data=None, timeout=15, maximum=131072):
     return bytes(buffers[0])
 
 
-def container_arguments(run_id: UUID, image_id: str):
-    if type(run_id) is not UUID or re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None:
+def container_arguments(run_id: UUID, image_id: str, profile=PROFILE):
+    if (
+        type(run_id) is not UUID
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None
+        or profile not in {PROFILE, JS_PROFILE}
+    ):
         raise RunnerFailure("sandbox_failed")
     return [
         "create",
@@ -144,7 +162,7 @@ def container_arguments(run_id: UUID, image_id: str):
         "--label",
         f"{LABEL}={run_id}",
         "--label",
-        f"org.aegisops.profile={PROFILE}",
+        f"org.aegisops.profile={profile}",
         "--network=none",
         "--read-only",
         "--user=65532:65532",
@@ -167,8 +185,8 @@ def container_arguments(run_id: UUID, image_id: str):
     ]
 
 
-def inspect_owned(identifier, run_id):
-    if re.fullmatch(r"[0-9a-f]{64}", identifier) is None:
+def inspect_owned(identifier, run_id, profile=PROFILE):
+    if re.fullmatch(r"[0-9a-f]{64}", identifier) is None or profile not in {PROFILE, JS_PROFILE}:
         raise RunnerFailure("sandbox_failed")
     value = json.loads(docker(["inspect", identifier]), object_pairs_hook=unique_object)
     if (
@@ -176,7 +194,7 @@ def inspect_owned(identifier, run_id):
         or len(value) != 1
         or value[0].get("Id") != identifier
         or value[0].get("Config", {}).get("Labels", {}).get(LABEL) != str(run_id)
-        or value[0].get("Config", {}).get("Labels", {}).get("org.aegisops.profile") != PROFILE
+        or value[0].get("Config", {}).get("Labels", {}).get("org.aegisops.profile") != profile
         or value[0].get("Name") != f"/aegisops-check-{run_id}"
     ):
         raise RunnerFailure("sandbox_failed")
@@ -214,7 +232,7 @@ def validate_container(value, image_id):
         raise RunnerFailure("sandbox_failed")
 
 
-def remove_owned(identifier, run_id):
-    inspect_owned(identifier, run_id)
+def remove_owned(identifier, run_id, profile=PROFILE):
+    inspect_owned(identifier, run_id, profile)
     docker(["rm", "--force", identifier])
     return True

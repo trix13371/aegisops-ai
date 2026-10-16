@@ -4,12 +4,12 @@ from typing import Literal
 from uuid import UUID
 
 from aegisops.domain.common import DTO
-from aegisops.project_runner.models import RunClaim, RunResult, ToolCheck
+from aegisops.project_runner.models import RunClaim, RunResult, ToolCheck, ToolName
 from aegisops.projects.models import ProjectError
 
 
 class ToolTransition(DTO):
-    tool: Literal["ruff", "pytest"]
+    tool: ToolName
     before: Literal["passed", "failed", "error", "timeout", "no_tests"]
     after: Literal["passed", "failed", "error", "timeout", "no_tests"]
     change: Literal["unchanged", "now_passed", "no_longer_passed", "changed"]
@@ -53,6 +53,7 @@ def compare_runs(
                 result.id != claim.id
                 or result.project_id != claim.project_id
                 or result.environment != claim.environment
+                or result.profile != claim.profile
             ):
                 raise ProjectError("Результат не соответствует запуску")
     reason: Literal[

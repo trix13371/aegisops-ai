@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from aegisops.domain.common import utc_now
 from aegisops.io import read_text, unique_object
 from aegisops.project_runner.diagnostics import missing_modules
-from aegisops.project_runner.models import Environment, RunClaim, RunIndex, RunResult
+from aegisops.project_runner.models import Environment, RunClaim, RunIndex, RunResult, profile_for
 from aegisops.projects.models import ProjectError
 from aegisops.projects.repository import plain_path
 
@@ -45,7 +45,11 @@ class RunRepository:
             with self.lock:
                 previous = self.index(project_id)
                 claim = RunClaim(
-                    id=uuid4(), project_id=project_id, created_at=utc_now(), environment=environment
+                    id=uuid4(),
+                    project_id=project_id,
+                    created_at=utc_now(),
+                    environment=environment,
+                    profile=profile_for(environment),
                 )
                 self.write(claim.id, "claim", claim.model_dump_json())
                 index = RunIndex(runs=(claim.id, *previous.runs)[:20])
@@ -76,6 +80,7 @@ class RunRepository:
             result.id != identifier
             or result.project_id != claim.project_id
             or result.environment != claim.environment
+            or result.profile != claim.profile
             or result.completed_at < claim.created_at
         ):
             raise ProjectError("Результат запуска не прошёл проверку")
@@ -87,6 +92,7 @@ class RunRepository:
         if (
             result.project_id != claim.project_id
             or result.environment != claim.environment
+            or result.profile != claim.profile
             or result.completed_at < claim.created_at
         ):
             raise ProjectError("Результат запуска не соответствует запросу")

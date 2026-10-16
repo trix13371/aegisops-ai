@@ -35,8 +35,7 @@ from aegisops.project_ai.models import MODEL, PROFILE
 from aegisops.project_ai.projection import project_summary
 from aegisops.project_ai.repository import AnalysisRepository
 from aegisops.project_runner.comparison import compare_runs
-from aegisops.project_runner.models import ENVIRONMENTS
-from aegisops.project_runner.models import PROFILE as RUNNER_PROFILE
+from aegisops.project_runner.models import ENVIRONMENTS, profile_for
 from aegisops.project_runner.repository import RunRepository
 from aegisops.projects.comparison import compare_reports
 from aegisops.projects.models import ProjectError
@@ -244,8 +243,8 @@ class Dashboard:
                 {"mode", "project_id", "consent"},
                 {"mode", "project_id", "consent", "environment"},
             )
-            and payload.get("consent") == RUNNER_PROFILE
             and payload.get("environment", "minimal") in ENVIRONMENTS
+            and payload.get("consent") == profile_for(payload.get("environment", "minimal"))
         ):
             scenario = str(UUID(payload["project_id"]))
             self.projects.get(UUID(scenario))
@@ -281,7 +280,7 @@ class Dashboard:
             if mode == "project":
                 self.job.update(project_id=scenario, message="Читаем структуру проекта…")
             if mode == "project_runner":
-                self.job.update(run_id=scenario, message="Готовим изолированную проверку Python…")
+                self.job.update(run_id=scenario, message="Готовим изолированную проверку кода…")
             if mode == "project_ai":
                 self.job.update(
                     report_id=scenario, message="Запрошен разбор сводки через OpenRouter…"
@@ -311,7 +310,7 @@ class Dashboard:
                         state="completed" if result.status == "passed" else "failed",
                         stage="done",
                         run_id=scenario,
-                        message="Проверка контейнера завершена. Откройте результаты Ruff и pytest.",
+                        message="Проверка контейнера завершена. Откройте результаты инструментов.",
                     )
                 return
             if mode == "project_ai":

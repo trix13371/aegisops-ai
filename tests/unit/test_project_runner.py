@@ -285,7 +285,7 @@ def test_worker_host_deadline_still_cleans_container_and_records_timeout(
     monkeypatch.setattr(worker, "inspect_owned", lambda *args: {})
     monkeypatch.setattr(worker, "validate_container", lambda *args: None)
 
-    def remove(container, run_id):
+    def remove(container, run_id, profile="python-checks-v1"):
         removed.append((container, run_id))
         return True
 
@@ -364,3 +364,158 @@ def test_extended_image_pin_cannot_substitute_minimal_or_unknown_environment(tmp
     (context / "data-requirements.txt").write_text("changed")
     with pytest.raises(host.RunnerFailure):
         host.read_image("python-data-v1")
+
+
+def test_javascript_snapshot_keeps_code_and_data_but_excludes_secrets_and_dependencies(case):
+    from aegisops.project_runner.models import JS_PROFILE
+
+    root, project, _ = case
+    for name in ("app.ts", "main.js", "test.test.mts", "module.cts", "types.d.ts"):
+        (root / name).write_text("// fixture\n")
+    (root / "package.json").write_text('{"scripts":{"test":"MUST_NOT_EXECUTE"}}')
+    (root / "other_language.py").write_text("PYTHON_NOT_FOR_THIS_PROFILE")
+    (root / ".env").write_text("PRIVATE_JS_CANARY")
+    (root / "node_modules").mkdir()
+    (root / "node_modules/dependency.js").write_text("PRIVATE_DEP_CANARY")
+    snapshot = snapshot_project(project, JS_PROFILE)
+    assert snapshot.info.javascript_files == 5 and snapshot.info.python_files == 0
+    with tarfile.open(fileobj=io.BytesIO(snapshot.data)) as archive:
+        assert archive.getnames() == [
+            "app.ts",
+            "main.js",
+            "module.cts",
+            "package.json",
+            "test.test.mts",
+            "types.d.ts",
+        ]
+    assert b"PRIVATE_" not in snapshot.data and b"PYTHON_NOT_FOR_THIS_PROFILE" not in snapshot.data
+    python = snapshot_project(project)
+    assert python.info.python_files == 1 and python.info.javascript_files == 0
+
+
+def test_language_claim_and_checks_cannot_be_mixed(case):
+    from aegisops.project_runner.models import JS_PROFILE, RunClaim, SnapshotInfo
+
+    _, project, runs = case
+    claim = runs.create(project.id, "node-js-v1")
+    assert claim.profile == JS_PROFILE and runs.claim(claim.id) == claim
+    with pytest.raises(ValidationError):
+        RunClaim.model_validate({**claim.model_dump(), "profile": "python-checks-v1"})
+    checks = tuple(
+        ToolCheck(tool=tool, status="passed", exit_code=0, output="ok", output_truncated=False)
+        for tool in ("typescript", "node-test")
+    )
+    result = RunResult(
+        id=claim.id,
+        project_id=project.id,
+        completed_at=utc_now(),
+        environment="node-js-v1",
+        profile=JS_PROFILE,
+        status="passed",
+        reason="checks_completed",
+        checks=checks,
+        snapshot=SnapshotInfo(
+            sha256="1" * 64, files=1, python_files=0, javascript_files=1, bytes=1, skipped=0
+        ),
+        image_id="sha256:" + "1" * 64,
+        container_removed=True,
+        execution_scope="container",
+    )
+    runs.save(result)
+    assert runs.result(claim.id) == result
+    assert not runs.state(claim.id)["missing_modules"]
+    with pytest.raises(ValidationError):
+        RunResult.model_validate(
+            {
+                **result.model_dump(),
+                "checks": [
+                    {**item.model_dump(), "tool": tool}
+                    for item, tool in zip(checks, ("ruff", "pytest"), strict=True)
+                ],
+            }
+        )
+    with pytest.raises(ValidationError):
+        RunResult.model_validate(
+            {
+                **result.model_dump(),
+                "snapshot": {
+                    **result.snapshot.model_dump(),
+                    "javascript_files": 0,
+                    "python_files": 1,
+                },
+            }
+        )
+
+
+def test_js_cleanup_requires_the_exact_js_profile_label(monkeypatch):
+    from uuid import uuid4
+
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import project_runner_host as host
+
+    run_id, identifier = uuid4(), "1" * 64
+    value = {
+        "Id": identifier,
+        "Name": f"/aegisops-check-{run_id}",
+        "Config": {
+            "Labels": {host.LABEL: str(run_id), "org.aegisops.profile": "javascript-checks-v1"}
+        },
+    }
+    calls = []
+
+    def docker(arguments, **kwargs):
+        calls.append(arguments)
+        return json.dumps([value]).encode() if arguments[0] == "inspect" else b""
+
+    monkeypatch.setattr(host, "docker", docker)
+    with pytest.raises(host.RunnerFailure):
+        host.remove_owned(identifier, run_id)
+    assert not any(call[0] == "rm" for call in calls)
+    assert host.remove_owned(identifier, run_id, "javascript-checks-v1")
+    assert calls[-1] == ["rm", "--force", identifier]
+
+
+def test_js_image_pin_includes_shared_guest_entry_and_its_own_tools(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import project_runner_host as host
+
+    monkeypatch.setattr(host, "ROOT", tmp_path)
+    for name in (
+        ".dockerignore",
+        "python-v1/entry.py",
+        "javascript-v1/Dockerfile",
+        "javascript-v1/package.json",
+        "javascript-v1/package-lock.json",
+        "javascript-v1/check.mjs",
+        "javascript-v1/entry.py",
+    ):
+        target = tmp_path / "runner" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("trusted")
+    state = tmp_path / ".local/project-runner"
+    state.mkdir(parents=True)
+    (state / "node-js-v1.json").write_text(
+        json.dumps(
+            {
+                "profile": "javascript-checks-v1",
+                "environment": "node-js-v1",
+                "image_id": "sha256:" + "1" * 64,
+                "context_sha256": host.context_hash("node-js-v1"),
+            }
+        )
+    )
+    assert host.read_image("node-js-v1") == "sha256:" + "1" * 64
+    (tmp_path / "runner/python-v1/entry.py").write_text("changed shared capture/unpack")
+    with pytest.raises(host.RunnerFailure):
+        host.read_image("node-js-v1")
+
+
+@pytest.mark.parametrize("name", ["BAD.TS", "bad.test.JS", "source.MtS", "module.CJS"])
+def test_noncanonical_js_extension_blocks_mixed_snapshot_instead_of_silent_skip(case, name):
+    from aegisops.project_runner.models import JS_PROFILE
+
+    root, project, _ = case
+    (root / "passing.test.mjs").write_text("// normal test file\n")
+    (root / name).write_text("const broken = ;\n")
+    with pytest.raises(ProjectError, match="нижнем регистре"):
+        snapshot_project(project, JS_PROFILE)
