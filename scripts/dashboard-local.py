@@ -34,6 +34,8 @@ from aegisops.pipeline.models import PipelineResult
 from aegisops.project_ai.models import MODEL, PROFILE
 from aegisops.project_ai.projection import project_summary
 from aegisops.project_ai.repository import AnalysisRepository
+from aegisops.project_runner.models import PROFILE as RUNNER_PROFILE
+from aegisops.project_runner.repository import RunRepository
 from aegisops.projects.models import ProjectError
 from aegisops.projects.repository import ProjectRepository
 from aegisops.projects.scanner import scan_project
@@ -76,6 +78,7 @@ class Dashboard:
         self.health = None
         self.projects = ProjectRepository(ROOT / ".local/projects")
         self.analyses = AnalysisRepository(ROOT / ".local/project-ai")
+        self.runs = RunRepository(ROOT / ".local/project-runs")
         self.python = str(ROOT / ".venv/Scripts/python.exe")
         if os.name != "nt":
             self.python = sys.executable
@@ -232,6 +235,13 @@ class Dashboard:
             scenario = str(UUID(payload["project_id"]))
             self.projects.get(UUID(scenario))
         elif (
+            mode == "project_runner"
+            and set(payload) == {"mode", "project_id", "consent"}
+            and payload.get("consent") == RUNNER_PROFILE
+        ):
+            scenario = str(UUID(payload["project_id"]))
+            self.projects.get(UUID(scenario))
+        elif (
             mode == "project_ai"
             and set(payload) == {"mode", "report_id", "consent"}
             and payload.get("consent") == PROFILE
@@ -248,6 +258,8 @@ class Dashboard:
                 return dict(self.job), False
             if mode == "project_ai":
                 self.analyses.claim(report)
+            if mode == "project_runner":
+                scenario = str(self.runs.create(UUID(scenario)).id)
             self.job = {
                 "id": str(uuid4()),
                 "mode": mode,
@@ -258,6 +270,8 @@ class Dashboard:
             }
             if mode == "project":
                 self.job.update(project_id=scenario, message="Читаем структуру проекта…")
+            if mode == "project_runner":
+                self.job.update(run_id=scenario, message="Готовим изолированную проверку Python…")
             if mode == "project_ai":
                 self.job.update(
                     report_id=scenario, message="Запрошен разбор сводки через OpenRouter…"
@@ -272,6 +286,24 @@ class Dashboard:
 
     def run_job(self, mode, scenario):
         try:
+            if mode == "project_runner":
+                self.child(["scripts/project-runner-local.py", scenario], timeout=220)
+                result = self.runs.result(UUID(scenario))
+                if result is None:
+                    self.update(
+                        state="failed",
+                        stage="done",
+                        run_id=scenario,
+                        message="Результат запуска неизвестен. Откройте историю; повтора нет.",
+                    )
+                else:
+                    self.update(
+                        state="completed" if result.status == "passed" else "failed",
+                        stage="done",
+                        run_id=scenario,
+                        message="Проверка контейнера завершена. Откройте результаты Ruff и pytest.",
+                    )
+                return
             if mode == "project_ai":
                 identifier = UUID(scenario)
                 try:
@@ -369,7 +401,9 @@ class Dashboard:
             self.update(
                 state="failed",
                 stage="done",
-                message="Проверка остановлена. Проверьте среду и историю аудита. "
+                message="Запуск прерван. Проверьте историю запусков и Docker; повтора нет."
+                if mode == "project_runner"
+                else "Проверка остановлена. Проверьте среду и историю аудита. "
                 "Незавершённый пакет автоматически не повторяется.",
             )
         finally:
@@ -486,6 +520,15 @@ class Handler(BaseHTTPRequestHandler):
                             "analysis": self.dashboard.analyses.state(report),
                         },
                     )
+                if self.path.startswith("/api/project-runs/"):
+                    identifier = UUID(self.path[len("/api/project-runs/") :])
+                    self.dashboard.projects.get(identifier)
+                    return self.send_json(200, {"runs": self.dashboard.runs.history(identifier)})
+                if self.path.startswith("/api/project-run/"):
+                    identifier = UUID(self.path[len("/api/project-run/") :])
+                    claim = self.dashboard.runs.claim(identifier)
+                    self.dashboard.projects.get(claim.project_id)
+                    return self.send_json(200, self.dashboard.runs.state(identifier))
                 if self.path.startswith("/api/audit/"):
                     identifier = UUID(self.path[11:])
                     with PostgresAuditReader() as reader:

@@ -39,6 +39,7 @@ markers = [
   "e2e: complete synthetic pipeline", "llm_live: explicit paid provider tests",
   "kind_live: explicitly enabled local Kubernetes tests",
   "opa_live: explicitly enabled local OPA tests",
+  "runner_live: explicitly enabled disposable Docker project checks",
 ]
 
 [tool.ruff]
@@ -51,6 +52,7 @@ select = ["E", "F", "I", "UP", "S", "TID251"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
 "scripts/**" = ["S603", "S607", "TID251"]
+"runner/python-v1/entry.py" = ["S603", "S108", "TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "subprocess" = { msg = "Application must not execute commands." }
@@ -109,7 +111,7 @@ type = "forbidden"
 source_modules = ["aegisops.projects"]
 forbidden_modules = [
   "aegisops.collector", "aegisops.sources", "aegisops.llm", "aegisops.config",
-  "aegisops.db", "aegisops.authorization", "aegisops.project_ai",
+  "aegisops.db", "aegisops.authorization", "aegisops.project_ai", "aegisops.project_runner",
   "http", "socket", "subprocess", "kubernetes",
 ]
 
@@ -124,6 +126,15 @@ forbidden_modules = [
   "aegisops.authorization", "aegisops.sources", "http", "socket", "subprocess", "kubernetes",
 ]
 
+[[tool.importlinter.contracts]]
+name = "Runner snapshots and reports cannot execute commands or access services and keys"
+type = "forbidden"
+source_modules = ["aegisops.project_runner"]
+forbidden_modules = [
+  "aegisops.llm", "aegisops.project_ai", "aegisops.config", "aegisops.db",
+  "aegisops.authorization", "aegisops.sources", "aegisops.collector",
+  "http", "socket", "subprocess", "kubernetes",
+]
 [[tool.importlinter.contracts]]
 name = "Project explanation transport cannot reach incident processing or source services"
 type = "forbidden"

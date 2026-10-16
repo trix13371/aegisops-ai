@@ -13,6 +13,7 @@ import pytest
 from aegisops.dashboard.view import present_record
 from aegisops.domain.models import AuditRecord
 from aegisops.project_ai.repository import AnalysisRepository
+from aegisops.project_runner.repository import RunRepository
 from aegisops.projects.repository import ProjectRepository
 
 pytestmark = pytest.mark.safety
@@ -34,6 +35,7 @@ def host(operator, monkeypatch, tmp_path):
     dashboard = operator.Dashboard()
     dashboard.projects = ProjectRepository(tmp_path / "private-registry")
     dashboard.analyses = AnalysisRepository(tmp_path / "private-ai")
+    dashboard.runs = RunRepository(tmp_path / "private-runs")
     monkeypatch.setattr(dashboard, "overview", lambda: {"records": [], "private": False})
     monkeypatch.setattr(dashboard, "run_job", lambda *args: None)
     server = ThreadingHTTPServer(("127.0.0.1", 0), operator.Handler)
@@ -459,3 +461,72 @@ def test_project_ai_fixed_child_never_inherits_dev_or_database_credentials(opera
         options["timeout"] == 80
         and options["creationflags"] == operator.subprocess.CREATE_NO_WINDOW
     )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"consent": False},
+        {"consent": "other"},
+        {"consent": "python-checks-v1", "command": "whoami"},
+        {"consent": "python-checks-v1", "image": "user-image"},
+        {"consent": "python-checks-v1", "mount": "/host"},
+        {"consent": "python-checks-v1", "network": "host"},
+    ],
+)
+def test_runner_api_requires_consent_and_rejects_extra_authority(host, tmp_path, extra):
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    payload = {"mode": "project_runner", "project_id": str(report.project_id), **extra}
+    assert request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))[0] == 400
+    assert dashboard.runs.history(report.project_id) == []
+
+
+def test_runner_history_and_job_lock_are_authenticated_and_persisted(host, tmp_path):
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    path = f"/api/project-runs/{report.project_id}"
+    assert request(path)[0] == 401
+    payload = json.dumps(
+        {
+            "mode": "project_runner",
+            "project_id": str(report.project_id),
+            "consent": "python-checks-v1",
+        }
+    )
+    assert request("/api/jobs", method="POST", body=payload)[0] == 401
+    assert (
+        request(
+            "/api/jobs",
+            method="POST",
+            auth=True,
+            body=payload,
+            headers={"Origin": "https://attacker.example"},
+        )[0]
+        == 403
+    )
+    assert request("/api/jobs", method="POST", auth=True, body=payload)[0] == 202
+    identifier = UUID(dashboard.job["run_id"])
+    assert request("/api/jobs", method="POST", auth=True, body=payload)[0] == 409
+    history = json.loads(request(path, auth=True)[2])["runs"]
+    assert len(history) == 1 and history[0]["claim"]["id"] == str(identifier)
+    assert request(f"/api/project-run/{identifier}")[0] == 401
+    assert json.loads(request(f"/api/project-run/{identifier}", auth=True)[2])["result"] is None
+
+
+def test_runner_worker_uses_fixed_script_and_preserves_unknown_state(host, tmp_path, monkeypatch):
+    dashboard, _ = host
+    report = ai_report(dashboard, tmp_path)
+    claim = dashboard.runs.create(report.project_id)
+    dashboard.job = {"state": "running", "run_id": str(claim.id)}
+    calls = []
+
+    def child(arguments, **kwargs):
+        calls.append((arguments, kwargs))
+        return {"recorded": False}
+
+    monkeypatch.setattr(dashboard, "child", child)
+    type(dashboard).run_job(dashboard, "project_runner", str(claim.id))
+    assert calls == [(["scripts/project-runner-local.py", str(claim.id)], {"timeout": 220})]
+    assert dashboard.job["state"] == "failed" and dashboard.runs.result(claim.id) is None

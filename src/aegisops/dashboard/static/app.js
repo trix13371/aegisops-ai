@@ -117,21 +117,22 @@ function renderJob(job) {
   $("mode").disabled = running; $("scenario").disabled = running;
   $("project-select").disabled = running;
   document.querySelectorAll(".project-scan,.project-remove").forEach(button => {button.disabled = running;});
-  document.querySelectorAll(".project-ai-start").forEach(button => {button.disabled = running || !document.getElementById(button.dataset.consentId)?.checked;});
+  document.querySelectorAll(".project-ai-start,.runner-start").forEach(button => {button.disabled = running || !document.getElementById(button.dataset.consentId)?.checked;});
   $("run-label").textContent = running ? "Проверяем…" : "Запустить проверку";
   $("job-banner").hidden = !job;
   if (!job) return;
   $("job-banner").className = `job-banner ${job.state}`;
   $("job-icon").replaceChildren(icon(running ? "activity" : ["completed","passed"].includes(job.state) ? "check" : "shield"));
   $("job-message").textContent = job.message;
-  $("job-caption").textContent = job.mode === "project_ai" ? "Разбор сводки через OpenRouter · без передачи исходников"
+  $("job-caption").textContent = job.mode === "project_runner" ? "Ruff и pytest в контейнере · без сети и ключей AegisOps"
+    : job.mode === "project_ai" ? "Разбор сводки через OpenRouter · без передачи исходников"
     : job.mode === "project" && job.files_checked !== undefined
     ? `Проверено файлов: ${job.files_checked} · Замечаний: ${job.findings_count} · Статическая проверка`
     : job.snapshot_count !== undefined
     ? `Наблюдений: ${job.snapshot_count} · Инцидентов: ${job.incident_count} · ${sourceLabel(job.mode === "synthetic" ? "synthetic_fixture" : "local_kind")}`
     : "Результат появится здесь. Можно оставить эту страницу открытой.";
-  $("job-detail").hidden = !job.audit_ids?.length && !job.report_id;
-  $("job-detail").replaceChildren(document.createTextNode(job.report_id ? "Открыть отчёт " : "Открыть результат "), icon("arrow"));
+  $("job-detail").hidden = !job.audit_ids?.length && !job.report_id && !job.run_id;
+  $("job-detail").replaceChildren(document.createTextNode(job.run_id ? "Результаты запуска " : job.report_id ? "Открыть отчёт " : "Открыть результат "), icon("arrow"));
   if (running && state.polling === null) state.polling = setTimeout(pollJob, 1500);
 }
 async function pollJob() {
@@ -265,7 +266,8 @@ async function openDetail(id, origin) {
 $("close-detail").addEventListener("click", closeDetail);
 $("drawer-backdrop").addEventListener("click", closeDetail);
 $("job-detail").addEventListener("click", () => {
-  if (state.job?.report_id) openProjectReport(state.job.report_id, $("job-detail"));
+  if (state.job?.run_id) openRunReport(state.job.run_id, $("job-detail"));
+  else if (state.job?.report_id) openProjectReport(state.job.report_id, $("job-detail"));
   else if (state.job?.audit_ids?.length) openDetail(state.job.audit_ids[0], $("job-detail"));
 });
 document.addEventListener("keydown", event => {
@@ -324,7 +326,9 @@ async function loadProjects() {
         try {await api("/api/projects/remove",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({project_id:project.id})}); $("project-history").hidden=true; await loadProjects(); toast("Проект убран из списка. Файлы не изменены.");}
         catch(problem) {error(problem.message);}
       });
-      actions.append(run,history,remove); card.append(actions); $("projects-list").append(card);
+      const checks=node("button","text-button project-scan","Тесты Python"); checks.append(icon("play"));
+      checks.addEventListener("click",()=>projectRuns(project,checks));
+      actions.append(run,history,checks,remove); card.append(actions); $("projects-list").append(card);
     }
     renderJob(state.job);
   } catch(problem) {$("projects-error").textContent=problem.message; $("projects-error").hidden=false;}
@@ -429,6 +433,66 @@ async function projectAiSection(report) {
     }
   } catch(problem) {panel.append(node("p","detail-callout","Состояние нейросетевого разбора недоступно. Новый запрос не отправлен. Откройте отчёт повторно после проверки локального хранилища."));}
   return panel;
+}
+
+function openRunnerDrawer(title,origin) {
+  const sequence=++detailSequence; state.detailOrigin=origin;
+  $("drawer").hidden=false; $("drawer-backdrop").hidden=false; document.body.style.overflow="hidden";
+  document.querySelector(".layout").inert=true; document.querySelector(".sidebar").inert=true;
+  const heading=node("h2","",title); heading.id="detail-title"; $("detail-body").replaceChildren(heading);
+  $("close-detail").focus(); return sequence;
+}
+const runLabels={passed:"Проверки пройдены",issues:"Есть замечания",error:"Ошибка проверки",timeout:"Превышено время",not_supported:"Профиль не подошёл",pending:"Результат неизвестен"};
+async function projectRuns(project,origin) {
+  const sequence=openRunnerDrawer(`Проверки Python · ${project.name}`,origin), body=$("detail-body");
+  body.append(node("p","detail-callout","Ruff проверит ошибки Python, pytest запустит существующие тесты в отдельном контейнере. Копия файлов может изменяться внутри контейнера; исходная папка не подключается."));
+  body.append(node("p","","Сеть отключена; ключи AegisOps и Docker socket не передаются. Лимиты: 512 МБ, 1 CPU, 64 процесса; Ruff — 15 секунд, pytest — 45 секунд. Контейнер удаляется после запуска."));
+  body.append(node("p","","Профиль Python 3.12 содержит только Ruff и pytest. Зависимости, плагины и пакеты проекта не устанавливаются. Настройки инструментов проекта игнорируются; conftest.py выполняется внутри контейнера. Если зависимостей не хватает, pytest покажет ошибку."));
+  body.append(node("p","detail-subtitle","В снимок входят .py, .json, .yaml/.yml, .toml, .ini, .txt и .csv. Типичные секретные файлы, ссылки, зависимости и служебные папки исключены. Локальные логи могут содержать фрагменты исходников; нейросети они не отправляются."));
+  const consent=node("input"); consent.type="checkbox"; consent.id=`run-consent-${project.id}`;
+  const label=node("label","ai-consent"); label.append(consent,document.createTextNode("Запустить код тестов этого проекта в контейнере Docker"));
+  const run=node("button","primary-button runner-start","Запустить Ruff и pytest"); run.dataset.consentId=consent.id; run.disabled=true;
+  consent.addEventListener("change",()=>{run.disabled=!consent.checked || state.job?.state === "running";});
+  run.addEventListener("click",async()=>{
+    run.disabled=true;
+    try {
+      const data=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_runner",project_id:project.id,consent:"python-checks-v1"})});
+      closeDetail(); renderJob(data.job);
+    } catch(problem) {body.append(node("p","detail-callout",`${problem.message} Автоматического повтора нет. Проверьте историю перед новым запуском.`));}
+  });
+  body.append(label,run);
+  const history=section("Последние запуски"); body.append(history);
+  try {
+    const data=await api(`/api/project-runs/${project.id}`); if(sequence!==detailSequence || $("drawer").hidden) return;
+    if(!data.runs.length) history.append(node("p","","Запусков пока нет."));
+    for(const item of data.runs) {
+      const row=node("div","runner-history-row"), open=node("button","text-button","Открыть запуск");
+      row.append(node("strong","",runLabels[item.result?.status || "pending"]),node("time","",formatTime(item.claim.created_at,true)));
+      open.addEventListener("click",()=>openRunReport(item.claim.id,origin)); row.append(open); history.append(row);
+    }
+  } catch(problem) {if(sequence===detailSequence) history.append(node("p","detail-callout","История запусков недоступна. Новый запуск не выполнялся."));}
+}
+async function openRunReport(id,origin) {
+  const sequence=openRunnerDrawer("Результаты Ruff и pytest",origin), body=$("detail-body");
+  try {
+    const data=await api(`/api/project-run/${id}`); if(sequence!==detailSequence || $("drawer").hidden) return;
+    const result=data.result;
+    body.append(node("p","detail-subtitle",formatTime(data.claim.created_at,true)),node("span",`status ${result?.status === "passed" ? "passed" : "issues"}`,runLabels[result?.status || "pending"]));
+    if(!result) {body.append(node("p","detail-callout","Подтверждённого результата пока нет. Дождитесь завершения. После прерывания контейнер мог остаться активным; автоматического повторного запуска нет.")); return;}
+    const reasons={runner_unavailable:"Образ проверок не подготовлен или Docker Desktop недоступен. Подготовка: scripts/prepare-project-runner.py.",snapshot_rejected:"Не удалось подготовить снимок: нет Python-файлов, достигнут лимит, папка недоступна или изменилась.",sandbox_failed:"Ошибка контейнера, недопустимый ответ или очистка не подтверждена. Успешным этот запуск не считается.",deadline:"Превышено общее время запуска. Проверьте подтверждение удаления контейнера.",uncertain:"Состояние запуска не подтверждено.",checks_completed:"Проверки завершены в рамках выбранного профиля. Это не подтверждает полную работоспособность или безопасность проекта."};
+    body.append(node("p","detail-callout",reasons[result.reason]));
+    pair(body,"Контейнер удалён",result.container_removed ? "Да" : "Не подтверждено");
+    if(result.snapshot) {pair(body,"Файлов в снимке",result.snapshot.files);pair(body,"Пропущено файлов/папок",result.snapshot.skipped);pair(body,"SHA256 снимка",result.snapshot.sha256);}
+    const labels={passed:"Пройдено",failed:"Найдены ошибки",error:"Ошибка инструмента или среды",timeout:"Время истекло",no_tests:"Тесты не найдены"};
+    for(const check of result.checks) {
+      const card=section(check.tool === "ruff" ? "Ruff · ошибки Python" : "pytest · тесты проекта");
+      card.append(node("strong","",labels[check.status]));
+      if(check.output_truncated) card.append(node("p","detail-callout","Лимит вывода достигнут. Проверка остановлена; полный результат не подтверждён."));
+      const logs=node("details","runner-logs"); logs.append(node("summary","","Показать локальный вывод"),node("pre","",check.output || "Вывод отсутствует.")); card.append(logs); body.append(card);
+    }
+    body.append(node("p","detail-subtitle","Вывод получен из контейнера с кодом проекта и остаётся локальным. Он не является независимым доказательством корректности тестов."));
+    pair(body,"ID запуска",data.claim.id);
+  } catch(problem) {if(sequence===detailSequence) body.append(node("p","detail-callout","Результат запуска недоступен. Повтор автоматически не выполняется."));}
 }
 
 refresh();

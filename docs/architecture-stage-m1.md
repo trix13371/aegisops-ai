@@ -134,3 +134,10 @@ OpenRouter request → строгий Explanation → локальная ист�
 проекция и хранилище отделены import-контрактами от транспорта и incident pipeline.
 Новый worker не исполняет проектный код; модели недоступны tools/команды.
 F01 и L0-контроль кластера сохраняются. См. ADR-022.
+
+UI05: явное согласие на тесты → durable RunClaim → bounded regular-file snapshot →
+operator Docker host → disposable Python container → strict RunResult → отдельная
+история запусков. Модули `project_runner` не могут исполнять команды или читать
+сервисные credentials; процессы находятся вне src. У контейнера нет сети/host
+mounts, он получает только архив снимка. Источник/статические/LLM отчёты не
+переписываются. Runs не входят в F06 и не отправляются в OpenRouter. См. ADR-023.
