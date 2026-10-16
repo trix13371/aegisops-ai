@@ -30,6 +30,8 @@
     <main id="main" class="projects-view" tabindex="-1">
       <section class="page-heading"><div><p class="eyebrow">ЦЕНТР НАБЛЮДЕНИЯ</p><h1 id="page-title">Проекты для проверки<span>.</span></h1><p id="page-subtitle" class="subtitle">Добавьте папку, выберите проверку и откройте результат — файлы остаются на месте.</p></div><div class="page-actions"><button id="new-project" class="primary-button" type="button" aria-controls="project-add-panel" aria-expanded="false" hidden><span data-icon="box"></span>Добавить проект</button><button id="refresh" class="icon-button" title="Обновить данные" aria-label="Обновить данные"><span data-icon="refresh"></span></button></div></section>
       <div id="error-banner" class="error-banner" role="alert" hidden></div>
+      <div id="overview-error" class="error-banner" role="alert" hidden></div>
+      <div id="audit-warning" class="scoped-note audit-note" role="alert" hidden></div>
 
       <section id="launch-panel" class="launch-panel" hidden><div class="launch-copy"><div class="launch-icon" data-icon="scan"></div><div><h2>Новая проверка</h2><p>Проект, кластер или учебный сценарий.</p></div></div><div class="launch-controls"><label class="launch-mode-label" for="mode">Что проверить</label><select id="mode"><option value="local_kind">Локальный кластер</option><option value="project">Добавленный проект</option><option value="synthetic">Учебный сценарий</option></select><label class="sr-only" for="project-select">Проект для проверки</label><select id="project-select" hidden></select><label class="sr-only" for="scenario">Учебный сценарий</label><select id="scenario" hidden><option value="crashloop-oom">Нехватка памяти</option><option value="crashloop-exit-1">Сбой приложения</option><option value="neg-healthy">Здоровый workload</option></select><button id="run-check" class="primary-button"><span data-icon="play"></span><span id="run-label">Запустить проверку</span></button></div></section>
       <div id="job-banner" class="job-banner" role="status" aria-live="polite" hidden><span id="job-icon" data-icon="activity"></span><div><strong id="job-message"></strong><small id="job-caption"></small></div><button id="job-detail" class="text-button" hidden>Открыть результат <span data-icon="arrow"></span></button></div>
@@ -49,6 +51,9 @@
           <div class="project-scope"><span data-icon="lock"></span><span>Добавление папки не запускает её код. После добавления вы сможете отдельно выбрать проверку файлов или запуск тестов в контейнере.</span></div>
         </div>
         <div id="projects-error" class="error-banner" role="alert" hidden></div>
+        <div id="projects-audit-note" class="scoped-note" role="status" hidden></div>
+        <div id="projects-loading-note" class="scoped-note" role="status" hidden>Обновляем список проектов…</div>
+        <div id="projects-stale-note" class="scoped-note stale-note" role="status" hidden></div>
         <div class="projects-toolbar"><div><h2>Добавленные проекты</h2><p id="projects-summary" role="status">Загружаем список проектов…</p></div><label class="project-search-label" for="project-search">Найти проект<span class="search"><span data-icon="search"></span><input id="project-search" type="search" placeholder="Поиск по названию или папке" autocomplete="off"></span></label></div>
         <div id="projects-list" class="projects-list"></div>
         <div id="projects-empty" class="panel empty-state"><span data-icon="box"></span><h3>Добавьте первый проект</h3><p>Нажмите «Добавить проект» и укажите путь к папке на компьютере.</p></div>

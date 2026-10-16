@@ -380,13 +380,21 @@ function setupContext(fetchHandler) {
     'main', 'launch-panel', 'metrics', 'projects-panel', 'content-grid', 'history-panel',
     'right-column', 'new-project', 'history-title', 'drawer-backdrop',
     'projects-error', 'project-count', 'projects-summary', 'projects-empty',
+    'projects-audit-note', 'projects-loading-note', 'audit-warning', 'overview-error', 'projects-stale-note',
     'projects-list', 'project-add-panel', 'project-name', 'project-path',
     'cancel-add-project', 'project-search', 'project-form', 'add-project'
   ];
+  const initialHiddenIds = new Set([
+    'toast', 'error-banner', 'overview-error', 'audit-warning', 'launch-panel', 'job-banner',
+    'job-detail', 'control-banner', 'metrics', 'project-add-panel', 'projects-error',
+    'projects-audit-note', 'projects-loading-note', 'projects-stale-note', 'content-grid',
+    'empty-state', 'drawer-backdrop', 'new-project', 'project-select', 'scenario'
+  ]);
   for (const id of requiredIds) {
     if (!doc.getElementById(id)) {
       const el = doc.createElement('div');
       el.id = id;
+      if (initialHiddenIds.has(id)) el.hidden = true;
       doc.body.append(el);
     }
   }
@@ -509,6 +517,7 @@ test('3. Uncertain runner POST blocks consent, environment and start button perm
   const project = { id: 'p3', name: 'GammaProject', path: '/gamma' };
   const origin = doc.createElement('button');
 
+  vm.runInContext('if (typeof state !== "undefined") { state.registryReady = true; }', ctx);
   await ctx.projectRuns(project, origin, 'python');
 
   const consent = doc.getElementById('run-consent-p3');
@@ -565,6 +574,7 @@ test('4. Delayed staticCheck POST does not close or overwrite subsequent project
   const originA = doc.createElement('button');
   const originB = doc.createElement('button');
 
+  vm.runInContext('if (typeof state !== "undefined") { state.registryReady = true; }', ctx);
   ctx.staticCheck(projectA, originA);
   const runButton = doc.querySelector('.project-scan');
   assert.ok(runButton, 'Run static check button must exist');
@@ -607,4 +617,321 @@ test('5. Detached/inaccessible origin falls back to project controls instead of 
   ctx.closeDetail();
 
   assert.strictEqual(doc.activeElement, resultsBtn, 'Focus must fall back to the available project results control');
+});
+
+test('6. Before first deferred GET projects finishes: projects-empty is hidden, no false zero count, success empty reveals empty, failure keeps error without false empty', async () => {
+  let resolveProjects;
+  let rejectProjects;
+  const projectsDeferred = new Promise((resolve, reject) => {
+    resolveProjects = resolve;
+    rejectProjects = reject;
+  });
+
+  const fetchMock = async (url) => {
+    if (url.includes('/api/projects')) {
+      return projectsDeferred;
+    }
+    return { ok: true, json: async () => ({ records: [], services: {}, job: null }) };
+  };
+
+  const { ctx, doc } = setupContext(fetchMock);
+  const emptyEl = doc.getElementById('projects-empty');
+  const summaryEl = doc.getElementById('projects-summary');
+
+  const pendingLoad = ctx.loadProjects();
+  assert.strictEqual(emptyEl.hidden, true, 'projects-empty must be hidden while initial projects GET is unresolved');
+  assert.ok(!summaryEl.textContent.includes('Проектов: 0'), 'projects-summary must not claim 0 projects while unresolved');
+
+  resolveProjects({ ok: true, json: async () => ({ projects: [] }) });
+  await pendingLoad;
+
+  assert.strictEqual(emptyEl.hidden, false, 'Confirmed empty list must reveal projects-empty');
+  assert.strictEqual(doc.getElementById('projects-error').hidden, true, 'Error must remain hidden on successful empty load');
+
+  let rejectSecond;
+  const secondDeferred = new Promise((_, rej) => { rejectSecond = rej; });
+  const failingFetch = async (url) => {
+    if (url.includes('/api/projects')) return secondDeferred;
+    return { ok: true, json: async () => ({ records: [], services: {}, job: null }) };
+  };
+  const { ctx: ctx2, doc: doc2 } = setupContext(failingFetch);
+  const pendingFail = ctx2.loadProjects();
+  rejectSecond(new Error('Network offline'));
+  await pendingFail.catch(() => {});
+
+  assert.strictEqual(doc2.getElementById('projects-error').hidden, false, 'Failure must display projects-error');
+  assert.strictEqual(doc2.getElementById('projects-empty').hidden, true, 'projects-empty must not be shown on failure when no confirmed projects exist');
+});
+
+test('7. Refresh failure keeps existing project cards, marks stale, disables mutating actions across search/renderJob, keeps results enabled, 0 POST', async () => {
+  const calls = [];
+  let shouldFail = false;
+  const initialProjects = [{ id: 'p-stale-1', name: 'Project Stale', path: '/local/stale' }];
+
+  const fetchMock = async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    if (url.includes('/api/projects')) {
+      if (shouldFail) throw new Error('Registry unavailable');
+      return { ok: true, json: async () => ({ projects: initialProjects }) };
+    }
+    if (url.includes('/api/overview')) {
+      return { ok: true, json: async () => ({ records: [], services: {}, job: null, checked_at: Date.now() }) };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+
+  const { ctx, doc } = setupContext(fetchMock);
+  await ctx.loadProjects();
+
+  assert.strictEqual(doc.querySelectorAll('.project-card').length, 1, 'Initial card rendered');
+
+  shouldFail = true;
+  const refreshDeferred = ctx.loadProjects();
+  const loadingNote = doc.getElementById('projects-loading-note');
+  assert.strictEqual(loadingNote.hidden, false, 'Loading note must be shown immediately during deferred refresh');
+  await refreshDeferred;
+
+  assert.strictEqual(doc.querySelectorAll('.project-card').length, 1, 'Cards must remain rendered after failed refresh');
+  const staleNote = doc.getElementById('projects-stale-note');
+  assert.ok(staleNote && staleNote.hidden === false, 'projects-stale-note must be strictly visible');
+
+  const chooseBtn = doc.querySelector('.project-scan');
+  const removeBtn = doc.querySelector('.project-remove');
+  const resultsBtn = doc.querySelector('.project-results');
+
+  assert.strictEqual(chooseBtn.disabled, true, 'Choose check button must be disabled on unconfirmed/stale registry');
+  assert.ok(removeBtn, 'Remove button should exist');
+  assert.strictEqual(removeBtn.disabled, true, 'Remove button must be disabled on unconfirmed/stale registry');
+  assert.strictEqual(resultsBtn.disabled, false, 'Results view button must remain enabled (GET-only)');
+
+  ctx.renderJob(null);
+  ctx.renderProjects();
+
+  const chooseAfter = doc.querySelector('.project-scan');
+  const removeAfter = doc.querySelector('.project-remove');
+  const resultsAfter = doc.querySelector('.project-results');
+  assert.strictEqual(chooseAfter.disabled, true, 'renderJob/renderProjects must not re-enable choose action while registry is stale');
+  assert.strictEqual(removeAfter.disabled, true, 'renderJob/renderProjects must not re-enable remove button while registry is stale');
+  assert.strictEqual(resultsAfter.disabled, false, 'renderJob/renderProjects must keep results button enabled');
+  const postCalls = calls.filter(c => c.method === 'POST');
+  assert.strictEqual(postCalls.length, 0, 'No mutating POST request must be performed');
+});
+
+test('8. registryReady=false in open Python runner blocks start despite consent/renderJob; registry recovery restores it by consent, uncertain failure permanently blocks', async () => {
+  let runnerPostCount = 0;
+  const fetchMock = async (url, opts = {}) => {
+    if (opts.method === 'POST' && url.includes('/api/jobs')) {
+      runnerPostCount++;
+      return { ok: false, status: 500, json: async () => ({ error: 'Process timeout' }) };
+    }
+    return { ok: true, json: async () => ({ projects: [{ id: 'p8', name: 'ReadyGateProject', path: '/p8' }] }) };
+  };
+
+  const { ctx, doc } = setupContext(fetchMock);
+  const project = { id: 'p8', name: 'ReadyGateProject', path: '/p8' };
+  const origin = doc.createElement('button');
+
+  vm.runInContext('if (typeof state !== "undefined") { state.registryReady = false; }', ctx);
+  await ctx.projectRuns(project, origin, 'python');
+
+  const consent = doc.getElementById('run-consent-p8');
+  const startBtn = doc.querySelector('.runner-start');
+  assert.ok(consent && startBtn, 'Consent and start button must exist');
+
+  consent.checked = true;
+  consent.dispatchEvent({ type: 'change' });
+  ctx.renderJob({ state: 'idle' });
+  assert.strictEqual(startBtn.disabled, true, 'Start button must stay disabled while registryReady is false');
+
+  await ctx.loadProjects();
+  ctx.renderJob({ state: 'idle' });
+  assert.strictEqual(startBtn.disabled, false, 'Start button restored once real loadProjects succeeds and consent is checked');
+
+  startBtn.click();
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(runnerPostCount, 1, 'Initial runner execution submitted');
+
+  assert.strictEqual(startBtn.disabled, true, 'After uncertain failure, runner must be permanently blocked');
+  vm.runInContext('if (typeof state !== "undefined") { state.registryReady = true; }', ctx);
+  consent.dispatchEvent({ type: 'change' });
+  ctx.renderJob({ state: 'idle' });
+  assert.strictEqual(startBtn.disabled, true, 'Uncertain failure must never be re-enabled even when registry is ready');
+});
+
+test('9. data.database_error in refresh keeps projects-audit-note scoped, preserves operational error in error-banner, switches to audit-warning on history/system without clearing operation error', async () => {
+  const fetchMock = async (url) => {
+    if (url.includes('/api/overview')) {
+      return {
+        ok: true,
+        json: async () => ({
+          records: [],
+          services: { control: 'healthy' },
+          job: null,
+          database_error: true,
+          checked_at: Date.now()
+        })
+      };
+    }
+    if (url.includes('/api/projects')) {
+      return { ok: true, json: async () => ({ projects: [{ id: 'p9', name: 'Proj9', path: '/p9' }] }) };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+
+  const { ctx, doc } = setupContext(fetchMock);
+  const errorBanner = doc.getElementById('error-banner');
+  const auditNote = doc.getElementById('projects-audit-note');
+  const auditWarning = doc.getElementById('audit-warning');
+
+  ctx.error('Critical operation failure: cannot delete project');
+  assert.strictEqual(errorBanner.textContent, 'Critical operation failure: cannot delete project');
+  assert.strictEqual(errorBanner.hidden, false);
+
+  await ctx.refresh();
+
+  assert.strictEqual(errorBanner.textContent, 'Critical operation failure: cannot delete project', 'error-banner must preserve operational error and not be overwritten by database_error');
+  assert.strictEqual(auditNote.hidden, false, 'projects-audit-note must be visible on projects view');
+  assert.strictEqual(auditWarning.hidden, true, 'audit-warning must not be shown on projects view');
+
+  ctx.showView('history');
+  assert.strictEqual(auditWarning.hidden, false, 'audit-warning must be visible on history view');
+  assert.strictEqual(auditNote.hidden, true, 'projects-audit-note must be hidden on history view');
+  assert.strictEqual(errorBanner.textContent, 'Critical operation failure: cannot delete project', 'Operation error must still persist after view transition');
+
+  ctx.showView('projects');
+  assert.strictEqual(errorBanner.hidden, false, 'Operation error must not be dismissed when switching back to projects');
+  assert.strictEqual(auditNote.hidden, false, 'projects-audit-note must be shown again on projects view');
+});
+
+test('10. Generic overview auth failure shows overview-error without soft audit note; subsequent successful refresh clears only overview-error', async () => {
+  let shouldFailOverview = true;
+  const fetchMock = async (url) => {
+    if (url.includes('/api/overview')) {
+      if (shouldFailOverview) {
+        return { ok: false, status: 401, json: async () => ({ error: 'Unauthorized session' }) };
+      }
+      return { ok: true, json: async () => ({ records: [], services: {}, job: null, checked_at: Date.now() }) };
+    }
+    if (url.includes('/api/projects')) {
+      return { ok: true, json: async () => ({ projects: [] }) };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+
+  const { ctx, doc } = setupContext(fetchMock);
+  const overviewError = doc.getElementById('overview-error');
+  const auditNote = doc.getElementById('projects-audit-note');
+  const errorBanner = doc.getElementById('error-banner');
+
+  ctx.error('Active upload in progress error');
+
+  await ctx.refresh();
+
+  assert.strictEqual(overviewError.hidden, false, 'overview-error must be visible on generic auth failure');
+  assert.ok(overviewError.textContent.includes('Unauthorized') || overviewError.textContent.length > 0);
+  assert.strictEqual(auditNote.hidden, true, 'Auth failure must not be presented as a soft audit database_error note');
+  assert.strictEqual(errorBanner.textContent, 'Active upload in progress error', 'Operational error banner must remain untouched');
+
+  shouldFailOverview = false;
+  await ctx.refresh();
+
+  assert.strictEqual(overviewError.hidden, true, 'Subsequent successful refresh must clear overview-error');
+  assert.strictEqual(errorBanner.textContent, 'Active upload in progress error', 'Operational error banner must still be preserved');
+});
+
+test('11. Overlapping loadProjects requests discard stale delayed response in favor of latest request guard', async () => {
+  let resolveFirst;
+  let resolveSecond;
+  const firstPromise = new Promise(r => { resolveFirst = r; });
+  const secondPromise = new Promise(r => { resolveSecond = r; });
+  let requestCount = 0;
+
+  const fetchMock = async (url) => {
+    if (url.includes('/api/projects')) {
+      requestCount++;
+      if (requestCount === 1) return firstPromise;
+      if (requestCount === 2) return secondPromise;
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+
+  const { ctx, doc } = setupContext(fetchMock);
+
+  const req1 = ctx.loadProjects();
+  const req2 = ctx.loadProjects();
+
+  const latestProjects = [{ id: 'new-p', name: 'New Project', path: '/new' }];
+  resolveSecond({ ok: true, json: async () => ({ projects: latestProjects }) });
+  await req2;
+
+  assert.strictEqual(doc.querySelectorAll('.project-card').length, 1, 'Latest response rendered');
+  const card = doc.querySelector('.project-card');
+  const cardTitle = card ? card.querySelector('h3') : null;
+  assert.ok(cardTitle, 'Project card heading should be present');
+  assert.strictEqual(cardTitle.textContent, 'New Project');
+
+  resolveFirst({ ok: true, json: async () => ({ projects: [{ id: 'old-p', name: 'Old Stale', path: '/old' }] }) });
+  await req1;
+
+  assert.strictEqual(doc.querySelectorAll('.project-card').length, 1, 'Old response must not overwrite list of projects');
+  const cardAfter = doc.querySelector('.project-card');
+  const cardTitleAfter = cardAfter ? cardAfter.querySelector('h3') : null;
+  assert.strictEqual(cardTitleAfter.textContent, 'New Project', 'Latest list must remain active after delayed response arrives');
+});
+
+
+test('12. malformed GET body keeps existing cards, sets registryReady=false, displays error, and disables action controls', async () => {
+  let getCallCount = 0;
+  let postCallCount = 0;
+  const initialProjects = [{ id: 'p9', name: 'KeepOldCardProject', path: '/p9' }];
+  const fetchMock = async (url, opts = {}) => {
+    const method = (opts.method || 'GET').toUpperCase();
+    if (method === 'GET') {
+      getCallCount++;
+      if (getCallCount === 1) {
+        return { ok: true, json: async () => ({ projects: initialProjects }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    }
+    if (method === 'POST') {
+      postCallCount++;
+      return { ok: true, json: async () => ({}) };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+
+  const { ctx, doc } = setupContext(fetchMock);
+  await ctx.loadProjects();
+  assert.strictEqual(vm.runInContext('state.registryReady', ctx), true);
+  const initialCard = doc.querySelector('.project-card');
+  assert.ok(initialCard, 'Initial project card must exist');
+  assert.strictEqual(initialCard.querySelector('h3').textContent, 'KeepOldCardProject');
+
+  await ctx.loadProjects();
+
+  assert.strictEqual(postCallCount, 0, 'No POST requests should be made');
+  assert.strictEqual(vm.runInContext('state.registryReady', ctx), false, 'registryReady must be false');
+
+  const card = doc.querySelector('.project-card');
+  assert.ok(card, 'Old project card must be preserved');
+  const heading = card.querySelector('h3');
+  assert.ok(heading, 'Project card heading must exist');
+  assert.strictEqual(heading.textContent, 'KeepOldCardProject', 'Old card name must be preserved');
+
+  const errorEl = doc.querySelector('#projects-error');
+  assert.ok(errorEl, 'Projects error element must exist');
+  assert.strictEqual(errorEl.hidden, false, 'Error element must be visible');
+  assert.match(errorEl.textContent, /некорректный список/i, 'Error message must mention invalid list');
+
+  const chooseBtn = card.querySelector('.project-scan');
+  assert.ok(chooseBtn, 'Choose button must exist');
+  assert.strictEqual(chooseBtn.disabled, true, 'Choose button must be disabled');
+
+  const removeBtn = card.querySelector('.project-remove');
+  assert.ok(removeBtn, 'Remove button must exist');
+  assert.strictEqual(removeBtn.disabled, true, 'Remove button must be disabled');
+
+  const resultsBtn = card.querySelector('.project-results');
+  assert.ok(resultsBtn, 'Results button must exist');
+  assert.strictEqual(resultsBtn.disabled, false, 'Results button must not be disabled');
 });

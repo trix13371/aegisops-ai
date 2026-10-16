@@ -34,7 +34,7 @@ function node(tag, className, text) {
   if (text !== undefined && text !== null) element.textContent = String(text);
   return element;
 }
-const state = {records:[], projects:[], filter:"all", query:"", projectQuery:"", view:"projects", connected:false, job:null, polling:null, refresh:false, detailOrigin:null, detailProjectFocus:null};
+const state = {records:[], projects:[], filter:"all", query:"", projectQuery:"", view:"projects", connected:false, job:null, polling:null, refresh:false, detailOrigin:null, detailProjectFocus:null, projectsLoaded:false, projectsStale:false, projectsLoading:false, projectsRequestId:0, registryReady:false, auditScoped:null};
 const statuses = {completed:"Проверено", blocked:"Заблокировано", failed:"Ошибка", passed:"Форматы проверены", issues:"Есть замечания", partial:"Частичная проверка"};
 const timeFormat = new Intl.DateTimeFormat("ru-RU", {hour:"2-digit", minute:"2-digit"});
 const fullTime = new Intl.DateTimeFormat("ru-RU", {day:"numeric", month:"long", hour:"2-digit", minute:"2-digit"});
@@ -52,6 +52,15 @@ function toast(message) {
   toast.timer = setTimeout(() => {$("toast").hidden = true;}, 3500);
 }
 function error(message) {$("error-banner").textContent = message || ""; $("error-banner").hidden = !message;}
+function renderAuditNotice() {
+  const scoped=state.auditScoped || "";
+  const onProjects=state.view==="projects";
+  $("projects-audit-note").textContent=onProjects ? scoped : "";
+  $("projects-audit-note").hidden=!(onProjects && scoped);
+  $("audit-warning").textContent=!onProjects ? scoped : "";
+  $("audit-warning").hidden=(onProjects || !scoped);
+}
+function overviewError(message) {$("overview-error").textContent = message || ""; $("overview-error").hidden = !message;}
 async function api(path, options={}) {
   const response = await fetch(path, {...options, credentials:"same-origin", signal:AbortSignal.timeout(25000)});
   const body = await response.json();
@@ -116,8 +125,10 @@ function renderJob(job) {
   $("stop-app").disabled = running || !state.connected;
   $("mode").disabled = running; $("scenario").disabled = running;
   $("project-select").disabled = running;
-  document.querySelectorAll(".project-scan,.project-remove").forEach(button => {button.disabled = running || button.dataset.submitted === "true";});
-  document.querySelectorAll(".project-ai-start,.runner-start").forEach(button => {button.disabled = running || button.dataset.compatible === "false" || !document.getElementById(button.dataset.consentId)?.checked;});
+  document.querySelectorAll(".project-scan,.project-remove").forEach(button => {button.disabled = running || !state.registryReady || button.dataset.submitted === "true";});
+  document.querySelectorAll(".project-ai-start").forEach(button => {button.disabled = running || button.dataset.compatible === "false" || !document.getElementById(button.dataset.consentId)?.checked;});
+  document.querySelectorAll(".runner-start").forEach(button => {button.disabled = running || !state.registryReady || button.dataset.compatible === "false" || !document.getElementById(button.dataset.consentId)?.checked;});
+  if(typeof state.runnerSync === "function") state.runnerSync();
   $("run-label").textContent = running ? "Проверяем…" : $("mode").value === "project" ? "Выбрать проверку" : "Запустить проверку";
   $("job-banner").hidden = !job;
   if (!job) return;
@@ -159,10 +170,12 @@ async function refresh() {
     $("nav-count").textContent = data.records.length;
     $("updated-at").textContent = `Обновлено в ${formatTime(data.checked_at)}`;
     renderRecords(); renderServices(data.services); renderJob(data.job);
-    error(data.database_error ? "Не удалось прочитать аудит. Проверьте локальный PostgreSQL." :
-      data.omitted_records ? `Не удалось показать ${data.omitted_records} записей: они не прошли проверку формата аудита.` : null);
+    state.auditScoped=data.database_error ? "История кластера недоступна: не удалось прочитать аудит. Это не результат проверки проекта — проверки проектов и их отчёты не затронуты."
+      : data.omitted_records ? `История кластера показана не полностью: ${data.omitted_records} записей не прошли проверку формата аудита. Это не результат проверки проекта.` : null;
+    renderAuditNotice();
+    overviewError(null);
   } catch (problem) {
-    state.connected = false; $("run-check").disabled = true; error(problem.message);
+    state.connected = false; $("run-check").disabled = true; overviewError(problem.message);
     $("updated-at").textContent = "Подключение недоступно";
   } finally {state.refresh = false; $("refresh").disabled = false;}
 }
@@ -206,6 +219,7 @@ function showView(name) {
   $("launch-panel").hidden = name === "system" || name === "projects";
   $("metrics").hidden = name === "system" || name === "projects";
   $("projects-panel").hidden = name !== "projects";
+  renderAuditNotice();
   $("content-grid").hidden = name === "projects";
   $("history-panel").hidden = name === "system";
   $("right-column").hidden = name === "history";
@@ -309,9 +323,17 @@ $("stop-app").addEventListener("click", async () => {
 });
 
 async function loadProjects() {
+  const requestId=++state.projectsRequestId;
+  state.registryReady=false;state.projectsLoading=true;
+  $("projects-loading-note").hidden=false;
+  $("projects-stale-note").hidden=true;
+  renderProjects();renderJob(state.job);
   try {
-    const data=await api("/api/projects");state.projects=data.projects;
-    $("projects-error").hidden=true;
+    const data=await api("/api/projects");
+    if(requestId!==state.projectsRequestId)return;
+    if(!Array.isArray(data.projects))throw new Error("Сервер вернул некорректный список проектов. Обновите данные.");
+    state.projects=data.projects;state.projectsLoaded=true;state.projectsStale=false;state.projectsLoading=false;state.registryReady=true;
+    $("projects-error").hidden=true;$("projects-loading-note").hidden=true;$("projects-stale-note").hidden=true;
     const selected=$("project-select").value;
     $("project-select").replaceChildren();
     if(!data.projects.length) {const option=node("option","","Сначала добавьте проект");option.value="";$("project-select").append(option);}
@@ -319,7 +341,14 @@ async function loadProjects() {
     if(data.projects.some(project=>project.id===selected))$("project-select").value=selected;
     $("project-count").textContent=data.projects.length;
     renderProjects();renderJob(state.job);
-  } catch(problem) {$("projects-error").textContent=problem.message;$("projects-error").hidden=false;}
+  } catch(problem) {
+    if(requestId!==state.projectsRequestId)return;
+    state.projectsLoading=false;state.registryReady=false;
+    if(state.projectsLoaded){state.projectsStale=true;$("projects-stale-note").textContent="Список проектов не обновлён: показаны предыдущие данные. Изменяющие действия недоступны до успешного чтения.";$("projects-stale-note").hidden=false;}
+    $("projects-loading-note").hidden=true;
+    $("projects-error").textContent=problem.message;$("projects-error").hidden=false;
+    renderProjects();renderJob(state.job);
+  }
 }
 function projectButton(project,action,label,className) {
   const button=node("button",className,label);button.dataset.projectId=project.id;button.dataset.projectAction=action;
@@ -328,8 +357,10 @@ function projectButton(project,action,label,className) {
 function renderProjects() {
   const focused=document.activeElement?.dataset.projectId ? {id:document.activeElement.dataset.projectId,action:document.activeElement.dataset.projectAction} : null;
   const projects=state.projects.filter(project=>`${project.name} ${project.path}`.toLocaleLowerCase("ru").includes(state.projectQuery));
-  $("projects-summary").textContent=state.projectQuery ? `Найдено ${projects.length} из ${state.projects.length}` : `Проектов: ${projects.length}`;
-  $("projects-empty").hidden=state.projects.length!==0;
+  const summaryState=state.projectsLoading ? "loading" : !state.projectsLoaded ? "unconfirmed" : state.projectsStale ? "stale" : "ready";
+  $("projects-summary").textContent=summaryState==="loading" ? "Загружаем список проектов…" : summaryState==="unconfirmed" ? "Список проектов не подтверждён. Обновите данные." : summaryState==="stale" ? "Список проектов устарел. Обновите данные." : state.projectQuery ? `Найдено ${projects.length} из ${state.projects.length}` : `Проектов: ${projects.length}`;
+  $("projects-empty").hidden=!(state.projectsLoaded && !state.projectsStale && !state.projectsLoading && state.projects.length===0);
+  $("projects-list").setAttribute("aria-busy",state.projectsLoading ? "true" : "false");
   $("projects-list").replaceChildren();
   if(!projects.length && state.projects.length)$("projects-list").append(node("p","project-no-matches","Ничего не найдено. Попробуйте другое название или путь."));
   for(const project of projects) {
@@ -350,9 +381,9 @@ function renderProjects() {
     meta.append(project.last_report ? statusBadge(project.last_report.status) : node("span","status neutral",project.report_error ? "Отчёт недоступен" : "Проверок пока нет"));card.append(meta);
     card.append(node("p","project-hint",project.last_report ? `Последний отчёт: ${formatTime(project.last_report.completed_at,true)}. Тесты и сводки — в результатах.` : "Начните с проверки файлов или запустите готовые тесты проекта."));
     const actions=node("div","project-actions"),choose=projectButton(project,"check","Выбрать проверку","primary-button project-scan"),results=projectButton(project,"results","Результаты и история","secondary-button project-results");
-    choose.prepend(icon("play"));choose.append(icon("chevron"));results.prepend(icon("history"));
+    choose.prepend(icon("play"));results.prepend(icon("history"));
     choose.addEventListener("click",()=>chooseProjectCheck(project,choose));results.addEventListener("click",()=>projectResults(project,results));
-    choose.disabled=state.job?.state==="running";remove.disabled=state.job?.state==="running";
+    choose.disabled=state.job?.state==="running" || !state.registryReady;remove.disabled=state.job?.state==="running" || !state.registryReady;
     actions.append(choose,results);card.append(actions);$("projects-list").append(card);
   }
   if(focused)focusProjectControl(focused);
@@ -392,8 +423,9 @@ function staticCheck(project,origin) {
   const sequence=openRunnerDrawer("Проверить файлы и настройки",origin),body=$("detail-body");
   drawerBack(body,"К выбору проверки",()=>chooseProjectCheck(project,origin));
   body.append(node("p","drawer-intro",project.name),node("p","","Проверим синтаксис Python, JSON, YAML и TOML, а также выбранные настройки Kubernetes и Docker Compose."),node("p","check-note","Код и тесты не запускаются, файлы проекта не изменяются. Docker и нейросеть не нужны. Это не полная проверка работоспособности приложения."));
-  const run=node("button","primary-button project-scan","Проверить файлы и настройки");run.prepend(icon("scan"));run.disabled=state.job?.state==="running";
-  if(run.disabled)body.append(node("p","detail-callout","Сейчас выполняется другая проверка. Дождитесь её завершения."));
+  const run=node("button","primary-button project-scan","Проверить файлы и настройки");run.prepend(icon("scan"));run.disabled=state.job?.state==="running" || !state.registryReady;
+  if(state.job?.state==="running")body.append(node("p","detail-callout","Сейчас выполняется другая проверка. Дождитесь её завершения."));
+  else if(!state.registryReady)body.append(node("p","detail-callout","Список проектов не подтверждён. Обновите данные, прежде чем запускать."));
   run.addEventListener("click",async()=>{
     run.disabled=true;run.dataset.submitted="true";
     try {const data=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project",project_id:project.id})});if(!data.job)throw new Error(data.error || "Запуск не подтверждён");renderJob(data.job);if(sequence===detailSequence && !$("drawer").hidden)closeDetail();$("job-banner").scrollIntoView({block:"nearest",behavior:"smooth"});}
@@ -565,13 +597,16 @@ async function projectRuns(project,origin,language="python") {
   const run=node("button","primary-button runner-start","Запустить тесты");run.prepend(icon("play"));run.dataset.consentId=consent.id;run.dataset.compatible=js ? "false" : "true";run.disabled=true;
   const hint=node("p","check-note","Подтвердите запуск кода, чтобы продолжить.");hint.id="runner-start-hint";hint.setAttribute("role","status");run.setAttribute("aria-describedby",hint.id);
   const updateRunner=()=>{
+    if(!run.isConnected){state.runnerSync=null;return;}
     const allowed=environment.value==="node-vitest-v1" ? ["vitest","vite","typescript","@types/node"] : ["typescript","@types/node"];
     const expected=environment.value==="node-vitest-v1" ? "vitest" : "node";
     const compatible=!js || (compatibility && compatibility.status!=="unsupported" && compatibility.framework===expected && compatibility.dependencies.every(name=>allowed.includes(name)));
-    run.dataset.compatible=compatible && !submitted ? "true" : "false";run.disabled=submitted || !compatible || !consent.checked || state.job?.state==="running";
-    hint.textContent=submitted ? "Запрос отправлен. Автоматического повтора нет." : !compatible ? "Это окружение пока не подходит проекту. Посмотрите причину выше." : state.job?.state==="running" ? "Сейчас выполняется другая проверка. Дождитесь её завершения." : !consent.checked ? "Подтвердите запуск кода, чтобы продолжить." : "Всё готово. Проверка начнётся после нажатия кнопки.";
+    const registryBlocked=!state.registryReady;
+    run.dataset.compatible=compatible && !submitted ? "true" : "false";run.disabled=submitted || !compatible || !consent.checked || registryBlocked || state.job?.state==="running";
+    hint.textContent=submitted ? "Запрос отправлен. Автоматического повтора нет." : registryBlocked ? "Список проектов не подтверждён. Обновите данные, прежде чем запускать." : !compatible ? "Это окружение пока не подходит проекту. Посмотрите причину выше." : state.job?.state==="running" ? "Сейчас выполняется другая проверка. Дождитесь её завершения." : !consent.checked ? "Подтвердите запуск кода, чтобы продолжить." : "Всё готово. Проверка начнётся после нажатия кнопки.";
     if(js && compatibility){compatibilityPanel.replaceChildren(node("h3","","Совместимость проекта"));renderCompatibility(compatibilityPanel,compatibility);if(!compatible)compatibilityPanel.append(node("p","detail-callout","Выбранная среда не поддерживает эти зависимости. Отсутствующие пакеты автоматически не устанавливаются."));}
   };
+  state.runnerSync=updateRunner;
   consent.addEventListener("change",updateRunner);environment.addEventListener("change",()=>{consent.checked=false;updateRunner();});
   if(js)environment.disabled=true;
   run.addEventListener("click",async()=>{
