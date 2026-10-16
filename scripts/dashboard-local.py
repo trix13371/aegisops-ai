@@ -37,6 +37,7 @@ from aegisops.project_ai.repository import AnalysisRepository
 from aegisops.project_ai.review_models import REVIEW_PROFILE
 from aegisops.project_ai.review_projection import review_summary
 from aegisops.project_ai.review_repository import ReviewAnalysisRepository
+from aegisops.project_checks.repository import FullCheckRepository
 from aegisops.project_reviews.repository import ReviewRepository
 from aegisops.project_runner.comparison import compare_runs
 from aegisops.project_runner.inspection import inspect_project_package
@@ -55,6 +56,7 @@ STATE = ROOT / ".local/dashboard/session.json"
 HOST, PORT = "127.0.0.1", 8765
 ORIGIN = f"http://{HOST}:{PORT}"
 SCENARIOS = frozenset({"crashloop-oom", "crashloop-exit-1", "neg-healthy"})
+FULL_CHECK_CONSENT = "project-full-check-v1"
 
 
 def role_environment(database=False):
@@ -86,6 +88,7 @@ class Dashboard:
         self.projects = ProjectRepository(ROOT / ".local/projects")
         self.analyses = AnalysisRepository(ROOT / ".local/project-ai")
         self.runs = RunRepository(ROOT / ".local/project-runs")
+        self.checks = FullCheckRepository(ROOT / ".local/project-checks", self.projects, self.runs)
         self.reviews = ReviewRepository(ROOT / ".local/project-reviews", self.projects, self.runs)
         self.review_analyses = ReviewAnalysisRepository(ROOT / ".local/project-review-ai")
         self.python = str(ROOT / ".venv/Scripts/python.exe")
@@ -262,6 +265,18 @@ class Dashboard:
             scenario = str(UUID(payload["project_id"]))
             self.projects.get(UUID(scenario))
         elif (
+            mode == "project_full_check"
+            and set(payload)
+            in (
+                {"mode", "project_id", "consent"},
+                {"mode", "project_id", "consent", "environment"},
+            )
+            and payload.get("environment", "minimal") in ENVIRONMENTS
+            and payload.get("consent") == FULL_CHECK_CONSENT
+        ):
+            scenario = str(UUID(payload["project_id"]))
+            self.projects.get(UUID(scenario))
+        elif (
             mode == "project_review_ai"
             and set(payload) == {"mode", "review_id", "consent"}
             and payload.get("consent") == REVIEW_PROFILE
@@ -291,6 +306,10 @@ class Dashboard:
                 scenario = str(
                     self.runs.create(UUID(scenario), payload.get("environment", "minimal")).id
                 )
+            if mode == "project_full_check":
+                scenario = str(
+                    self.checks.create(UUID(scenario), payload.get("environment", "minimal")).id
+                )
             self.job = {
                 "id": str(uuid4()),
                 "mode": mode,
@@ -303,6 +322,10 @@ class Dashboard:
                 self.job.update(project_id=scenario, message="Читаем структуру проекта…")
             if mode == "project_runner":
                 self.job.update(run_id=scenario, message="Готовим изолированную проверку кода…")
+            if mode == "project_full_check":
+                self.job.update(
+                    check_id=scenario, message="Запускаем совместную проверку снимка проекта…"
+                )
             if mode == "project_ai":
                 self.job.update(
                     report_id=scenario, message="Запрошен разбор сводки через OpenRouter…"
@@ -355,6 +378,39 @@ class Dashboard:
                         stage="done",
                         run_id=scenario,
                         message="Проверка контейнера завершена. Откройте результаты инструментов.",
+                    )
+                return
+            if mode == "project_full_check":
+                self.child(["scripts/project-check-local.py", scenario], timeout=250)
+                result = self.checks.result(UUID(scenario))
+                if result is None:
+                    self.update(
+                        state="failed",
+                        stage="done",
+                        check_id=scenario,
+                        message="Результат совместной проверки неизвестен. Откройте историю; "
+                        "повтора нет.",
+                    )
+                elif result.status == "passed":
+                    self.update(
+                        state="completed",
+                        stage="done",
+                        check_id=scenario,
+                        message="Совместная проверка завершена успешно. Откройте отчёт.",
+                    )
+                elif result.status == "issues":
+                    self.update(
+                        state="failed",
+                        stage="done",
+                        check_id=scenario,
+                        message="В проекте найдены замечания. Подробности в сохранённом отчёте.",
+                    )
+                else:
+                    self.update(
+                        state="failed",
+                        stage="done",
+                        check_id=scenario,
+                        message="Проверка завершена частично. Откройте сохранённый отчёт.",
                     )
                 return
             if mode == "project_ai":
@@ -455,7 +511,7 @@ class Dashboard:
                 state="failed",
                 stage="done",
                 message="Запуск прерван. Проверьте историю запусков и Docker; повтора нет."
-                if mode == "project_runner"
+                if mode in {"project_runner", "project_full_check"}
                 else "Проверка остановлена. Проверьте среду и историю аудита. "
                 "Незавершённый пакет автоматически не повторяется.",
             )
@@ -622,6 +678,14 @@ class Handler(BaseHTTPRequestHandler):
                     identifier = UUID(self.path[len("/api/project-runs/") :])
                     self.dashboard.projects.get(identifier)
                     return self.send_json(200, {"runs": self.dashboard.runs.history(identifier)})
+                if self.path.startswith("/api/project-checks/"):
+                    identifier = UUID(self.path[len("/api/project-checks/") :])
+                    return self.send_json(
+                        200, {"checks": self.dashboard.checks.history(identifier)}
+                    )
+                if self.path.startswith("/api/project-check/"):
+                    identifier = UUID(self.path[len("/api/project-check/") :])
+                    return self.send_json(200, self.dashboard.checks.state(identifier))
                 if self.path.startswith("/api/project-compatibility/"):
                     identifier = UUID(self.path[len("/api/project-compatibility/") :])
                     package = inspect_project_package(self.dashboard.projects.get(identifier))

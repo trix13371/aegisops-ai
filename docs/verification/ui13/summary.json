@@ -1,0 +1,34 @@
+{
+  "id": "381a36e9-cf2b-42d5-9b12-7ed99df08b1b",
+  "environment": "node-vitest-v1",
+  "overall": "passed",
+  "static_files_checked": 1,
+  "static_findings": 0,
+  "snapshot_files": 3,
+  "snapshot_sha256": "16a544832c62f8691ab4b9901de69c68a4229b56d98953ae67e191eeebbac70f",
+  "tools": [
+    {
+      "tool": "typescript",
+      "status": "passed"
+    },
+    {
+      "tool": "vitest",
+      "status": "passed"
+    }
+  ],
+  "container_removed": true,
+  "owned_container_remaining": false,
+  "offline": {
+    "passed": 1268,
+    "skipped": 3
+  },
+  "targeted": {
+    "passed": 171
+  },
+  "ui": {
+    "passed": 16
+  },
+  "import_contracts": 22,
+  "mypy_source_files": 124,
+  "model_review": "accept"
+}

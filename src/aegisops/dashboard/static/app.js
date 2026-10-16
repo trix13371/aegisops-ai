@@ -135,7 +135,8 @@ function renderJob(job) {
   $("job-banner").className = `job-banner ${job.state}`;
   $("job-icon").replaceChildren(icon(running ? "activity" : ["completed","passed"].includes(job.state) ? "check" : "shield"));
   $("job-message").textContent = job.message;
-  $("job-caption").textContent = job.mode === "project_runner" ? "Проверка кода в контейнере · без сети и ключей AegisOps"
+  $("job-caption").textContent = job.mode === "project_full_check" ? "Файлы + тесты · один общий снимок исходников · без сети и ключей AegisOps"
+    : job.mode === "project_runner" ? "Проверка кода в контейнере · без сети и ключей AegisOps"
     : job.mode === "project_review_ai" ? "Разбор сводного отчёта через OpenRouter · без исходников и логов"
     : job.mode === "project_ai" ? "Разбор сводки через OpenRouter · без передачи исходников"
     : job.mode === "project" && job.files_checked !== undefined
@@ -143,8 +144,8 @@ function renderJob(job) {
     : job.snapshot_count !== undefined
     ? `Наблюдений: ${job.snapshot_count} · Инцидентов: ${job.incident_count} · ${sourceLabel(job.mode === "synthetic" ? "synthetic_fixture" : "local_kind")}`
     : "Результат появится здесь. Можно оставить эту страницу открытой.";
-  $("job-detail").hidden = !job.audit_ids?.length && !job.report_id && !job.run_id && !job.review_id;
-  $("job-detail").replaceChildren(document.createTextNode(job.review_id ? "Открыть сводный отчёт " : job.run_id ? "Результаты запуска " : job.report_id ? "Открыть отчёт " : "Открыть результат "), icon("arrow"));
+  $("job-detail").hidden = !job.check_id && !job.audit_ids?.length && !job.report_id && !job.run_id && !job.review_id;
+  $("job-detail").replaceChildren(document.createTextNode(job.check_id ? "Открыть проверку файлов и тестов " : job.review_id ? "Открыть сводный отчёт " : job.run_id ? "Результаты запуска " : job.report_id ? "Открыть отчёт " : "Открыть результат "), icon("arrow"));
   if (running && state.polling === null) state.polling = setTimeout(pollJob, 1500);
 }
 async function pollJob() {
@@ -295,7 +296,8 @@ async function openDetail(id, origin) {
 $("close-detail").addEventListener("click", closeDetail);
 $("drawer-backdrop").addEventListener("click", closeDetail);
 $("job-detail").addEventListener("click", () => {
-  if (state.job?.review_id) openReview(state.job.review_id, $("job-detail"));
+  if (state.job?.check_id) openFullCheck(state.job.check_id, $("job-detail"));
+  else if (state.job?.review_id) openReview(state.job.review_id, $("job-detail"));
   else if (state.job?.run_id) openRunReport(state.job.run_id, $("job-detail"));
   else if (state.job?.report_id) openProjectReport(state.job.report_id, $("job-detail"));
   else if (state.job?.audit_ids?.length) openDetail(state.job.audit_ids[0], $("job-detail"));
@@ -416,8 +418,15 @@ function actionOption(title,description,tag,symbol,action) {
 function chooseProjectCheck(project,origin) {
   openRunnerDrawer(`Как проверить «${project.name}»?`,origin);const body=$("detail-body");
   body.append(node("p","drawer-intro","Выберите, что хотите узнать. На следующем экране будет описание и кнопка запуска."));
-  body.append(actionOption("Файлы и настройки","Проверка форматов и настроек контейнеров. Код проекта не запускается.","Без Docker","scan",()=>staticCheck(project,origin)),actionOption("Тесты Python","Проверка Python и запуск существующих тестов в отдельном контейнере.","Нужен Docker","play",()=>projectRuns(project,origin,"python")),actionOption("Тесты JavaScript / TypeScript","Проверка TypeScript и тесты Node.js или Vitest. Окружение подбирается по package.json.","Нужен Docker","play",()=>projectRuns(project,origin,"javascript")));
+  body.append(actionOption("Файлы + тесты","Один общий снимок исходников: сначала статическая проверка файлов, затем тесты в Docker на тех же скопированных файлах. Итог общий.","Нужен Docker","layers",()=>chooseFullCheckLanguage(project,origin)),actionOption("Файлы и настройки","Проверка форматов и настроек контейнеров. Код проекта не запускается.","Без Docker","scan",()=>staticCheck(project,origin)),actionOption("Тесты Python","Проверка Python и запуск существующих тестов в отдельном контейнере.","Нужен Docker","play",()=>projectRuns(project,origin,"python")),actionOption("Тесты JavaScript / TypeScript","Проверка TypeScript и тесты Node.js или Vitest. Окружение подбирается по package.json.","Нужен Docker","play",()=>projectRuns(project,origin,"javascript")));
   body.append(node("p","check-note","Эти проверки бесплатны: нейросеть здесь не вызывается. AI-разбор доступен отдельно в сохранённом отчёте."));
+}
+function chooseFullCheckLanguage(project,origin) {
+  openRunnerDrawer(`Файлы + тесты · ${project.name}`,origin);const body=$("detail-body");
+  drawerBack(body,"К выбору проверки",()=>chooseProjectCheck(project,origin));
+  body.append(node("p","drawer-intro","Выберите язык тестов. Статическая проверка файлов и тесты выполнятся на одном общем снимке исходников."));
+  body.append(actionOption("Python","Статическая проверка файлов, затем Ruff и pytest на одном снимке.","Нужен Docker","play",()=>projectRuns(project,origin,"python",true)),actionOption("JavaScript / TypeScript","Статическая проверка файлов, затем TypeScript и тесты Node.js или Vitest на одном снимке.","Нужен Docker","play",()=>projectRuns(project,origin,"javascript",true)));
+  body.append(node("p","check-note","Типичные секретные файлы и служебные папки исключены. Если достигнут лимит, запуск не состоится. Нейросеть не вызывается."));
 }
 function staticCheck(project,origin) {
   const sequence=openRunnerDrawer("Проверить файлы и настройки",origin),body=$("detail-body");
@@ -437,34 +446,35 @@ async function projectResults(project,origin,selected="files") {
   body.append(node("p","drawer-intro","Все сохранённые результаты этого проекта. Просмотр не запускает новые проверки."));
   const tabs=node("div","project-tabs");tabs.setAttribute("role","tablist");tabs.setAttribute("aria-label","Виды результатов проекта");
   const panel=node("div","tab-panel result-list");panel.id="project-results-panel";panel.setAttribute("role","tabpanel");panel.tabIndex=0;
-  const types=[["files","Файлы и настройки"],["tests","Тесты"],["reviews","Сводные отчёты"]];let tabSequence=0;
+  const types=[["files","Файлы и настройки"],["tests","Тесты"],["checks","Файлы + тесты"],["reviews","Сводные отчёты"]];let tabSequence=0;
   const load=async(kind)=>{
     const request=++tabSequence;
     for(const tab of tabs.children) {const active=tab.dataset.kind===kind;tab.classList.toggle("active",active);tab.setAttribute("aria-selected",String(active));tab.tabIndex=active ? 0 : -1;}
     panel.setAttribute("aria-labelledby",`project-tab-${kind}`);panel.setAttribute("aria-busy","true");
     const loading=node("p","detail-subtitle","Загружаем результаты…");loading.setAttribute("role","status");panel.replaceChildren(loading);
     try {
-      const path=kind==="files" ? `/api/projects/${project.id}` : kind==="tests" ? `/api/project-runs/${project.id}` : `/api/project-reviews/${project.id}`;
+      const path=kind==="files" ? `/api/projects/${project.id}` : kind==="tests" ? `/api/project-runs/${project.id}` : kind==="checks" ? `/api/project-checks/${project.id}` : `/api/project-reviews/${project.id}`;
       const data=await api(path);if(sequence!==detailSequence || request!==tabSequence || $("drawer").hidden)return;panel.replaceChildren();
-      const items=kind==="files" ? data.reports : kind==="tests" ? data.runs : data.reviews;
+      const items=kind==="files" ? data.reports : kind==="tests" ? data.runs : kind==="checks" ? data.checks : data.reviews;
       if(kind==="reviews") {
         panel.append(node("p","check-note","Сводный отчёт объединяет выбранные проверки файлов и результаты тестов. AI-разбор — только по отдельному согласию."));
         const create=node("button","secondary-button","Собрать сводный отчёт");create.prepend(icon("layers"));create.addEventListener("click",()=>projectReviews(project,origin));panel.append(create);
       }
       if(!items.length) {
-        panel.append(node("h3","result-empty-title",kind==="reviews" ? "Сводных отчётов пока нет" : "Здесь появятся результаты"),node("p","",kind==="reviews" ? "Сначала сохраните проверку файлов или запуск тестов, затем объедините их в сводку." : "Выберите проверку на карточке проекта. Готовый результат сохранится здесь."));
-        if(kind!=="reviews") {const choose=node("button","secondary-button","Выбрать проверку");choose.addEventListener("click",()=>chooseProjectCheck(project,origin));panel.append(choose);}
+        panel.append(node("h3","result-empty-title",kind==="reviews" ? "Сводных отчётов пока нет" : kind==="checks" ? "Проверок «Файлы + тесты» пока нет" : "Здесь появятся результаты"),node("p","",kind==="reviews" ? "Сначала сохраните проверку файлов или запуск тестов, затем объедините их в сводку." : kind==="checks" ? "Проверка «Файлы + тесты» делает один общий снимок исходников: статическая проверка файлов и тесты в Docker на тех же скопированных файлах. Выберите её на карточке проекта." : "Выберите проверку на карточке проекта. Готовый результат сохранится здесь."));
+        if(kind!=="reviews") {const choose=node("button","secondary-button","Выбрать проверку");choose.addEventListener("click",()=>kind==="checks" ? chooseFullCheckLanguage(project,origin) : chooseProjectCheck(project,origin));panel.append(choose);}
       }
-      if(items.length>=2 && kind!=="reviews") {
+      if(items.length>=2 && (kind==="files" || kind==="tests")) {
         const compare=node("details","result-comparison"),summary=node("summary","","Сравнить два результата");compare.append(summary,comparisonControls(items.map(item=>({id:kind==="files" ? item.id : item.claim.id,time:kind==="files" ? item.completed_at : item.claim.created_at})),kind==="files" ? "project" : "run",origin));panel.append(compare);
       }
       for(const item of items) {
-        const row=node("div","result-row"),copy=node("div","result-row-copy"),open=node("button","secondary-button result-open","Открыть"),time=kind==="files" ? item.completed_at : kind==="tests" ? item.claim.created_at : item.created_at;
+        const row=node("div","result-row"),copy=node("div","result-row-copy"),open=node("button","secondary-button result-open","Открыть"),time=kind==="files" ? item.completed_at : kind==="tests" ? item.claim.created_at : kind==="checks" ? item.claim.created_at : item.created_at;
         if(kind==="files")copy.append(statusBadge(item.status),node("small","",`Файлов проверено: ${item.files_checked}`));
         else if(kind==="tests")copy.append(node("strong","",runLabels[item.result?.status || "pending"]),node("small","",environmentLabels[item.claim.environment || "minimal"]));
+        else if(kind==="checks")copy.append(node("strong","",fullCheckStatusLabels[item.result?.status] || "Результат пока не подтверждён"),node("small","",environmentLabels[item.claim.environment || "minimal"]));
         else copy.append(reviewBadge(item.status));
-        copy.append(node("time","",formatTime(time,true)));open.append(icon("arrow"));open.setAttribute("aria-label",`Открыть ${kind==="files" ? "проверку файлов" : kind==="tests" ? "тесты" : "сводный отчёт"} от ${formatTime(time,true)}`);
-        open.addEventListener("click",()=>kind==="files" ? openProjectReport(item.id,origin) : kind==="tests" ? openRunReport(item.claim.id,origin) : openReview(item.id,origin));row.append(copy,open);panel.append(row);
+        copy.append(node("time","",formatTime(time,true)));open.append(icon("arrow"));open.setAttribute("aria-label",`Открыть ${kind==="files" ? "проверку файлов" : kind==="tests" ? "тесты" : kind==="checks" ? "проверку файлов и тестов" : "сводный отчёт"} от ${formatTime(time,true)}`);
+        open.addEventListener("click",()=>kind==="files" ? openProjectReport(item.id,origin) : kind==="tests" ? openRunReport(item.claim.id,origin) : kind==="checks" ? openFullCheck(item.claim.id,origin) : openReview(item.id,origin));row.append(copy,open);panel.append(row);
       }
     } catch(problem) {if(sequence===detailSequence && request===tabSequence && !$("drawer").hidden)panel.replaceChildren(node("p","detail-callout","Не удалось прочитать историю. Обновите данные или откройте проект снова. Новые проверки не запускались."));}
     finally {if(sequence===detailSequence && request===tabSequence)panel.removeAttribute("aria-busy");}
@@ -580,11 +590,11 @@ function renderCompatibility(panel,data) {
   for(const reason of data.reasons || [])panel.append(node("p","detail-subtitle",compatibilityReasonLabels[reason] || "Совместимость ограничена."));
   if(data.dependencies?.length)panel.append(node("p","detail-subtitle",`Объявленные пакеты: ${data.dependencies.slice(0,8).join(", ")}${data.dependencies.length>8 ? ` и ещё ${data.dependencies.length-8}` : ""}`));
 }
-async function projectRuns(project,origin,language="python") {
+async function projectRuns(project,origin,language="python",fullCheck=false) {
   const js=language==="javascript";
-  const sequence=openRunnerDrawer(js ? "Запустить тесты JavaScript / TypeScript" : "Запустить тесты Python",origin),body=$("detail-body");
-  drawerBack(body,"К выбору проверки",()=>chooseProjectCheck(project,origin));
-  body.append(node("p","drawer-intro",project.name),node("p","",js ? "Проверим синтаксис и типы, затем запустим готовые тесты Node.js или Vitest." : "Проверим ошибки Python с Ruff, затем запустим готовые тесты pytest."),node("p","check-note","Будет выполнен код проекта в отдельном контейнере Docker, без сети и ключей AegisOps. Исходная папка не изменяется. Нейросеть не вызывается."));
+  const sequence=openRunnerDrawer(fullCheck ? "Проверить файлы и тесты" : js ? "Запустить тесты JavaScript / TypeScript" : "Запустить тесты Python",origin),body=$("detail-body");
+  drawerBack(body,"К выбору проверки",()=>fullCheck ? chooseFullCheckLanguage(project,origin) : chooseProjectCheck(project,origin));
+  body.append(node("p","drawer-intro",project.name),node("p","",fullCheck ? (js ? "Сначала статическая проверка файлов, затем TypeScript и тесты Node.js или Vitest на одном общем снимке исходников." : "Сначала статическая проверка файлов, затем Ruff и pytest на одном общем снимке исходников.") : js ? "Проверим синтаксис и типы, затем запустим готовые тесты Node.js или Vitest." : "Проверим ошибки Python с Ruff, затем запустим готовые тесты pytest."),node("p","check-note",fullCheck ? "Один общий снимок исходников: статическая проверка и тесты используют одни и те же скопированные файлы. Код выполняется в отдельном контейнере Docker, без сети и ключей AegisOps. Исходная папка не изменяется. Нейросеть не вызывается." : "Будет выполнен код проекта в отдельном контейнере Docker, без сети и ключей AegisOps. Исходная папка не изменяется. Нейросеть не вызывается."));
   const advanced=node("details","runner-advanced");advanced.append(node("summary","","Окружение и ограничения проверки"));
   advanced.append(node("p","","Лимиты: 512 МБ, 1 CPU, 64 процесса; инструменты — до 60 секунд суммарно. Контейнер удаляется после запуска. Docker socket не передаётся."),node("p","",js ? "Node.js 24 и TypeScript 5.9.3. Vitest 4.0.18 / Vite 7.3.1 используют подготовленные зависимости и Node-окружение. Версии и lock проекта не воспроизводятся. Настройки проекта и npm scripts не запускаются; JSX/TSX, Jest, React и сборка приложения пока не поддерживаются." : "Python 3.12. Окружение «Данные» содержит Pydantic 2.14.1 и PyYAML 6.0.3. requirements.txt проекта не устанавливается; настройки инструментов игнорируются. conftest.py выполняется внутри контейнера."),node("p","","В снимок входят файлы выбранного языка и поддержанные форматы данных. Типичные секретные файлы, ссылки, зависимости и служебные папки исключены. Логи могут содержать фрагменты исходников и остаются локальными."));
   const environment=node("select");environment.setAttribute("aria-label",js ? "Окружение Node.js" : "Окружение Python");environment.id="runner-environment";
@@ -594,7 +604,7 @@ async function projectRuns(project,origin,language="python") {
   let compatibility=null,submitted=false;
   const consent=node("input");consent.type="checkbox";consent.id=`run-consent-${project.id}`;
   const label=node("label","ai-consent");label.append(consent,document.createTextNode("Разрешаю выполнить код тестов этого проекта в контейнере Docker"));
-  const run=node("button","primary-button runner-start","Запустить тесты");run.prepend(icon("play"));run.dataset.consentId=consent.id;run.dataset.compatible=js ? "false" : "true";run.disabled=true;
+  const run=node("button","primary-button runner-start",fullCheck ? "Проверить файлы и тесты" : "Запустить тесты");run.prepend(icon("play"));run.dataset.consentId=consent.id;run.dataset.compatible=js ? "false" : "true";run.disabled=true;
   const hint=node("p","check-note","Подтвердите запуск кода, чтобы продолжить.");hint.id="runner-start-hint";hint.setAttribute("role","status");run.setAttribute("aria-describedby",hint.id);
   const updateRunner=()=>{
     if(!run.isConnected){state.runnerSync=null;return;}
@@ -612,16 +622,88 @@ async function projectRuns(project,origin,language="python") {
   run.addEventListener("click",async()=>{
     submitted=true;consent.disabled=true;environment.disabled=true;updateRunner();
     try {
-      const data=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_runner",project_id:project.id,consent:environment.value==="node-vitest-v1" ? "javascript-vitest-v1" : js ? "javascript-checks-v1" : "python-checks-v1",environment:environment.value})});
+      const payload=fullCheck ? {mode:"project_full_check",project_id:project.id,consent:"project-full-check-v1",environment:environment.value} : {mode:"project_runner",project_id:project.id,consent:environment.value==="node-vitest-v1" ? "javascript-vitest-v1" : js ? "javascript-checks-v1" : "python-checks-v1",environment:environment.value};
+      const data=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
       if(!data.job)throw new Error(data.error || "Запуск не подтверждён");renderJob(data.job);if(sequence===detailSequence && !$("drawer").hidden)closeDetail();
     } catch(problem) {if(sequence===detailSequence && !$("drawer").hidden)body.append(node("p","detail-callout",`${problem.message} Запрос не повторяется. Откройте историю, чтобы проверить состояние.`));}
   });
   body.append(advanced,label,hint,run);
-  const history=node("button","secondary-button","Посмотреть прошлые запуски");history.addEventListener("click",()=>projectResults(project,origin,"tests"));const footer=node("div","drawer-actions");footer.append(history);body.append(footer);
+  const history=node("button","secondary-button",fullCheck ? "Посмотреть прошлые проверки файлов и тестов" : "Посмотреть прошлые запуски");history.addEventListener("click",()=>projectResults(project,origin,fullCheck ? "checks" : "tests"));const footer=node("div","drawer-actions");footer.append(history);body.append(footer);
   if(js) {
     try {const data=await api(`/api/project-compatibility/${project.id}`);if(sequence!==detailSequence || $("drawer").hidden)return;compatibility=data;if(data.suggested_environment)environment.value=data.suggested_environment;environment.disabled=false;updateRunner();}
     catch(problem) {if(sequence!==detailSequence || $("drawer").hidden)return;compatibilityPanel.replaceChildren(node("p","detail-callout","Не удалось проверить package.json. Запуск недоступен; сохранённую историю можно читать."));hint.textContent="Не удалось определить совместимость проекта.";}
   } else updateRunner();
+}
+const fullCheckStatusLabels={passed:"В выбранном наборе проблем не найдено",issues:"Нужны исправления",incomplete:"Проверка не завершена"};
+const fullCheckReasons={runner_unavailable:"Образ выбранного окружения не подготовлен или Docker Desktop недоступен. Статическая проверка файлов видна, но общий итог неполный.",project_incompatible:"Объявления проекта или настройки тестов не поддерживаются выбранным окружением. Тесты не запускались.",snapshot_rejected:"Не удалось подготовить общий снимок: нет файлов выбранного языка, достигнут лимит, папка недоступна или изменилась.",sandbox_failed:"Ошибка контейнера, недопустимый ответ или очистка не подтверждена. Успешным этот запуск не считается.",deadline:"Превышено общее время запуска. Проверьте подтверждение удаления контейнера.",uncertain:"Состояние запуска не подтверждено.",checks_completed:"Проверки завершены в рамках выбранного профиля. Это не подтверждает полную работоспособность или безопасность проекта."};
+async function openFullCheck(id,origin) {
+  const sequence=openRunnerDrawer("Проверка файлов и тестов",origin),body=$("detail-body");
+  try {
+    const data=await api(`/api/project-check/${encodeURIComponent(id)}`);if(sequence!==detailSequence || $("drawer").hidden)return;
+    const claim=data.claim,project=state.projects.find(item=>item.id===claim.project_id);
+    if(project)drawerBack(body,"К результатам проекта",()=>projectResults(project,origin,"checks"));
+    body.append(node("p","detail-subtitle",`${formatTime(claim.created_at,true)} · ${environmentLabels[claim.environment || "minimal"] || claim.environment || ""}`));
+    if(!data.result) {
+      body.append(node("p","detail-callout","Результат пока не подтверждён. Дождитесь завершения. Автоматического повторного запуска нет."));
+      const runLink=node("button","text-button","Открыть сохранённый запуск");runLink.addEventListener("click",()=>openRunReport(claim.id,origin));body.append(runLink);
+      return;
+    }
+    const wrapper=data.result;
+    let run=null,report=null;
+    try {
+      const [runData,reportData]=await Promise.all([
+        api(`/api/project-run/${encodeURIComponent(claim.id)}`),
+        wrapper.static_report_id ? api(`/api/project-reports/${encodeURIComponent(wrapper.static_report_id)}`) : Promise.resolve(null)
+      ]);
+      run=runData?.result || null;
+      report=reportData || null;
+    } catch(problem) {
+      if(sequence!==detailSequence || $("drawer").hidden)return;
+      body.append(node("p","detail-callout","Данные запуска недоступны. Состояние не подтверждено; повтор автоматически не выполняется."));
+      return;
+    }
+    if(sequence!==detailSequence || $("drawer").hidden)return;
+    if(!run) {
+      body.append(node("p","detail-callout","Результат запуска не подтверждён. Состояние неизвестно; повтор автоматически не выполняется."));
+      return;
+    }
+    body.append(node("span",`status ${wrapper.status==="passed" ? "passed" : "issues"}`,fullCheckStatusLabels[wrapper.status] || "Результат пока не подтверждён"));
+    body.append(node("p","detail-callout",fullCheckReasons[run.reason] || "Результат получен в рамках выбранного профиля."));
+    if(wrapper.status==="incomplete" && run.reason==="runner_unavailable") body.append(node("p","detail-subtitle","Подготовьте Docker и выбранный профиль, затем запустите проверку снова. Статическая проверка файлов уже сохранена."));
+    const filesPanel=section("Проверка файлов");
+    if(wrapper.static_report_id) {
+      if(report) {
+        pair(filesPanel,"Файлов проверено",report.files_checked ?? "—");
+        pair(filesPanel,"Замечаний",Array.isArray(report.findings) ? report.findings.length : "—");
+        pair(filesPanel,"Частичный результат",report.partial ? "Да" : "Нет");
+      } else pair(filesPanel,"Отчёт","Недоступен");
+      const open=node("button","text-button","Открыть замечания к файлам");open.addEventListener("click",()=>openProjectReport(wrapper.static_report_id,origin));filesPanel.append(open);
+    } else filesPanel.append(node("p","","Статический отчёт не сохранён."));
+    body.append(filesPanel);
+    const testsPanel=section("Тесты и логи");
+    pair(testsPanel,"Состояние",runLabels[run.status] || run.status);
+    pair(testsPanel,"Окружение",environmentLabels[run.environment || claim.environment || "minimal"] || run.environment);
+    if(Array.isArray(run.checks) && run.checks.length) {
+      const toolStatusLabels={passed:"Пройдено",failed:"Есть замечания",no_tests:"Тесты не найдены",timeout:"Превышено время",error:"Ошибка",skipped:"Пропущено"};
+      for(const item of run.checks) {
+        const tool=Array.isArray(item) ? item[0] : item.tool;
+        const toolStatus=Array.isArray(item) ? item[1] : item.status;
+        pair(testsPanel,toolLabels[tool] || tool,toolStatusLabels[toolStatus] || toolStatus);
+      }
+    }
+    if(run.execution_scope==="not_started") testsPanel.append(node("p","detail-callout","Выполнение кода не начиналось."));
+    else pair(testsPanel,"Контейнер удалён",run.container_removed ? "Да" : "Не подтверждено");
+    const openRun=node("button","text-button","Открыть тесты и логи");openRun.addEventListener("click",()=>openRunReport(claim.id,origin));testsPanel.append(openRun);
+    body.append(testsPanel);
+    if(run.snapshot) {
+      const snap=section("Общий снимок исходников");
+      pair(snap,"Файлов в снимке",run.snapshot.files);pair(snap,"Пропущено файлов/папок",run.snapshot.skipped);pair(snap,"SHA256 снимка",run.snapshot.sha256);
+      body.append(snap);
+    } else body.append(node("p","detail-callout","Общий снимок исходников не подтверждён."));
+    if(wrapper.static_report_id && run.snapshot) body.append(node("p","detail-subtitle","Обе проверки используют один общий снимок выбранного профиля. Исключённые файлы и неподдержанные форматы не проверялись. Снимок создаётся последовательно и не является атомарным для нескольких файлов; гарантий безопасности он не даёт."));
+    else if(run.snapshot) body.append(node("p","detail-subtitle","Снимок исходников сохранён, но проверки не завершены. Исключённые файлы и неподдержанные форматы не проверялись. Снимок создаётся последовательно и не является атомарным для нескольких файлов; гарантий безопасности он не даёт."));
+    pair(body,"ID проверки",claim.id);
+  } catch(problem) {if(sequence===detailSequence && !$("drawer").hidden)body.append(node("p","detail-callout","Результат проверки недоступен. Повтор автоматически не выполняется."));}
 }
 async function openRunReport(id,origin) {
   const sequence=openRunnerDrawer("Результаты проверки кода",origin), body=$("detail-body");

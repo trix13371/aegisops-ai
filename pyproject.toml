@@ -158,6 +158,16 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "Full checks cannot execute code, call models, use services or keys"
+type = "forbidden"
+source_modules = ["aegisops.project_checks"]
+forbidden_modules = [
+  "aegisops.project_ai", "aegisops.llm", "aegisops.config", "aegisops.db",
+  "aegisops.authorization", "aegisops.sources", "aegisops.collector",
+  "aegisops.controlplane", "http", "socket", "subprocess", "kubernetes",
+]
+
+[[tool.importlinter.contracts]]
 name = "Dashboard projection has no transport, execution or credentials"
 type = "forbidden"
 source_modules = ["aegisops.dashboard"]

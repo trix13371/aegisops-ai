@@ -38,6 +38,11 @@ def host(operator, monkeypatch, tmp_path):
     dashboard.projects = ProjectRepository(tmp_path / "private-registry")
     dashboard.analyses = AnalysisRepository(tmp_path / "private-ai")
     dashboard.runs = RunRepository(tmp_path / "private-runs")
+    from aegisops.project_checks.repository import FullCheckRepository
+
+    dashboard.checks = FullCheckRepository(
+        tmp_path / "private-checks", dashboard.projects, dashboard.runs
+    )
     dashboard.reviews = ReviewRepository(
         tmp_path / "private-reviews", dashboard.projects, dashboard.runs
     )
@@ -968,3 +973,164 @@ def test_combined_review_removed_or_changed_evidence_is_not_presented_as_valid(h
     dashboard.projects.remove(report.project_id)
     status, _, body = request(path, auth=True)
     assert status == 503 and json.loads(body) == {"error": "Данные временно недоступны"}
+
+
+@pytest.mark.parametrize(
+    "env,consent",
+    [
+        ("minimal", "project-full-check-v1"),
+        ("python-data-v1", "project-full-check-v1"),
+        ("node-js-v1", "project-full-check-v1"),
+        ("node-vitest-v1", "project-full-check-v1"),
+    ],
+)
+def test_full_check_api_accepts_valid_environments(host, tmp_path, env, consent):
+    dashboard, request = host
+    root = tmp_path / f"proj-{env}"
+    root.mkdir()
+    proj = dashboard.projects.add(f"proj-{env}", str(root))
+    payload = {
+        "mode": "project_full_check",
+        "project_id": str(proj.id),
+        "consent": consent,
+        "environment": env,
+    }
+    status, _, body = request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))
+    assert status == 202
+    data = json.loads(body)["job"]
+    assert data["mode"] == "project_full_check"
+    check_id = UUID(data["check_id"])
+    claim = dashboard.checks.claim(check_id)
+    assert claim.environment == env
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"consent": "python-checks-v1"},
+        {"consent": "project-full-check-v1", "command": "whoami"},
+        {"consent": "project-full-check-v1", "path": "/etc/passwd"},
+        {"consent": "project-full-check-v1", "model": "openrouter"},
+        {"consent": "project-full-check-v1", "environment": "invalid-env"},
+    ],
+)
+def test_full_check_rejects_invalid_consent_or_extra_keys(host, tmp_path, extra):
+    dashboard, request = host
+    root = tmp_path / "proj-rej"
+    root.mkdir()
+    proj = dashboard.projects.add("proj-rej", str(root))
+    payload = {"mode": "project_full_check", "project_id": str(proj.id), **extra}
+    status, _, _ = request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))
+    assert status == 400
+    assert dashboard.checks.history(proj.id) == []
+
+
+def test_full_check_auth_origin_unregistered_and_deleted_project(host, tmp_path):
+    dashboard, request = host
+    root = tmp_path / "proj-auth"
+    root.mkdir()
+    proj = dashboard.projects.add("proj-auth", str(root))
+    payload = {
+        "mode": "project_full_check",
+        "project_id": str(proj.id),
+        "consent": "project-full-check-v1",
+    }
+    body = json.dumps(payload)
+    assert request("/api/jobs", method="POST", body=body)[0] == 401
+    assert (
+        request(
+            "/api/jobs", method="POST", auth=True, body=body, headers={"Origin": "http://attacker"}
+        )[0]
+        == 403
+    )
+    unreg = json.dumps(
+        {
+            "mode": "project_full_check",
+            "project_id": "00000000-0000-0000-0000-000000000000",
+            "consent": "project-full-check-v1",
+        }
+    )
+    assert request("/api/jobs", method="POST", auth=True, body=unreg)[0] == 400
+    status, _, resp_body = request("/api/jobs", method="POST", auth=True, body=body)
+    assert status == 202
+    check_id = json.loads(resp_body)["job"]["check_id"]
+    dashboard.job["state"] = "completed"
+    dashboard.projects.remove(proj.id)
+    assert request(f"/api/project-checks/{proj.id}", auth=True)[0] == 503
+    assert request(f"/api/project-check/{check_id}", auth=True)[0] == 503
+
+
+def test_full_check_get_endpoints_no_model_invocation_and_duplicate_lock(
+    host, tmp_path, monkeypatch
+):
+    dashboard, request = host
+    root = tmp_path / "proj-get"
+    root.mkdir()
+    proj = dashboard.projects.add("proj-get", str(root))
+    claim = dashboard.checks.create(proj.id, "minimal")
+
+    def fail_child(*args, **kwargs):
+        pytest.fail("GET endpoint must not spawn child/model")
+
+    monkeypatch.setattr(dashboard, "child", fail_child)
+    monkeypatch.setattr(dashboard, "project_ai_child", fail_child)
+    monkeypatch.setattr(dashboard, "project_review_ai_child", fail_child)
+
+    assert request(f"/api/project-checks/{proj.id}")[0] == 401
+    assert request(f"/api/project-check/{claim.id}")[0] == 401
+    status, _, hist_data = request(f"/api/project-checks/{proj.id}", auth=True)
+    assert status == 200
+    history = json.loads(hist_data)["checks"]
+    assert len(history) == 1 and history[0]["claim"]["id"] == str(claim.id)
+    assert history[0]["result"] is None
+    status, _, detail_data = request(f"/api/project-check/{claim.id}", auth=True)
+    assert status == 200
+    detail = json.loads(detail_data)
+    assert detail["claim"]["id"] == str(claim.id) and detail["result"] is None
+
+    for bad in [
+        "/api/project-checks/bad",
+        "/api/project-check/not-a-uuid",
+        "/api/project-checks/../file",
+    ]:
+        st, _, b = request(bad, auth=True)
+        assert st == 503 and json.loads(b) == {"error": "Данные временно недоступны"}
+
+    payload = {
+        "mode": "project_full_check",
+        "project_id": str(proj.id),
+        "consent": "project-full-check-v1",
+    }
+    status1, _, body1 = request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))
+    assert status1 == 202
+    job1 = json.loads(body1)["job"]
+    status2, _, body2 = request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))
+    assert status2 == 409
+    assert json.loads(body2)["job"]["id"] == job1["id"]
+    assert len(dashboard.checks.history(proj.id)) == 2
+
+
+def test_full_check_run_job_execution_isolated(operator, tmp_path, monkeypatch):
+    dashboard = operator.Dashboard()
+    dashboard.projects = ProjectRepository(tmp_path / "reg")
+    dashboard.runs = RunRepository(tmp_path / "runs")
+    from aegisops.project_checks.repository import FullCheckRepository
+
+    dashboard.checks = FullCheckRepository(tmp_path / "checks", dashboard.projects, dashboard.runs)
+    root = tmp_path / "work"
+    root.mkdir()
+    proj = dashboard.projects.add("work", str(root))
+    claim = dashboard.checks.create(proj.id, "minimal")
+    dashboard.job = {"state": "running", "check_id": str(claim.id)}
+
+    calls = []
+
+    def fake_child(arguments, **kwargs):
+        calls.append((arguments, kwargs))
+        return None
+
+    monkeypatch.setattr(dashboard, "child", fake_child)
+    operator.Dashboard.run_job(dashboard, "project_full_check", str(claim.id))
+    assert calls == [(["scripts/project-check-local.py", str(claim.id)], {"timeout": 250})]
+    assert dashboard.job["state"] == "failed"
+    assert dashboard.checks.result(claim.id) is None

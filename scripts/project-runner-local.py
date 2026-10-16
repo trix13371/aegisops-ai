@@ -1,5 +1,6 @@
 """One accepted project check: snapshot -> hardened local Docker -> bounded local report."""
 
+import hashlib
 import json
 import re
 import sys
@@ -21,12 +22,21 @@ from aegisops.io import unique_object
 from aegisops.project_runner.compatibility_gate import environment_issues
 from aegisops.project_runner.models import RunResult, ToolCheck, tools_for
 from aegisops.project_runner.repository import RunRepository
-from aegisops.project_runner.snapshot import snapshot_project
+from aegisops.project_runner.snapshot import Snapshot, snapshot_project
 from aegisops.projects.models import ProjectError
 from aegisops.projects.repository import ProjectRepository
 
 
-def main():
+def run_check(identifier: UUID, prepared_snapshot: Snapshot | None = None):
+    """Run one accepted project check and persist a bounded RunResult.
+
+    Returns ``None`` when nothing was recorded, or the freshly re-read saved
+    result. ``prepared_snapshot`` allows a trusted caller (the full-check
+    worker) to supply an already captured ``Snapshot`` so that no live source
+    is read again. The Docker hardening, compatibility gating, atomic
+    started/result guard, cleanup and reporting logic are identical to the
+    legacy path.
+    """
     repository = RunRepository(ROOT / ".local/project-runs")
     claim = container_id = snapshot = image_id = None
     started = executing = removed = False
@@ -34,26 +44,45 @@ def main():
     compatibility_issues = ()
     status, reason = "error", "uncertain"
     try:
-        if len(sys.argv) != 2:
+        if type(identifier) is not UUID:
             raise ValueError("unsupported arguments")
-        identifier = UUID(sys.argv[1])
         claim = repository.claim(identifier)
         if repository.result(identifier) is not None:
             raise ValueError("already finished")
         repository.write(identifier, "started", "{}")
         started = True
+
+        if prepared_snapshot is not None:
+            # Validate a prepared snapshot before ANY docker invocation so a
+            # corrupt or tampered snapshot never reaches the sandbox.
+            if type(prepared_snapshot) is not Snapshot:
+                status, reason = "not_supported", "snapshot_rejected"
+                raise ValueError("invalid prepared snapshot")
+            if not isinstance(prepared_snapshot.data, bytes):
+                status, reason = "not_supported", "snapshot_rejected"
+                raise ValueError("prepared snapshot invalid")
+            if len(prepared_snapshot.data) > 10 * 1024 * 1024:
+                status, reason = "not_supported", "snapshot_rejected"
+                raise ValueError("prepared snapshot too large")
+            if prepared_snapshot.info.sha256 != _snapshot_sha256(prepared_snapshot):
+                status, reason = "not_supported", "snapshot_rejected"
+                raise ValueError("prepared snapshot corrupt")
+            snapshot = prepared_snapshot
+
         try:
             image_id = read_image(claim.environment)
             docker(["image", "inspect", image_id])
         except Exception:
             reason = "runner_unavailable"
             raise
-        projects = ProjectRepository(ROOT / ".local/projects")
-        try:
-            snapshot = snapshot_project(projects.get(claim.project_id), claim.profile)
-        except ProjectError:
-            status, reason = "not_supported", "snapshot_rejected"
-            raise
+
+        if prepared_snapshot is None:
+            projects = ProjectRepository(ROOT / ".local/projects")
+            try:
+                snapshot = snapshot_project(projects.get(claim.project_id), claim.profile)
+            except ProjectError:
+                status, reason = "not_supported", "snapshot_rejected"
+                raise
         if snapshot.compatibility is not None:
             compatibility_issues = environment_issues(snapshot.compatibility, claim.environment)
             if snapshot.environment_directive:
@@ -100,7 +129,8 @@ def main():
         reason = "checks_completed"
     except RunnerFailure as error:
         status = "timeout" if str(error) == "deadline" else "error"
-        reason = str(error) if str(error) in {"deadline", "sandbox_failed"} else "uncertain"
+        if reason != "runner_unavailable":
+            reason = str(error) if str(error) in {"deadline", "sandbox_failed"} else "uncertain"
     except Exception:
         if reason == "uncertain" and executing:
             status, reason, checks = "error", "sandbox_failed", ()
@@ -131,7 +161,26 @@ def main():
                 repository.save(result)
             except Exception:  # noqa: S110 -- preserve unknown state instead of unverified success
                 pass  # Unknown state stays pending, never converted to success or rerun.
-    print(json.dumps({"recorded": claim is not None and repository.result(claim.id) is not None}))
+    if claim is None:
+        return None
+    return repository.result(claim.id)
+
+
+def _snapshot_sha256(snapshot: Snapshot) -> str:
+    return hashlib.sha256(snapshot.data).hexdigest()
+
+
+def main():
+    if len(sys.argv) != 2:
+        print(json.dumps({"recorded": False}))
+        raise SystemExit(1) from None
+    try:
+        identifier = UUID(sys.argv[1])
+    except Exception:
+        print(json.dumps({"recorded": False}))
+        raise SystemExit(1) from None
+    recorded = run_check(identifier)
+    print(json.dumps({"recorded": recorded is not None}))
 
 
 def cleanup(identifier):

@@ -454,6 +454,7 @@ test('2. projectResults history tabs use GET-only and Arrow/Home/End manage sele
     calls.push({ url, method: opts.method || 'GET' });
     if (url.includes('/api/projects/p2')) return { ok: true, json: async () => ({ reports: [] }) };
     if (url.includes('/api/project-runs/p2')) return { ok: true, json: async () => ({ runs: [] }) };
+    if (url.includes('/api/project-checks/p2')) return { ok: true, json: async () => ({ checks: [] }) };
     if (url.includes('/api/project-reviews/p2')) return { ok: true, json: async () => ({ reviews: [] }) };
     return { ok: true, json: async () => ({}) };
   };
@@ -467,7 +468,7 @@ test('2. projectResults history tabs use GET-only and Arrow/Home/End manage sele
   const tablist = doc.querySelector('[role="tablist"]');
   assert.ok(tablist, 'Tab list element should exist');
   const tabs = tablist.children;
-  assert.strictEqual(tabs.length, 3);
+  assert.strictEqual(tabs.length, 4);
 
   assert.strictEqual(tabs[0].getAttribute('aria-selected'), 'true');
   assert.strictEqual(tabs[0].tabIndex, 0);
@@ -482,12 +483,19 @@ test('2. projectResults history tabs use GET-only and Arrow/Home/End manage sele
   assert.strictEqual(tabs[0].getAttribute('aria-selected'), 'false');
   assert.strictEqual(tabs[0].tabIndex, -1);
 
-  tabs[1].dispatchEvent({ type: 'keydown', key: 'End', preventDefault() {} });
+  tabs[1].dispatchEvent({ type: 'keydown', key: 'ArrowRight', preventDefault() {} });
   await new Promise(r => setImmediate(r));
   assert.strictEqual(tabs[2].getAttribute('aria-selected'), 'true');
   assert.strictEqual(tabs[2].tabIndex, 0);
+  assert.strictEqual(tabs[1].getAttribute('aria-selected'), 'false');
+  assert.strictEqual(tabs[1].tabIndex, -1);
 
-  tabs[2].dispatchEvent({ type: 'keydown', key: 'Home', preventDefault() {} });
+  tabs[2].dispatchEvent({ type: 'keydown', key: 'End', preventDefault() {} });
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(tabs[3].getAttribute('aria-selected'), 'true');
+  assert.strictEqual(tabs[3].tabIndex, 0);
+
+  tabs[3].dispatchEvent({ type: 'keydown', key: 'Home', preventDefault() {} });
   await new Promise(r => setImmediate(r));
   assert.strictEqual(tabs[0].getAttribute('aria-selected'), 'true');
   assert.strictEqual(tabs[0].tabIndex, 0);
@@ -496,6 +504,7 @@ test('2. projectResults history tabs use GET-only and Arrow/Home/End manage sele
   assert.strictEqual(nonGetCalls.length, 0, 'projectResults tabs must only perform GET queries throughout navigation');
   assert.ok(calls.some(c => c.url.includes('/api/projects/p2')));
   assert.ok(calls.some(c => c.url.includes('/api/project-runs/p2')));
+  assert.ok(calls.some(c => c.url.includes('/api/project-checks/p2')));
   assert.ok(calls.some(c => c.url.includes('/api/project-reviews/p2')));
 });
 
@@ -934,4 +943,183 @@ test('12. malformed GET body keeps existing cards, sets registryReady=false, dis
   const resultsBtn = card.querySelector('.project-results');
   assert.ok(resultsBtn, 'Results button must exist');
   assert.strictEqual(resultsBtn.disabled, false, 'Results button must not be disabled');
+});
+
+
+test('13. Full check language chooser and run without consent does not POST, consent change sends exact payload', async () => {
+  const calls = [];
+  const fetchMock = async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null });
+    if (opts.method === 'POST') return { ok: true, json: async () => ({ job: { state: 'running', mode: 'project_full_check', message: 'Job started' } }) };
+    return { ok: true, json: async () => ({}) };
+  };
+  const { ctx, doc } = setupContext(fetchMock);
+  const project = { id: 'p_full_1', name: 'PyProj', path: '/py' };
+  const origin = doc.createElement('button');
+
+  ctx.chooseProjectCheck(project, origin);
+  const options = doc.getElementById('detail-body').querySelectorAll('.action-option');
+  options[0].click();
+  assert.strictEqual(calls.filter(c => c.method === 'POST').length, 0);
+
+  vm.runInContext('state.registryReady = true;', ctx);
+  await ctx.projectRuns(project, origin, 'python', true);
+  const runBtn = doc.querySelector('.runner-start');
+  const consent = doc.getElementById(`run-consent-${project.id}`);
+  assert.ok(runBtn && consent);
+  assert.strictEqual(runBtn.disabled, true);
+
+  runBtn.click();
+  assert.strictEqual(calls.filter(c => c.method === 'POST').length, 0);
+
+  doc.getElementById('runner-environment').value = 'minimal';
+  consent.checked = true;
+  consent.dispatchEvent({ type: 'change', target: consent });
+  assert.strictEqual(runBtn.disabled, false);
+
+  runBtn.click();
+  await new Promise(r => setImmediate(r));
+  const postCalls = calls.filter(c => c.method === 'POST');
+  assert.strictEqual(postCalls.length, 1);
+  assert.deepStrictEqual(postCalls[0].body, {
+    mode: 'project_full_check',
+    project_id: 'p_full_1',
+    consent: 'project-full-check-v1',
+    environment: 'minimal'
+  });
+});
+
+test('14. Unknown POST error locks controls and prevents automatic repeated calls', async () => {
+  let postCount = 0;
+  const fetchMock = async (url, opts = {}) => {
+    if (opts.method === 'POST') {
+      postCount++;
+      return { ok: false, status: 500, json: async () => ({ error: 'Runner engine failure' }) };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+  const { ctx, doc } = setupContext(fetchMock);
+  const project = { id: 'p_err', name: 'ErrProj', path: '/err' };
+  const origin = doc.createElement('button');
+  vm.runInContext('state.registryReady = true;', ctx);
+
+  await ctx.projectRuns(project, origin, 'python', true);
+  const runBtn = doc.querySelector('.runner-start');
+  const consent = doc.getElementById(`run-consent-${project.id}`);
+  const envSelect = doc.getElementById('runner-environment');
+  consent.checked = true;
+  consent.dispatchEvent({ type: 'change', target: consent });
+  runBtn.click();
+  await new Promise(r => setImmediate(r));
+
+  assert.strictEqual(postCount, 1);
+  assert.strictEqual(runBtn.disabled, true);
+  assert.strictEqual(consent.disabled, true);
+  assert.strictEqual(envSelect.disabled, true);
+  assert.ok(doc.getElementById('detail-body').textContent.includes('Запрос не повторяется'));
+  runBtn.click();
+  assert.strictEqual(postCount, 1);
+});
+
+test('15. projectResults checks tab uses GET-only with no comparison element', async () => {
+  const calls = [];
+  const fetchMock = async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    if (url.includes('/api/project-checks/p_chk')) {
+      return {
+        ok: true,
+        json: async () => ({
+          checks: [
+            { claim: { id: 'chk_1', created_at: new Date().toISOString(), environment: 'minimal' }, result: { status: 'passed' } },
+            { claim: { id: 'chk_2', created_at: new Date().toISOString(), environment: 'minimal' }, result: { status: 'issues' } }
+          ]
+        })
+      };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+  const { ctx, doc } = setupContext(fetchMock);
+  const project = { id: 'p_chk', name: 'ChkProj', path: '/chk' };
+  const origin = doc.createElement('button');
+
+  await ctx.projectResults(project, origin, 'checks');
+  const nonGet = calls.filter(c => c.method !== 'GET');
+  assert.strictEqual(nonGet.length, 0);
+  assert.ok(calls.some(c => c.url.includes('/api/project-checks/p_chk')));
+  assert.strictEqual(doc.querySelector('.result-comparison'), null);
+  const rows = doc.querySelectorAll('.result-row');
+  assert.strictEqual(rows.length, 2);
+});
+
+test('16. openFullCheck renders wrapper issues overall, reports counts, back button, and ignores stale detail response', async () => {
+  let resolveDelay;
+  const delayPromise = new Promise(r => { resolveDelay = r; });
+  const fetchMock = async (url) => {
+    if (url.includes('/api/project-check/chk_slow')) {
+      await delayPromise;
+      return { ok: true, json: async () => ({ claim: { id: 'chk_slow', project_id: 'p_dtl', created_at: '2026-01-01T00:00:00Z' }, result: { status: 'passed' } }) };
+    }
+    if (url.includes('/api/project-check/chk_act')) {
+      return {
+        ok: true,
+        json: async () => ({
+          claim: { id: 'chk_act', project_id: 'p_dtl', created_at: '2026-01-01T00:00:00Z', environment: 'minimal' },
+          result: { status: 'issues', static_report_id: 'rep_1' }
+        })
+      };
+    }
+    if (url.includes('/api/project-run/chk_act')) {
+      return {
+        ok: true,
+        json: async () => ({
+          result: {
+            status: 'passed',
+            reason: 'checks_completed',
+            container_removed: true,
+            snapshot: { files: 5, skipped: 1, sha256: 'abc123hash' }
+          }
+        })
+      };
+    }
+    if (url.includes('/api/project-reports/rep_1')) {
+      return { ok: true, json: async () => ({ files_checked: 2, findings: [{ rule: 'rule_1' }], partial: false }) };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+
+  const { ctx, doc } = setupContext(fetchMock);
+  ctx.fixture = { id: 'p_dtl', name: 'DetailProj', path: '/dtl' };
+  vm.runInContext('state.projects = [fixture];', ctx);
+  const origin = doc.createElement('button');
+
+  const slowCall = ctx.openFullCheck('chk_slow', origin);
+  await ctx.openFullCheck('chk_act', origin);
+  resolveDelay();
+  await slowCall;
+
+  const body = doc.getElementById('detail-body');
+  assert.ok(body.textContent.includes('chk_act'));
+  assert.ok(!body.textContent.includes('chk_slow'));
+  assert.ok(doc.querySelector('.drawer-back'));
+
+  const statusBadge = body.querySelector('.status');
+  assert.ok(statusBadge);
+  assert.strictEqual(statusBadge.textContent, 'Нужны исправления');
+
+  const pairs = body.querySelectorAll('.detail-kv');
+  let filesCheckedVal = null;
+  let findingsVal = null;
+  for (const p of pairs) {
+    const dt = p.querySelector('dt');
+    const dd = p.querySelector('dd');
+    if (dt && dt.textContent.includes('Файлов проверено')) {
+      filesCheckedVal = dd ? dd.textContent : null;
+    }
+    if (dt && dt.textContent.includes('Замечаний')) {
+      findingsVal = dd ? dd.textContent : null;
+    }
+  }
+  assert.strictEqual(filesCheckedVal, '2');
+  assert.strictEqual(findingsVal, '1');
+  assert.ok(body.textContent.includes('Контейнер удалён'));
 });
