@@ -12,6 +12,7 @@ import pytest
 
 from aegisops.dashboard.view import present_record
 from aegisops.domain.models import AuditRecord
+from aegisops.project_ai.full_repository import FullAnalysisRepository
 from aegisops.project_ai.repository import AnalysisRepository
 from aegisops.project_ai.review_repository import ReviewAnalysisRepository
 from aegisops.project_reviews.repository import ReviewRepository
@@ -43,6 +44,7 @@ def host(operator, monkeypatch, tmp_path):
     dashboard.checks = FullCheckRepository(
         tmp_path / "private-checks", dashboard.projects, dashboard.runs
     )
+    dashboard.full_analyses = FullAnalysisRepository(tmp_path / "private-full-ai", dashboard.checks)
     dashboard.reviews = ReviewRepository(
         tmp_path / "private-reviews", dashboard.projects, dashboard.runs
     )
@@ -1134,3 +1136,184 @@ def test_full_check_run_job_execution_isolated(operator, tmp_path, monkeypatch):
     assert calls == [(["scripts/project-check-local.py", str(claim.id)], {"timeout": 250})]
     assert dashboard.job["state"] == "failed"
     assert dashboard.checks.result(claim.id) is None
+
+
+@pytest.fixture
+def full_evidence(host, tmp_path):
+    dashboard, request = host
+    project_dir = tmp_path / "sample-proj"
+    project_dir.mkdir()
+    (project_dir / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    (project_dir / "compose.yaml").write_text(
+        "services:\n  app:\n    image: test\n", encoding="utf-8"
+    )
+    project = dashboard.projects.add("Sample", str(project_dir))
+    from aegisops.domain.common import utc_now
+    from aegisops.project_checks.models import build_result
+    from aegisops.project_checks.snapshot import scan_snapshot
+    from aegisops.project_runner.models import RunResult, ToolCheck
+    from aegisops.project_runner.snapshot import snapshot_project
+
+    claim = dashboard.checks.create(project.id, "minimal")
+    snap = snapshot_project(project, claim.profile)
+    static_rep = scan_snapshot(project.id, snap)
+    dashboard.projects.save_report(static_rep)
+    tools = (
+        ToolCheck(tool="ruff", status="passed", exit_code=0, output="ok", output_truncated=False),
+        ToolCheck(tool="pytest", status="passed", exit_code=0, output="ok", output_truncated=False),
+    )
+    run_res = RunResult(
+        id=claim.id,
+        project_id=project.id,
+        completed_at=utc_now(),
+        status="passed",
+        reason="checks_completed",
+        snapshot=snap.info,
+        image_id="sha256:" + "a" * 64,
+        checks=tools,
+        container_removed=True,
+        execution_scope="container",
+    )
+    dashboard.runs.save(run_res)
+    check_res = build_result(claim, static_rep, run_res)
+    dashboard.checks.save(check_res)
+    return dashboard, request, check_res
+
+
+def test_full_check_ai_get_flow(full_evidence):
+    dashboard, request, check = full_evidence
+    status, _, data = request(f"/api/project-check-ai/{check.id}")
+    assert status == 401
+    status, _, data = request(
+        f"/api/project-check-ai/{check.id}", auth=True, headers={"Host": "evil.com"}
+    )
+    assert status == 403
+    status, _, data = request("/api/project-check-ai/not-a-uuid", auth=True)
+    assert status == 503
+    assert json.loads(data) == {"error": "Данные временно недоступны"}
+    status, _, data = request(f"/api/project-check-ai/{check.id}", auth=True)
+    assert status == 200
+    parsed = json.loads(data)
+    assert parsed["check_id"] == str(check.id)
+    assert parsed["analysis"] == {"status": "not_requested"}
+    assert parsed["profile"] == "project-full-check-summary-v1"
+    assert parsed["model"] == "deepseek/deepseek-v4.1-flash"
+    raw_pl = json.dumps(parsed["payload"])
+    assert str(check.id) not in raw_pl
+    assert "sample-proj" not in raw_pl
+    assert "stdout" not in raw_pl
+    assert dashboard.full_analyses.read_claim(check.id) is None
+
+
+def test_full_check_ai_post_validation(full_evidence):
+    dashboard, request, check = full_evidence
+    for bad in [
+        {"mode": "project_check_ai", "check_id": str(check.id), "consent": "project-review-v1"},
+        {
+            "mode": "project_check_ai",
+            "check_id": str(check.id),
+            "consent": "project-full-check-summary-v1",
+            "extra": "val",
+        },
+        {"mode": "project_check_ai", "check_id": str(check.id)},
+    ]:
+        status, _, _ = request("/api/jobs", method="POST", auth=True, body=json.dumps(bad))
+        assert status == 400
+        assert dashboard.full_analyses.read_claim(check.id) is None
+
+    good = {
+        "mode": "project_check_ai",
+        "check_id": str(check.id),
+        "consent": "project-full-check-summary-v1",
+    }
+    status, _, data = request("/api/jobs", method="POST", auth=True, body=json.dumps(good))
+    assert status == 202
+    job = json.loads(data)["job"]
+    assert job["check_id"] == str(check.id)
+    assert dashboard.full_analyses.read_claim(check.id) is not None
+
+    dashboard.job["state"] = "completed"
+    status2, _, _ = request("/api/jobs", method="POST", auth=True, body=json.dumps(good))
+    assert status2 == 400
+
+
+def test_full_check_ai_concurrency_and_unconfirmed(full_evidence, host):
+    dashboard, request, check = full_evidence
+    dashboard.job = {"id": "job-running", "mode": "other", "state": "running", "stage": "work"}
+    body = json.dumps(
+        {
+            "mode": "project_check_ai",
+            "check_id": str(check.id),
+            "consent": "project-full-check-summary-v1",
+        }
+    )
+    status, _, data = request("/api/jobs", method="POST", auth=True, body=body)
+    assert status == 409
+    assert json.loads(data)["job"]["id"] == "job-running"
+    assert dashboard.full_analyses.read_claim(check.id) is None
+    dashboard.job = None
+
+    claim_pending = dashboard.checks.create(check.project_id, "minimal")
+    pen_body = json.dumps(
+        {
+            "mode": "project_check_ai",
+            "check_id": str(claim_pending.id),
+            "consent": "project-full-check-summary-v1",
+        }
+    )
+    assert request("/api/jobs", method="POST", auth=True, body=pen_body)[0] == 400
+    assert request(f"/api/project-check-ai/{claim_pending.id}", auth=True)[0] == 503
+
+    path = dashboard.runs.path(check.id, "result")
+    path.write_text("corrupted", encoding="utf-8")
+    assert request(f"/api/project-check-ai/{check.id}", auth=True)[0] == 503
+    assert request("/api/jobs", method="POST", auth=True, body=body)[0] == 400
+
+    dashboard.projects.remove(check.project_id)
+    assert request(f"/api/project-check-ai/{check.id}", auth=True)[0] == 503
+
+
+def test_full_check_ai_child_execution(operator, tmp_path, monkeypatch):
+    dashboard = operator.Dashboard()
+    dashboard.projects = ProjectRepository(tmp_path / "pr")
+    dashboard.runs = RunRepository(tmp_path / "rn")
+    from aegisops.project_checks.repository import FullCheckRepository
+
+    dashboard.checks = FullCheckRepository(tmp_path / "ck", dashboard.projects, dashboard.runs)
+    dashboard.full_analyses = FullAnalysisRepository(tmp_path / "fa", dashboard.checks)
+    monkeypatch.setenv("AEGISOPS_SECRET", "canary")
+    monkeypatch.setenv("OPENROUTER_KEY", "secret")
+    recorded = {}
+
+    class FakeResult:
+        returncode = 0
+        stdout = json.dumps({"ok": True})
+
+    def fake_run(args, cwd, env, **kwargs):
+        recorded["args"] = args
+        recorded["env"] = env
+        return FakeResult()
+
+    monkeypatch.setattr(operator.subprocess, "run", fake_run)
+    fake_id = UUID("12345678-1234-5678-1234-567812345678")
+    dashboard.project_check_ai_child(fake_id)
+    assert recorded["args"][5:9] == ["-Mode", "project-check", "-CheckId", str(fake_id)]
+    assert "AEGISOPS_SECRET" not in recorded["env"]
+    assert "OPENROUTER_KEY" not in recorded["env"]
+
+
+def test_run_job_failure_safe_handling(operator, full_evidence, monkeypatch):
+    dashboard, _, check = full_evidence
+    claim = dashboard.full_analyses.claim(check.id)
+    assert claim is not None
+    dashboard.job = {"id": "job1", "state": "running", "stage": "collecting"}
+
+    def fail_child(cid):
+        raise RuntimeError("CANARY_SECRET_LEAK")
+
+    monkeypatch.setattr(dashboard, "project_check_ai_child", fail_child)
+    operator.Dashboard.run_job(dashboard, "project_check_ai", str(check.id))
+    assert dashboard.job["state"] == "failed"
+    assert "CANARY" not in dashboard.job["message"]
+    state = dashboard.full_analyses.state(check.id)
+    assert state["status"] == "failed"

@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-17",
+  "profile": "project-full-check-summary-v1",
+  "offline": {
+    "passed": 1290,
+    "skipped": 3
+  },
+  "targeted": {
+    "passed": 22,
+    "deselected": 99
+  },
+  "ui": {
+    "passed": 21
+  },
+  "mypy_source_files": 128,
+  "import_contracts": 22,
+  "review": "accept",
+  "runtime_paid_request_sent": false,
+  "browser_state": "not_requested",
+  "screenshot": ".local/dashboard/screenshots/ui14-full-ai.png"
+}

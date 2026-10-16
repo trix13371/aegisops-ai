@@ -1123,3 +1123,244 @@ test('16. openFullCheck renders wrapper issues overall, reports counts, back but
   assert.strictEqual(findingsVal, '1');
   assert.ok(body.textContent.includes('Контейнер удалён'));
 });
+
+
+
+async function openTestFullAi(h, id) {
+  const originBtn = h.doc.createElement('button');
+  h.doc.body.append(originBtn);
+  await h.ctx.openFullCheck(id, originBtn);
+  await new Promise(r => setImmediate(r));
+}
+
+function setupFullAiHarness(opts = {}) {
+  const calls = [];
+  const checkId = opts.checkId || 'chk-1';
+  const aiStatus = opts.aiStatus || 'not_requested';
+  const aiProfile = opts.aiProfile !== undefined ? opts.aiProfile : 'project-full-check-summary-v1';
+  const aiModel = opts.aiModel || 'deepseek/deepseek-v4.1-flash';
+  const aiResponse = opts.aiResponse !== undefined ? opts.aiResponse : {
+    summary: 'Summary text <script>alert(1)</script>',
+    actions: [{ priority: 'high', code: 'syntax', explanation: 'expl <script>', next_step: 'step <script>' }],
+    limitations: 'String limitations notes'
+  };
+  const jobPostResponse = opts.jobPostResponse !== undefined ? opts.jobPostResponse : { job: { id: 'job-ai-1', state: 'running' } };
+
+  const fetchHandler = async (url, fetchOpts = {}) => {
+    const urlStr = String(url);
+    const method = (fetchOpts.method || 'GET').toUpperCase();
+    calls.push({ url: urlStr, method, opts: fetchOpts });
+
+    if (method === 'POST') {
+      if (urlStr === '/api/jobs') {
+        if (typeof jobPostResponse === 'function') return jobPostResponse(fetchOpts);
+        if (jobPostResponse && jobPostResponse.error) {
+          return { ok: false, status: 400, json: async () => jobPostResponse };
+        }
+        return { ok: true, status: 200, json: async () => jobPostResponse };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+
+    if (urlStr.startsWith('/api/project-check/')) {
+      const id = decodeURIComponent(urlStr.replace('/api/project-check/', ''));
+      const hasResult = opts.hasResult !== undefined ? opts.hasResult : true;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          claim: { id, project_id: 'p-1', created_at: '2026-03-30T10:00:00Z', environment: 'minimal' },
+          result: hasResult ? { status: opts.checkStatus || 'issues' } : null
+        })
+      };
+    }
+    if (urlStr.startsWith('/api/project-run/')) {
+      const id = decodeURIComponent(urlStr.replace('/api/project-run/', ''));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          result: { status: 'passed', reason: 'checks_completed', checks: [], execution_scope: 'container', container_removed: true }
+        })
+      };
+    }
+    if (urlStr.startsWith('/api/project-check-ai/')) {
+      const id = decodeURIComponent(urlStr.replace('/api/project-check-ai/', ''));
+      if (opts.aiDelayed) {
+        await new Promise(r => setTimeout(r, 50));
+      }
+      if (opts.aiGetThrows) throw new Error('AI network fail');
+      const effectiveCheckId = opts.aiResponseCheckId !== undefined ? opts.aiResponseCheckId : id;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          check_id: effectiveCheckId,
+          profile: aiProfile,
+          model: aiModel,
+          payload: { profile: aiProfile, summary: {} },
+          analysis: { status: aiStatus, response: aiResponse }
+        })
+      };
+    }
+    if (urlStr.startsWith('/api/project-reports/')) {
+      return { ok: true, status: 200, json: async () => ({ files_checked: 5, findings: [], partial: false }) };
+    }
+    if (urlStr === '/api/projects') {
+      return { ok: true, status: 200, json: async () => [] };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const { ctx, doc } = setupContext(fetchHandler);
+  vm.runInContext('state.projects = [{ id: "p-1", name: "Proj 1" }];', ctx);
+  return { ctx, doc, calls, checkId };
+}
+
+test('Test 17: open not_requested makes GET-only 0POST, preview button disabled before consent, checked exact POST and drawer closes', async () => {
+  const harness = setupFullAiHarness({ aiStatus: 'not_requested' });
+  const { doc, calls, checkId } = harness;
+  await openTestFullAi(harness, checkId);
+
+  const postCallsBefore = calls.filter(c => c.method === 'POST');
+  assert.strictEqual(postCallsBefore.length, 0);
+
+  const startBtn = doc.querySelector('.project-ai-start');
+  assert.ok(startBtn, 'AI start button should exist');
+  assert.strictEqual(startBtn.disabled, true);
+
+  const consentCheckbox = doc.getElementById(`full-ai-consent-${checkId}`);
+  assert.ok(consentCheckbox, 'consent checkbox should exist');
+  consentCheckbox.checked = true;
+  consentCheckbox.dispatchEvent({ type: 'change' });
+  assert.strictEqual(startBtn.disabled, false);
+
+  startBtn.click();
+  await new Promise(r => setImmediate(r));
+
+  const postCalls = calls.filter(c => c.method === 'POST' && c.url === '/api/jobs');
+  assert.strictEqual(postCalls.length, 1);
+  const parsedBody = JSON.parse(postCalls[0].opts.body);
+  assert.deepStrictEqual(parsedBody, {
+    mode: 'project_check_ai',
+    check_id: checkId,
+    consent: 'project-full-check-summary-v1'
+  });
+  assert.strictEqual(doc.getElementById('drawer').hidden, true);
+});
+
+test('Test 18: unknown POST error locks button + consent permanently; active job disables and restores', async () => {
+  const harness = setupFullAiHarness({
+    aiStatus: 'not_requested',
+    jobPostResponse: { error: 'Payment rejected or unknown failure' }
+  });
+  const { doc, checkId } = harness;
+  await openTestFullAi(harness, checkId);
+  const startBtn = doc.querySelector('.project-ai-start');
+  const consentCheckbox = doc.getElementById(`full-ai-consent-${checkId}`);
+
+  consentCheckbox.checked = true;
+  consentCheckbox.dispatchEvent({ type: 'change' });
+  assert.strictEqual(startBtn.disabled, false);
+
+  startBtn.click();
+  await new Promise(r => setImmediate(r));
+
+  assert.strictEqual(startBtn.disabled, true);
+  assert.strictEqual(consentCheckbox.disabled, true);
+  assert.strictEqual(startBtn.dataset.compatible, 'false');
+
+  // Even if checkbox toggles, remains locked
+  consentCheckbox.checked = true;
+  consentCheckbox.dispatchEvent({ type: 'change' });
+  assert.strictEqual(startBtn.disabled, true);
+
+  // Active job test
+  const harness2 = setupFullAiHarness({ aiStatus: 'not_requested' });
+  await openTestFullAi(harness2, 'chk-2');
+  const btn2 = harness2.doc.querySelector('.project-ai-start');
+  const consent2 = harness2.doc.getElementById('full-ai-consent-chk-2');
+  consent2.checked = true;
+
+  vm.runInContext('state.job = { state: "running" };', harness2.ctx);
+  consent2.dispatchEvent({ type: 'change' });
+  assert.strictEqual(btn2.disabled, true);
+
+  vm.runInContext('state.job = null;', harness2.ctx);
+  consent2.dispatchEvent({ type: 'change' });
+  assert.strictEqual(btn2.disabled, false);
+});
+
+test('Test 19: saved completed summary/action literal HTML-like text not created as DOM nodes; pending/failed have no button', async () => {
+  const harness = setupFullAiHarness({
+    aiStatus: 'completed',
+    aiResponse: {
+      summary: 'Safe summary <script id="bad1"></script>',
+      actions: [{ priority: 'high', code: 'syntax', explanation: '<b id="bad2">syntax</b>', next_step: '<i id="bad3">fix</i>' }],
+      limitations: 'Limited scope text <script id="bad4"></script>'
+    }
+  });
+  const { doc, checkId } = harness;
+  await openTestFullAi(harness, checkId);
+  assert.strictEqual(doc.getElementById('bad1'), null);
+  assert.strictEqual(doc.getElementById('bad2'), null);
+  assert.strictEqual(doc.getElementById('bad3'), null);
+  assert.strictEqual(doc.getElementById('bad4'), null);
+
+  const summaryEl = doc.querySelector('.ai-summary');
+  assert.ok(summaryEl.textContent.includes('<script id="bad1">'));
+  const card = doc.querySelector('.ai-action');
+  assert.ok(card.textContent.includes('Приоритет: Высокий'));
+  assert.ok(card.textContent.includes('Ошибка синтаксиса или формата'));
+  assert.ok(card.textContent.includes('Следующий шаг'));
+  assert.strictEqual(doc.querySelector('.project-ai-start'), null);
+
+  for (const st of ['pending', 'failed']) {
+    const h = setupFullAiHarness({ aiStatus: st });
+    await openTestFullAi(h, 'chk-pf');
+    assert.strictEqual(h.doc.querySelector('.project-ai-start'), null);
+    const postCalls = h.calls.filter(c => c.method === 'POST');
+    assert.strictEqual(postCalls.length, 0);
+  }
+});
+
+test('Test 20: pending fullreport result null skips AI endpoint; wrong profile/bad response fallback while sections remain', async () => {
+  const hNull = setupFullAiHarness({ hasResult: false });
+  await openTestFullAi(hNull, 'chk-null');
+  const aiCalls = hNull.calls.filter(c => c.url.startsWith('/api/project-check-ai/'));
+  assert.strictEqual(aiCalls.length, 0);
+
+  const hBad = setupFullAiHarness({
+    aiProfile: 'fictional-profile',
+    checkStatus: 'issues'
+  });
+  await openTestFullAi(hBad, 'chk-bad');
+  const body = hBad.doc.getElementById('detail-body');
+  assert.ok(body.textContent.includes('Объяснение результатов недоступно. Отчёт файлов и тестов сохранён'));
+  assert.ok(body.textContent.includes('Тесты и логи'));
+});
+
+test('Test 21: delayed old AI GET resolved after new drawer cannot append stale canary', async () => {
+  const harness = setupFullAiHarness({
+    aiStatus: 'completed',
+    aiDelayed: true,
+    aiResponse: {
+      summary: 'STALE_CANARY_SUMMARY',
+      actions: [],
+      limitations: 'stale'
+    }
+  });
+  const { ctx, doc, calls } = harness;
+  const originBtn1 = doc.createElement('button');
+  const originBtn2 = doc.createElement('button');
+  doc.body.append(originBtn1, originBtn2);
+
+  await ctx.openFullCheck('chk-old', originBtn1);
+  ctx.openRunnerDrawer('Другая статическая проверка', originBtn2);
+  await new Promise(r => setTimeout(r, 60));
+
+  const aiCalls = calls.filter(c => c.url.startsWith('/api/project-check-ai/'));
+  assert.strictEqual(aiCalls.length, 1);
+  const body = doc.getElementById('detail-body');
+  assert.strictEqual(body.textContent.includes('STALE_CANARY_SUMMARY'), false);
+});

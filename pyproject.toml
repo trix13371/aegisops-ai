@@ -122,9 +122,12 @@ source_modules = [
   "aegisops.project_ai.models", "aegisops.project_ai.projection", "aegisops.project_ai.repository",
   "aegisops.project_ai.review_models", "aegisops.project_ai.review_projection",
   "aegisops.project_ai.review_repository",
+  "aegisops.project_ai.full_models", "aegisops.project_ai.full_projection",
+  "aegisops.project_ai.full_repository",
 ]
 forbidden_modules = [
   "aegisops.project_ai.transport", "aegisops.project_ai.review_transport",
+  "aegisops.project_ai.full_transport",
   "aegisops.llm", "aegisops.config", "aegisops.db",
   "aegisops.authorization", "aegisops.sources", "http", "socket", "subprocess", "kubernetes",
 ]
@@ -141,7 +144,10 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Project explanation transport cannot reach incident processing or source services"
 type = "forbidden"
-source_modules = ["aegisops.project_ai.transport", "aegisops.project_ai.review_transport"]
+source_modules = [
+  "aegisops.project_ai.transport", "aegisops.project_ai.review_transport",
+  "aegisops.project_ai.full_transport",
+]
 forbidden_modules = [
   "aegisops.llm", "aegisops.config", "aegisops.db", "aegisops.authorization",
   "aegisops.sources", "aegisops.collector", "aegisops.controlplane", "subprocess", "kubernetes",

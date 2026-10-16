@@ -139,6 +139,7 @@ function renderJob(job) {
     : job.mode === "project_runner" ? "Проверка кода в контейнере · без сети и ключей AegisOps"
     : job.mode === "project_review_ai" ? "Разбор сводного отчёта через OpenRouter · без исходников и логов"
     : job.mode === "project_ai" ? "Разбор сводки через OpenRouter · без передачи исходников"
+    : job.mode === "project_check_ai" ? "Объяснение файлов и тестов · OpenRouter · без исходников и логов"
     : job.mode === "project" && job.files_checked !== undefined
     ? `Проверено файлов: ${job.files_checked} · Замечаний: ${job.findings_count} · Статическая проверка`
     : job.snapshot_count !== undefined
@@ -670,6 +671,8 @@ async function openFullCheck(id,origin) {
     body.append(node("span",`status ${wrapper.status==="passed" ? "passed" : "issues"}`,fullCheckStatusLabels[wrapper.status] || "Результат пока не подтверждён"));
     body.append(node("p","detail-callout",fullCheckReasons[run.reason] || "Результат получен в рамках выбранного профиля."));
     if(wrapper.status==="incomplete" && run.reason==="runner_unavailable") body.append(node("p","detail-subtitle","Подготовьте Docker и выбранный профиль, затем запустите проверку снова. Статическая проверка файлов уже сохранена."));
+    const aiPanel=section("Объяснение результатов");aiPanel.classList.add("project-ai-panel");body.append(aiPanel);
+    loadFullAiSection(claim.id,sequence,aiPanel);
     const filesPanel=section("Проверка файлов");
     if(wrapper.static_report_id) {
       if(report) {
@@ -846,6 +849,71 @@ async function openReview(id,origin) {
     for(const limitation of review.limitations)limits.append(node("p","",reviewLimitations[limitation] || limitation));body.append(limits);
     body.append(reviewAiSection(data,sequence));pair(body,"ID сводного отчёта",review.id);
   } catch(problem) {if(sequence===detailSequence && !$("drawer").hidden)body.append(node("p","detail-callout","Сводный отчёт недоступен. Новые проверки и запросы нейросети не выполнялись."));}
+}
+const FULL_AI_PROFILE="project-full-check-summary-v1";
+const fullAiPriorities={high:"Высокий",medium:"Средний",low:"Низкий"};
+async function loadFullAiSection(id,sequence,panel) {
+  const alive=()=>sequence===detailSequence && !$("drawer").hidden && panel.isConnected;
+  let data;
+  try {
+    data=await api(`/api/project-check-ai/${encodeURIComponent(id)}`);
+  } catch(problem) {
+    if(alive())panel.append(node("p","detail-callout","Объяснение результатов недоступно. Отчёт файлов и тестов сохранён; платный повтор не предлагается."));
+    return;
+  }
+  if(!alive())return;
+  const analysis=data && data.analysis;
+  if(!data || typeof data!=="object" || data.check_id!==id || !analysis || typeof analysis!=="object" || data.profile!==FULL_AI_PROFILE) {
+    panel.append(node("p","detail-callout","Объяснение результатов недоступно. Отчёт файлов и тестов сохранён; платный повтор не предлагается."));
+    return;
+  }
+  if(analysis.status==="completed") {
+    const response=analysis.response;
+    if(!response || typeof response!=="object" || typeof response.summary!=="string" || !Array.isArray(response.actions) || typeof response.limitations!=="string") {
+      panel.append(node("p","detail-callout","Объяснение результатов недоступно. Отчёт файлов и тестов сохранён; платный повтор не предлагается."));
+      return;
+    }
+  }
+  panel.append(node("p","","Модель объясняет только сводку сохранённых проверок файлов и тестов. Она не читает исходники или логи и не проверяет рекомендации исполнением."));
+  pair(panel,"Провайдер / модель",`OpenRouter · ${data.model}`);
+  if(analysis.status==="completed") {
+    panel.append(node("span","status passed","Ответ модели получен"),node("p","ai-summary",analysis.response.summary));
+    const actions=Array.isArray(analysis.response.actions) ? analysis.response.actions.slice(0,5) : [];
+    for(const action of actions) {
+      const card=node("div","ai-action");card.append(node("strong","",`Приоритет: ${fullAiPriorities[action.priority] || action.priority}`),node("small","finding-location",reviewCategoryLabels[action.code] || action.code),node("p","",action.explanation),node("strong","","Следующий шаг"),node("p","",action.next_step));panel.append(card);
+    }
+    const limitations=Array.isArray(analysis.response.limitations) ? analysis.response.limitations.join(" ") : analysis.response.limitations;
+    panel.append(node("p","detail-callout",limitations),node("p","detail-subtitle","Это мнение модели по сводке. Рекомендации требуют ручной проверки; файлы и настройки не изменялись."));
+  } else if(analysis.status==="pending") {
+    panel.append(node("p","detail-callout","Запрос уже отправлен. Дождитесь завершения и откройте проверку снова. При прерывании приложения запрос мог быть оплачен; повтор не отправляется."));
+  } else if(analysis.status==="failed") {
+    panel.append(node("p","detail-callout","Результат не подтверждён. Сводка сохранена; повторного запроса для этого набора результатов нет, поскольку попытка могла быть оплачена. Логи и проверки доступны ниже."));
+  } else if(analysis.status==="not_requested") {
+    panel.append(node("p","","В OpenRouter отправятся только количества, коды категорий, статусы инструментов и ограничения проверки. Исходники, логи, пути, названия проектов, UUID, хеши и имена пакетов не отправляются."));
+    const preview=node("details","ai-preview");preview.append(node("summary","","Посмотреть отправляемую сводку"),node("pre","",JSON.stringify(data.payload,null,2)));panel.append(preview);
+    panel.append(node("p","detail-subtitle","Один платный запрос, до 1600 выходных токенов. Используется отдельный ключ AegisOps. Для одного набора результатов — одна попытка без автоматического повтора."));
+    const consent=node("input"),label=node("label","ai-consent");consent.type="checkbox";consent.id=`full-ai-consent-${id}`;
+    label.append(consent,document.createTextNode("Отправить сводку в OpenRouter для одного платного разбора"));
+    const run=node("button","primary-button project-ai-start","Объяснить результаты");run.dataset.consentId=consent.id;run.disabled=true;
+    let submitted=false;
+    const sync=()=>{run.disabled=submitted || !consent.checked || state.job?.state==="running";};
+    consent.addEventListener("change",()=>{if(submitted)return;sync();});
+    run.addEventListener("click",async()=>{
+      if(submitted || run.disabled || !consent.checked)return;
+      submitted=true;run.disabled=true;run.dataset.compatible="false";consent.disabled=true;
+      try {
+        const result=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_check_ai",check_id:id,consent:data.profile})});
+        if(result.error || !result.job) throw new Error(result.error || "Состояние запроса не подтверждено.");
+        renderJob(result.job);
+        if(sequence===detailSequence && !$("drawer").hidden)closeDetail();
+      } catch(problem) {
+        if(alive())panel.append(node("p","detail-callout","Состояние запроса не подтверждено. Повтор автоматически не выполняется; откройте проверку снова, чтобы проверить состояние."));
+      }
+    });
+    panel.append(label,run);
+  } else {
+    panel.append(node("p","detail-callout","Состояние объяснения неизвестно. Новый запрос не отправлен."));
+  }
 }
 function reviewAiSection(data,sequence) {
   const panel=section("Нейросетевой разбор сводки"),analysis=data.analysis,review=data.review;panel.classList.add("project-ai-panel");

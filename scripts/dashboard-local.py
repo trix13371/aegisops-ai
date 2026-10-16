@@ -31,6 +31,8 @@ from aegisops.authorization.releases import load_release_check
 from aegisops.dashboard.view import present_record
 from aegisops.io import read_text, unique_object
 from aegisops.pipeline.models import PipelineResult
+from aegisops.project_ai.full_models import FULL_PROFILE
+from aegisops.project_ai.full_repository import FullAnalysisRepository
 from aegisops.project_ai.models import MODEL, PROFILE
 from aegisops.project_ai.projection import project_summary
 from aegisops.project_ai.repository import AnalysisRepository
@@ -91,6 +93,7 @@ class Dashboard:
         self.checks = FullCheckRepository(ROOT / ".local/project-checks", self.projects, self.runs)
         self.reviews = ReviewRepository(ROOT / ".local/project-reviews", self.projects, self.runs)
         self.review_analyses = ReviewAnalysisRepository(ROOT / ".local/project-review-ai")
+        self.full_analyses = FullAnalysisRepository(ROOT / ".local/project-check-ai", self.checks)
         self.python = str(ROOT / ".venv/Scripts/python.exe")
         if os.name != "nt":
             self.python = sys.executable
@@ -162,7 +165,10 @@ class Dashboard:
     def project_review_ai_child(self, identifier):
         return self._project_ai_child(identifier, review=True)
 
-    def _project_ai_child(self, identifier, *, review):
+    def project_check_ai_child(self, identifier):
+        return self._project_ai_child(identifier, review=False, full=True)
+
+    def _project_ai_child(self, identifier, *, review, full=False):
         identifier = str(UUID(str(identifier)))
         if os.name != "nt":
             raise ProjectError("Защищённое подключение OpenRouter настроено для Windows")
@@ -179,8 +185,8 @@ class Dashboard:
                 "-File",
                 str(ROOT / "scripts/openrouter-local.ps1"),
                 "-Mode",
-                "project-review" if review else "project-report",
-                "-ReviewId" if review else "-ReportId",
+                "project-check" if full else ("project-review" if review else "project-report"),
+                "-CheckId" if full else ("-ReviewId" if review else "-ReportId"),
                 identifier,
             ],
             cwd=ROOT,
@@ -284,6 +290,13 @@ class Dashboard:
             scenario = str(UUID(payload["review_id"]))
             review = self.reviews.get(UUID(scenario))
         elif (
+            mode == "project_check_ai"
+            and set(payload) == {"mode", "check_id", "consent"}
+            and payload.get("consent") == FULL_PROFILE
+        ):
+            scenario = str(UUID(payload["check_id"]))
+            self.full_analyses.evidence(UUID(scenario))
+        elif (
             mode == "project_ai"
             and set(payload) == {"mode", "report_id", "consent"}
             and payload.get("consent") == PROFILE
@@ -302,6 +315,8 @@ class Dashboard:
                 self.analyses.claim(report)
             if mode == "project_review_ai":
                 self.review_analyses.claim(review)
+            if mode == "project_check_ai":
+                self.full_analyses.claim(UUID(scenario))
             if mode == "project_runner":
                 scenario = str(
                     self.runs.create(UUID(scenario), payload.get("environment", "minimal")).id
@@ -334,6 +349,11 @@ class Dashboard:
                 self.job.update(
                     review_id=scenario, message="Запрошен разбор сводного отчёта через OpenRouter…"
                 )
+            if mode == "project_check_ai":
+                self.job.update(
+                    check_id=scenario,
+                    message="Запрошен разбор совместной проверки через OpenRouter…",
+                )
             job = dict(self.job)
         threading.Thread(target=self.run_job, args=(mode, scenario), daemon=True).start()
         return job, True
@@ -344,6 +364,23 @@ class Dashboard:
 
     def run_job(self, mode, scenario):
         try:
+            if mode == "project_check_ai":
+                identifier = UUID(scenario)
+                try:
+                    self.project_check_ai_child(identifier)
+                except Exception:  # noqa: S110 -- never expose credential or provider details
+                    pass
+                self.full_analyses.fail(identifier)
+                completed = self.full_analyses.state(identifier)["status"] == "completed"
+                self.update(
+                    state="completed" if completed else "failed",
+                    stage="done",
+                    check_id=scenario,
+                    message="Нейросетевой разбор совместной проверки сохранён. Откройте отчёт."
+                    if completed
+                    else "Разбор совместной проверки не подтверждён. Откройте отчёт; повтора нет.",
+                )
+                return
             if mode == "project_review_ai":
                 identifier = UUID(scenario)
                 try:
@@ -604,6 +641,19 @@ class Handler(BaseHTTPRequestHandler):
                     reviews = self.dashboard.reviews.history(identifier)
                     return self.send_json(
                         200, {"reviews": [item.model_dump(mode="json") for item in reviews]}
+                    )
+                if self.path.startswith("/api/project-check-ai/"):
+                    identifier = UUID(self.path[len("/api/project-check-ai/") :])
+                    check, summary = self.dashboard.full_analyses.evidence(identifier)
+                    return self.send_json(
+                        200,
+                        {
+                            "check_id": str(check.id),
+                            "analysis": self.dashboard.full_analyses.state(identifier),
+                            "profile": FULL_PROFILE,
+                            "model": MODEL,
+                            "payload": summary.model_dump(mode="json"),
+                        },
                     )
                 if self.path.startswith("/api/project-review/"):
                     identifier = UUID(self.path[len("/api/project-review/") :])

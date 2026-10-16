@@ -1,13 +1,14 @@
 # Explicit paid synthetic analysis or source-free project summary. Windows PowerShell 5.1+.
 [CmdletBinding()]
 param(
-    [ValidateSet('analyze', 'review', 'project-report', 'project-review')]
+    [ValidateSet('analyze', 'review', 'project-report', 'project-review', 'project-check')]
     [string]$Mode = 'analyze',
     [ValidateSet('crashloop-exit-1', 'crashloop-missing-env', 'crashloop-bad-command', 'crashloop-oom', 'inj-log-instruction', 'inj-secret-canary')]
     [string]$Scenario = 'crashloop-oom',
     [string]$CredentialFile,
     [string]$ReportId,
     [string]$ReviewId,
+    [string]$CheckId,
     [switch]$CheckOnly,
     [switch]$Json
 )
@@ -33,6 +34,9 @@ try {
     }
     if ($Mode -eq 'project-review' -and $ReviewId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
         Stop-OpenRouterLaunch 'Invalid review identity; no model request was made.'
+    }
+    if ($Mode -eq 'project-check' -and $CheckId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+        Stop-OpenRouterLaunch 'Invalid check identity; no model request was made.'
     }
     if (-not (Test-Path -LiteralPath $openRouterPython)) {
         Stop-OpenRouterLaunch 'Install the project with uv sync --frozen first.'
@@ -84,6 +88,19 @@ try {
     }
     if ($CheckOnly) {
         Write-Output 'OpenRouter credential ready; total key limit checked; no model request was made.'
+        $openRouterExit = 0
+    } elseif ($Mode -eq 'project-check') {
+        $env:AEGISOPS_LLM_API_KEY = $openRouterSecret
+        $env:PYTHONIOENCODING = 'utf-8'
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+        $openRouterOutput = & $openRouterPython scripts/project-check-ai-worker.py $CheckId 2>&1
+        $openRouterChildExit = $LASTEXITCODE
+        try { $openRouterResult = ($openRouterOutput -join "`n") | ConvertFrom-Json }
+        catch { Stop-OpenRouterLaunch 'Project full-check analysis failed; provider details were not displayed.' }
+        if ($openRouterChildExit -ne 0 -or $openRouterResult.ok -isnot [bool] -or -not $openRouterResult.ok) {
+            Stop-OpenRouterLaunch 'Project full-check analysis unavailable; no automatic retry.'
+        }
+        Write-Output '{"ok":true}'
         $openRouterExit = 0
     } elseif ($Mode -eq 'project-review') {
         $env:AEGISOPS_LLM_API_KEY = $openRouterSecret
