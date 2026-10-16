@@ -290,3 +290,13 @@ Vitest не загружает project config; guest tsconfig заменяетс
 PostCSS/env/public/cache параметры фиксированы; optional package installer отказан.
 Предварительный npm ci имеет pinned lock/integrity, lifecycle scripts отключены.
 При тестах прежние network/key/resource/cleanup границы сохраняются. См. ADR-028.
+
+UI10: объединение исторических результатов не доказывает совпадения исходников
+или текущую работоспособность. Полные DTO хеши связывают выбранные артефакты;
+это не подпись и не защита от переписывающего всё хранилище локального оператора.
+Pending, partial, timeout, truncated и неподтверждённая очистка не скрываются.
+Закрытая AI-проекция не включает строки из findings, test logs или package names;
+только enum/counts/statuses/limitations. Набор идентифицируется детерминированно,
+поэтому повтор создания и перезапуск не сбрасывают одну попытку AI. Orphan/corrupt
+claim/result блокируют обработку; O_EXCL started исключает повтор uncertain call.
+Модель не получает исполнителя и не изменяет результат проверки. См. ADR-029.

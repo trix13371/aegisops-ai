@@ -13,6 +13,8 @@ import pytest
 from aegisops.dashboard.view import present_record
 from aegisops.domain.models import AuditRecord
 from aegisops.project_ai.repository import AnalysisRepository
+from aegisops.project_ai.review_repository import ReviewAnalysisRepository
+from aegisops.project_reviews.repository import ReviewRepository
 from aegisops.project_runner.repository import RunRepository
 from aegisops.projects.repository import ProjectRepository
 
@@ -36,6 +38,10 @@ def host(operator, monkeypatch, tmp_path):
     dashboard.projects = ProjectRepository(tmp_path / "private-registry")
     dashboard.analyses = AnalysisRepository(tmp_path / "private-ai")
     dashboard.runs = RunRepository(tmp_path / "private-runs")
+    dashboard.reviews = ReviewRepository(
+        tmp_path / "private-reviews", dashboard.projects, dashboard.runs
+    )
+    dashboard.review_analyses = ReviewAnalysisRepository(tmp_path / "private-review-ai")
     monkeypatch.setattr(dashboard, "overview", lambda: {"records": [], "private": False})
     monkeypatch.setattr(dashboard, "run_job", lambda *args: None)
     server = ThreadingHTTPServer(("127.0.0.1", 0), operator.Handler)
@@ -74,7 +80,17 @@ def test_bootstrap_exchanges_capability_for_http_only_cookie_and_clean_url(host)
     assert request("/session/wrong")[0] == 403
 
 
-@pytest.mark.parametrize("path", ["/api/overview", "/api/job", "/api/ping", "/api/audit/bad"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/overview",
+        "/api/job",
+        "/api/ping",
+        "/api/audit/bad",
+        "/api/project-reviews/bad",
+        "/api/project-review/bad",
+    ],
+)
 def test_api_requires_current_session(host, path):
     _, request = host
     assert request(path)[0] == 401
@@ -671,5 +687,284 @@ def test_run_comparison_api_handles_unfinished_and_removed_projects(host, tmp_pa
 )
 def test_comparison_malformed_ids_return_safe_read_failure(host, path):
     _, request = host
+    status, _, body = request(path, auth=True)
+    assert status == 503 and json.loads(body) == {"error": "Данные временно недоступны"}
+
+
+def create_review(dashboard, request, tmp_path):
+    report = ai_report(dashboard, tmp_path)
+    payload = {
+        "project_id": str(report.project_id),
+        "static_report_id": str(report.id),
+        "run_id": None,
+    }
+    status, _, body = request(
+        "/api/project-reviews", method="POST", auth=True, body=json.dumps(payload)
+    )
+    assert status == 201
+    return report, json.loads(body)["review"], payload
+
+
+def test_combined_review_create_reads_and_dedup_never_start_children(host, tmp_path, monkeypatch):
+    dashboard, request = host
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("review read or creation attempted a child, model or scan")
+
+    monkeypatch.setattr(dashboard, "child", forbidden)
+    monkeypatch.setattr(dashboard, "project_ai_child", forbidden)
+    monkeypatch.setattr(dashboard, "project_review_ai_child", forbidden)
+    report, review, payload = create_review(dashboard, request, tmp_path)
+    monkeypatch.setattr(dashboard, "run_job", forbidden)
+    status, _, body = request(
+        "/api/project-reviews", method="POST", auth=True, body=json.dumps(payload)
+    )
+    assert status == 201 and json.loads(body)["review"]["id"] == review["id"]
+    status, _, body = request(f"/api/project-reviews/{report.project_id}", auth=True)
+    assert status == 200 and json.loads(body)["reviews"] == [review]
+    status, _, body = request(f"/api/project-review/{review['id']}", auth=True)
+    data = json.loads(body)
+    assert status == 200 and data["review"] == review
+    assert data["analysis"] == {"status": "not_requested"}
+    assert data["ai_profile"] == "project-review-summary-v1"
+    assert data["payload"]["categories"] == [
+        {"code": "privileged", "severity": "warning", "count": 1}
+    ]
+    assert b"PRIVATE_NAME_CANARY" not in body and b"compose.yaml" not in body
+    assert "missing_runner" in review["limitations"]
+    assert dashboard.current_job() is None
+    assert dashboard.review_analyses.read_claim(UUID(review["id"])) is None
+
+
+@pytest.mark.parametrize("extra", [{"command": "whoami"}, {"model": "other"}, {"source": "x"}])
+def test_combined_review_post_is_session_origin_and_exact_schema_bound(host, tmp_path, extra):
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    payload = {
+        "project_id": str(report.project_id),
+        "static_report_id": str(report.id),
+        "run_id": None,
+    }
+    path = "/api/project-reviews"
+    assert request(path, method="POST", body=json.dumps(payload))[0] == 401
+    assert (
+        request(
+            path,
+            method="POST",
+            auth=True,
+            body=json.dumps(payload),
+            headers={"Origin": "https://attacker.example"},
+        )[0]
+        == 403
+    )
+    assert request(path, method="POST", auth=True, body=json.dumps({**payload, **extra}))[0] == 400
+    assert dashboard.reviews.history(report.project_id) == ()
+
+
+def test_combined_review_rejects_empty_pending_and_other_project_evidence(host, tmp_path):
+    from aegisops.projects.scanner import scan_project
+
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    payload = {"project_id": str(report.project_id), "static_report_id": None, "run_id": None}
+    assert (
+        request("/api/project-reviews", method="POST", auth=True, body=json.dumps(payload))[0]
+        == 400
+    )
+    pending = dashboard.runs.create(report.project_id)
+    payload["run_id"] = str(pending.id)
+    assert (
+        request("/api/project-reviews", method="POST", auth=True, body=json.dumps(payload))[0]
+        == 400
+    )
+    other_root = tmp_path / "other-review-project"
+    other_root.mkdir()
+    (other_root / "main.py").write_text("pass\n")
+    other = dashboard.projects.add("Other", str(other_root))
+    other_report = scan_project(other)
+    dashboard.projects.save_report(other_report)
+    payload.update(static_report_id=str(other_report.id), run_id=None)
+    assert (
+        request("/api/project-reviews", method="POST", auth=True, body=json.dumps(payload))[0]
+        == 400
+    )
+    assert dashboard.reviews.history(report.project_id) == ()
+
+
+def test_combined_review_runner_only_preview_omits_logs_hashes_and_identifiers(host, tmp_path):
+    from aegisops.domain.common import utc_now
+    from aegisops.project_runner.models import RunResult, SnapshotInfo, ToolCheck
+
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    claim = dashboard.runs.create(report.project_id)
+    result = RunResult(
+        id=claim.id,
+        project_id=claim.project_id,
+        completed_at=utc_now(),
+        status="issues",
+        reason="checks_completed",
+        container_removed=True,
+        execution_scope="container",
+        image_id="sha256:" + "a" * 64,
+        snapshot=SnapshotInfo(sha256="b" * 64, files=1, python_files=1, bytes=10, skipped=0),
+        checks=(
+            ToolCheck(tool="ruff", status="passed", exit_code=0, output="", output_truncated=False),
+            ToolCheck(
+                tool="pytest",
+                status="failed",
+                exit_code=1,
+                output="PRIVATE_LOG_CANARY arbitrary_package",
+                output_truncated=False,
+            ),
+        ),
+    )
+    dashboard.runs.save(result)
+    payload = {
+        "project_id": str(report.project_id),
+        "static_report_id": None,
+        "run_id": str(claim.id),
+    }
+    status, _, body = request(
+        "/api/project-reviews", method="POST", auth=True, body=json.dumps(payload)
+    )
+    review = json.loads(body)["review"]
+    assert status == 201 and review["static"] is None
+    assert review["runner"]["checks"][1]["status"] == "failed"
+    status, _, body = request(f"/api/project-review/{review['id']}", auth=True)
+    preview = json.dumps(json.loads(body)["payload"])
+    assert status == 200 and "runner_failed" in preview
+    for omitted in (
+        str(claim.id),
+        str(report.project_id),
+        "b" * 64,
+        "PRIVATE_LOG",
+        "arbitrary_package",
+    ):
+        assert omitted not in preview
+    assert b"PRIVATE_LOG_CANARY" not in body
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"consent": False},
+        {"consent": "project-summary-v1"},
+        {"consent": "project-review-summary-v1", "endpoint": "http://attacker"},
+        {"consent": "project-review-summary-v1", "model": "other"},
+        {"consent": "project-review-summary-v1", "payload": {"source": "PRIVATE_SOURCE"}},
+    ],
+)
+def test_combined_review_ai_requires_separate_consent_and_no_extra_authority(host, tmp_path, extra):
+    dashboard, request = host
+    _, review, _ = create_review(dashboard, request, tmp_path)
+    payload = {"mode": "project_review_ai", "review_id": review["id"], **extra}
+    assert request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))[0] == 400
+    assert dashboard.review_analyses.read_claim(UUID(review["id"])) is None
+
+
+def test_combined_review_ai_global_lock_and_durable_claim_survive_duplicate_bundle(host, tmp_path):
+    dashboard, request = host
+    _, review, selection = create_review(dashboard, request, tmp_path)
+    payload = {
+        "mode": "project_review_ai",
+        "review_id": review["id"],
+        "consent": "project-review-summary-v1",
+    }
+    dashboard.job = {"id": "other-job", "state": "running"}
+    assert request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))[0] == 409
+    assert dashboard.review_analyses.read_claim(UUID(review["id"])) is None
+    dashboard.job = None
+    status, _, body = request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))
+    assert status == 202 and json.loads(body)["job"]["review_id"] == review["id"]
+    dashboard.job["state"] = "failed"
+    duplicate = json.loads(
+        request("/api/project-reviews", method="POST", auth=True, body=json.dumps(selection))[2]
+    )["review"]
+    assert duplicate["id"] == review["id"]
+    assert request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))[0] == 400
+    state = json.loads(request(f"/api/project-review/{review['id']}", auth=True)[2])
+    assert state["analysis"]["status"] == "pending"
+
+
+def test_combined_review_ai_failure_is_safe_and_preserves_evidence(host, tmp_path, monkeypatch):
+    dashboard, request = host
+    _, review, _ = create_review(dashboard, request, tmp_path)
+    identifier = UUID(review["id"])
+    dashboard.review_analyses.claim(dashboard.reviews.get(identifier))
+    dashboard.job = {"state": "running"}
+    calls = []
+
+    def rejected(value):
+        calls.append(value)
+        raise RuntimeError("PRIVATE_PROVIDER_REVIEW_CANARY")
+
+    monkeypatch.setattr(dashboard, "project_review_ai_child", rejected)
+    type(dashboard).run_job(dashboard, "project_review_ai", str(identifier))
+    assert calls == [identifier] and dashboard.job["state"] == "failed"
+    assert "PRIVATE_PROVIDER" not in json.dumps(dashboard.job)
+    assert dashboard.review_analyses.state(dashboard.reviews.get(identifier))["status"] == "failed"
+
+
+def test_combined_review_ai_completion_reads_back_result(host, tmp_path, monkeypatch):
+    from aegisops.domain.common import utc_now
+    from aegisops.project_ai.review_models import ReviewExplanation
+    from aegisops.project_ai.review_repository import ReviewResult
+
+    dashboard, request = host
+    _, review, _ = create_review(dashboard, request, tmp_path)
+    identifier = UUID(review["id"])
+    claim = dashboard.review_analyses.claim(dashboard.reviews.get(identifier))
+    dashboard.job = {"state": "running"}
+
+    def completed(value):
+        result = ReviewResult(
+            review_id=value,
+            review_sha256=claim.review_sha256,
+            completed_at=utc_now(),
+            status="completed",
+            response=ReviewExplanation(
+                summary="Разбор сводки", actions=(), limitations="Только выбранные проверки"
+            ),
+        )
+        dashboard.review_analyses.write(value, "result", result.model_dump_json())
+
+    monkeypatch.setattr(dashboard, "project_review_ai_child", completed)
+    type(dashboard).run_job(dashboard, "project_review_ai", str(identifier))
+    assert dashboard.job["state"] == "completed"
+    status, _, body = request(f"/api/project-review/{identifier}", auth=True)
+    assert status == 200 and json.loads(body)["analysis"]["response"]["summary"] == "Разбор сводки"
+
+
+def test_combined_review_child_uses_fixed_mode_and_role_environment(operator, monkeypatch):
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    if operator.os.name != "nt":
+        pytest.skip("Windows runtime credential launcher")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "PRIVATE_REVIEW_KEY_CANARY")
+    monkeypatch.setenv("PSModulePath", "FOREIGN_MODULE_PATH")
+    calls = []
+
+    def child(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout='{"ok":true}')
+
+    monkeypatch.setattr(operator.subprocess, "run", child)
+    identifier = uuid4()
+    operator.Dashboard().project_review_ai_child(identifier)
+    command, options = calls[0]
+    assert command[-4:] == ["-Mode", "project-review", "-ReviewId", str(identifier)]
+    assert "PRIVATE_REVIEW_KEY_CANARY" not in options["env"].values()
+    assert not any(name.upper() == "PSMODULEPATH" for name in options["env"])
+    assert options["timeout"] == 80
+
+
+def test_combined_review_removed_or_changed_evidence_is_not_presented_as_valid(host, tmp_path):
+    dashboard, request = host
+    report, review, _ = create_review(dashboard, request, tmp_path)
+    path = f"/api/project-review/{review['id']}"
+    dashboard.projects.remove(report.project_id)
     status, _, body = request(path, auth=True)
     assert status == 503 and json.loads(body) == {"error": "Данные временно недоступны"}

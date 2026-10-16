@@ -125,14 +125,15 @@ function renderJob(job) {
   $("job-icon").replaceChildren(icon(running ? "activity" : ["completed","passed"].includes(job.state) ? "check" : "shield"));
   $("job-message").textContent = job.message;
   $("job-caption").textContent = job.mode === "project_runner" ? "Проверка кода в контейнере · без сети и ключей AegisOps"
+    : job.mode === "project_review_ai" ? "Разбор сводного отчёта через OpenRouter · без исходников и логов"
     : job.mode === "project_ai" ? "Разбор сводки через OpenRouter · без передачи исходников"
     : job.mode === "project" && job.files_checked !== undefined
     ? `Проверено файлов: ${job.files_checked} · Замечаний: ${job.findings_count} · Статическая проверка`
     : job.snapshot_count !== undefined
     ? `Наблюдений: ${job.snapshot_count} · Инцидентов: ${job.incident_count} · ${sourceLabel(job.mode === "synthetic" ? "synthetic_fixture" : "local_kind")}`
     : "Результат появится здесь. Можно оставить эту страницу открытой.";
-  $("job-detail").hidden = !job.audit_ids?.length && !job.report_id && !job.run_id;
-  $("job-detail").replaceChildren(document.createTextNode(job.run_id ? "Результаты запуска " : job.report_id ? "Открыть отчёт " : "Открыть результат "), icon("arrow"));
+  $("job-detail").hidden = !job.audit_ids?.length && !job.report_id && !job.run_id && !job.review_id;
+  $("job-detail").replaceChildren(document.createTextNode(job.review_id ? "Открыть сводный отчёт " : job.run_id ? "Результаты запуска " : job.report_id ? "Открыть отчёт " : "Открыть результат "), icon("arrow"));
   if (running && state.polling === null) state.polling = setTimeout(pollJob, 1500);
 }
 async function pollJob() {
@@ -266,7 +267,8 @@ async function openDetail(id, origin) {
 $("close-detail").addEventListener("click", closeDetail);
 $("drawer-backdrop").addEventListener("click", closeDetail);
 $("job-detail").addEventListener("click", () => {
-  if (state.job?.run_id) openRunReport(state.job.run_id, $("job-detail"));
+  if (state.job?.review_id) openReview(state.job.review_id, $("job-detail"));
+  else if (state.job?.run_id) openRunReport(state.job.run_id, $("job-detail"));
   else if (state.job?.report_id) openProjectReport(state.job.report_id, $("job-detail"));
   else if (state.job?.audit_ids?.length) openDetail(state.job.audit_ids[0], $("job-detail"));
 });
@@ -328,8 +330,9 @@ async function loadProjects() {
       });
       const checks=node("button","text-button project-scan","Тесты Python"); checks.append(icon("play"));
       const javascript=node("button","text-button project-scan","Тесты JS/TS"); javascript.append(icon("play")); javascript.addEventListener("click",()=>projectRuns(project,javascript,"javascript"));
+      const review=node("button","text-button","Сводный отчёт"); review.append(icon("layers")); review.addEventListener("click",()=>projectReviews(project,review));
       checks.addEventListener("click",()=>projectRuns(project,checks));
-      actions.append(run,history,checks,javascript,remove); card.append(actions); $("projects-list").append(card);
+      actions.append(run,history,checks,javascript,review,remove); card.append(actions); $("projects-list").append(card);
     }
     renderJob(state.job);
   } catch(problem) {$("projects-error").textContent=problem.message; $("projects-error").hidden=false;}
@@ -536,6 +539,152 @@ async function openRunReport(id,origin) {
     body.append(node("p","detail-subtitle","Вывод получен из контейнера с кодом проекта и остаётся локальным. Он не является независимым доказательством корректности тестов."));
     pair(body,"ID запуска",data.claim.id);
   } catch(problem) {if(sequence===detailSequence) body.append(node("p","detail-callout","Результат запуска недоступен. Повтор автоматически не выполняется."));}
+}
+
+const reviewLabels={attention:"Требует внимания",incomplete:"Проверки неполные",no_issues_reported:"Замечаний в выбранных проверках нет"};
+const reviewCategoryLabels={syntax:"Ошибка синтаксиса или формата",encoding:"Файл не удалось декодировать",read_failed:"Файл не удалось прочитать",yaml_alias:"Ссылки YAML вне области проверки",privileged:"Привилегированный контейнер",host_namespace:"Пространство имён хоста",mutable_image:"Незакреплённый образ",missing_limits:"Не указаны ограничения ресурсов",capabilities:"Расширенные полномочия контейнера",privilege_escalation:"Разрешено повышение привилегий",host_path:"Доступ к файловой системе хоста",docker_socket:"Доступ к Docker socket",limit:"Достигнут лимит проверки",runner_failed:"Инструмент сообщил об ошибках",runner_error:"Ошибка инструмента или среды",runner_timeout:"Превышено время проверки",runner_no_tests:"Тесты не найдены",runner_pending:"Результат запуска неизвестен",runner_not_supported:"Профиль не поддерживает проект",runner_unconfirmed:"Выполнение или очистка не подтверждены"};
+const reviewReasonLabels={checks_completed:"Проверки завершены",runner_unavailable:"Среда проверки недоступна",snapshot_rejected:"Не удалось подготовить снимок файлов",project_incompatible:"Проект не поддерживается окружением",sandbox_failed:"Ошибка контейнера или очистки",deadline:"Превышено общее время запуска",uncertain:"Результат не подтверждён"};
+const reviewLimitations={
+  unverified_source_match:"Сохранённые проверки могли исследовать разные версии файлов. Совпадение исходников между ними и актуальность текущей папки не подтверждены.",
+  missing_static:"Статический отчёт не выбран. Синтаксис и настройки по его правилам в этой сводке не оценены.",
+  missing_runner:"Запуск тестов не выбран. Поведение кода в этой сводке не проверено.",
+  pending_runner:"Подтверждённого результата выбранного запуска пока нет.",
+  partial_static:"Статическая проверка частичная: часть файлов или конструкций не была проверена.",
+  unconfirmed_runner:"Полнота выполнения проверок или удаление контейнера не подтверждены.",
+  truncated_output:"Вывод инструмента достиг лимита; полный результат не подтверждён.",
+  selected_profile_only:"Результаты относятся только к выбранным правилам и профилю тестирования. Они не подтверждают полную работоспособность или безопасность проекта.",
+};
+function reviewBadge(status) {return node("span",`status ${status==="no_issues_reported" ? "passed" : "issues"}`,reviewLabels[status] || "Результат неизвестен");}
+async function projectReviews(project,origin) {
+  const sequence=openRunnerDrawer(`Сводные отчёты · ${project.name}`,origin), body=$("detail-body");
+  body.append(node("p","detail-callout","Соберите сводку из сохранённых результатов этого проекта. Это действие не запускает код, новые проверки или нейросеть."));
+  body.append(node("p","",reviewLimitations.unverified_source_match));
+  const loading=node("p","detail-subtitle","Загружаем сохранённые результаты…"); body.append(loading);
+  const results=await Promise.allSettled([api(`/api/projects/${project.id}`),api(`/api/project-runs/${project.id}`),api(`/api/project-reviews/${project.id}`)]);
+  if(sequence!==detailSequence || $("drawer").hidden) return;
+  loading.remove();
+  const [reportsData,runsData,historyData]=results;
+  const reports=reportsData.status==="fulfilled" ? reportsData.value.reports : [];
+  const runs=runsData.status==="fulfilled" ? runsData.value.runs : [];
+  if(reportsData.status!=="fulfilled") body.append(node("p","detail-callout","История статических проверок недоступна. Их нельзя выбрать для новой сводки."));
+  if(runsData.status!=="fulfilled") body.append(node("p","detail-callout","История тестов недоступна. Их нельзя выбрать для новой сводки."));
+  const form=section("Создать сводный отчёт"), staticSelect=node("select"), runSelect=node("select");
+  staticSelect.setAttribute("aria-label","Статическая проверка для сводного отчёта");runSelect.setAttribute("aria-label","Запуск тестов для сводного отчёта");
+  const staticEmpty=node("option","","Без статической проверки"),runEmpty=node("option","","Без результатов тестов");
+  staticEmpty.value="";runEmpty.value="";staticSelect.append(staticEmpty);runSelect.append(runEmpty);
+  for(const report of reports) {
+    const option=node("option","",`${formatTime(report.completed_at,true)} · ${statuses[report.status] || "Результат"} · ${report.id.slice(0,8)}`);option.value=report.id;staticSelect.append(option);
+  }
+  for(const item of runs) {
+    const option=node("option","",`${formatTime(item.claim.created_at,true)} · ${runLabels[item.result?.status || "pending"]} · ${environmentLabels[item.claim.environment || "minimal"] || item.claim.profile} · ${item.claim.id.slice(0,8)}`);
+    option.value=item.claim.id;option.disabled=!item.result;runSelect.append(option);
+  }
+  if(reports.length) staticSelect.value=reports[0].id;
+  const completedRun=runs.find(item=>item.result);if(completedRun) runSelect.value=completedRun.claim.id;
+  const staticLabel=node("label","","Статическая проверка"),runLabel=node("label","","Результаты тестов");staticLabel.append(staticSelect);runLabel.append(runSelect);
+  const controls=node("div","comparison-controls"),create=node("button","primary-button","Сохранить сводный отчёт");
+  let submitting=false;
+  const update=()=>{create.disabled=submitting || (!staticSelect.value && !runSelect.value);};
+  staticSelect.addEventListener("change",update);runSelect.addEventListener("change",update);update();
+  create.addEventListener("click",async()=>{
+    submitting=true;update();staticSelect.disabled=true;runSelect.disabled=true;
+    try {
+      const data=await api("/api/project-reviews",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({project_id:project.id,static_report_id:staticSelect.value || null,run_id:runSelect.value || null})});
+      if(!data.review?.id) throw new Error(data.error || "Не удалось подтвердить сохранение сводки.");
+      if(sequence!==detailSequence || $("drawer").hidden) return;
+      openReview(data.review.id,origin);
+    } catch(problem) {
+      if(sequence===detailSequence && !$("drawer").hidden) form.append(node("p","detail-callout",`${problem.message} Автоматического повтора нет. Откройте список сводных отчётов снова, чтобы проверить сохранение.`));
+    }
+  });
+  controls.append(staticLabel,runLabel,create);form.append(controls);
+  if(!reports.length && !completedRun) form.append(node("p","detail-subtitle","Для сводки нужна хотя бы одна сохранённая статическая проверка или завершённый запуск тестов."));
+  if(runs.some(item=>!item.result)) form.append(node("p","detail-subtitle","Запуски без подтверждённого результата показаны в списке, но выбрать их нельзя."));
+  form.append(node("p","detail-subtitle","Повторное сохранение того же набора результатов откроет существующую сводку и сохранит состояние её нейросетевого разбора."));body.append(form);
+  const history=section("Сохранённые сводки");body.append(history);
+  if(historyData.status!=="fulfilled") {history.append(node("p","detail-callout","Список сводок недоступен. Сохранённые результаты не изменялись."));return;}
+  if(!historyData.value.reviews.length) history.append(node("p","","Сводных отчётов пока нет."));
+  for(const review of historyData.value.reviews) {
+    const row=node("div","runner-history-row"),open=node("button","text-button","Открыть сводный отчёт");
+    row.append(reviewBadge(review.status),node("time","",formatTime(review.created_at,true)));
+    open.addEventListener("click",()=>openReview(review.id,origin));row.append(open);history.append(row);
+  }
+}
+async function openReview(id,origin) {
+  const sequence=openRunnerDrawer("Сводный отчёт проекта",origin),body=$("detail-body");
+  try {
+    const data=await api(`/api/project-review/${id}`);if(sequence!==detailSequence || $("drawer").hidden) return;
+    const review=data.review,project=state.projects.find(item=>item.id===review.project_id);
+    if(project) pair(body,"Проект",project.name);
+    body.append(reviewBadge(review.status),node("p","detail-subtitle",formatTime(review.created_at,true)));
+    body.append(node("p","detail-callout",reviewLimitations.unverified_source_match));
+    body.append(node("p","","Это сводка выбранных исторических результатов. Отсутствие замечаний в них не означает, что проект безопасен или полностью работает."));
+    const staticPanel=section("Статическая проверка");body.append(staticPanel);
+    if(review.static) {
+      staticPanel.append(statusBadge(review.static.status));
+      pair(staticPanel,"Правила",review.static.rules_version);pair(staticPanel,"Файлов проверено",review.static.files_checked);pair(staticPanel,"Пропусков",review.static.skipped);
+      if(review.static.partial) staticPanel.append(node("p","detail-callout",reviewLimitations.partial_static));
+      for(const item of review.static.categories) staticPanel.append(node("p","",`${reviewCategoryLabels[item.code] || item.code} · ${item.severity==="error" ? "ошибка" : "замечание"} · ${item.count}`));
+      if(!review.static.categories.length) staticPanel.append(node("p","","В выбранном статическом отчёте замечаний не обнаружено."));
+      const open=node("button","text-button","Открыть исходный статический отчёт");open.addEventListener("click",()=>openProjectReport(review.static_report_id,origin));staticPanel.append(open);
+    } else staticPanel.append(node("p","",reviewLimitations.missing_static));
+    const runnerPanel=section("Проверки кода и тесты");body.append(runnerPanel);
+    if(review.runner) {
+      const runner=review.runner;
+      pair(runnerPanel,"Состояние",runLabels[runner.state] || runner.state);pair(runnerPanel,"Профиль",runner.profile);pair(runnerPanel,"Окружение",environmentLabels[runner.environment] || runner.environment);
+      pair(runnerPanel,"Исполнение",runner.execution_scope==="container" ? "В контейнере" : "Код не запускался");
+      if(runner.execution_scope==="container") pair(runnerPanel,"Контейнер удалён",runner.container_removed ? "Да" : "Не подтверждено");
+      pair(runnerPanel,"Причина завершения",reviewReasonLabels[runner.reason] || "Не подтверждена");
+      const checkLabels={passed:"Пройдено",failed:"Найдены ошибки",error:"Ошибка инструмента или среды",timeout:"Время истекло",no_tests:"Тесты не найдены"};
+      for(const check of runner.checks) {
+        runnerPanel.append(node("p","",`${toolLabels[check.tool] || check.tool} · ${checkLabels[check.status] || check.status}`));
+        if(check.output_truncated) runnerPanel.append(node("p","detail-callout",reviewLimitations.truncated_output));
+      }
+      for(const issue of runner.compatibility_issues || [])runnerPanel.append(node("p","detail-callout",compatibilityIssueLabels[issue] || issue));
+      const open=node("button","text-button","Открыть исходный запуск и локальные логи");open.addEventListener("click",()=>openRunReport(review.run_id,origin));runnerPanel.append(open);
+    } else runnerPanel.append(node("p","",reviewLimitations.missing_runner));
+    const limits=section("Ограничения сводки");
+    for(const limitation of review.limitations)limits.append(node("p","",reviewLimitations[limitation] || limitation));body.append(limits);
+    body.append(reviewAiSection(data,sequence));pair(body,"ID сводного отчёта",review.id);
+  } catch(problem) {if(sequence===detailSequence && !$("drawer").hidden)body.append(node("p","detail-callout","Сводный отчёт недоступен. Новые проверки и запросы нейросети не выполнялись."));}
+}
+function reviewAiSection(data,sequence) {
+  const panel=section("Нейросетевой разбор сводки"),analysis=data.analysis,review=data.review;panel.classList.add("project-ai-panel");
+  panel.append(node("p","","Модель объясняет только сводку сохранённых проверок. Она не читает исходники или логи и не проверяет рекомендации исполнением."));
+  pair(panel,"Провайдер / модель",`OpenRouter · ${data.model}`);
+  if(analysis.status==="completed") {
+    panel.append(node("span","status passed","Ответ модели получен"),node("p","ai-summary",analysis.response.summary));
+    const priorities={high:"Высокий",medium:"Средний",low:"Низкий"};
+    for(const action of analysis.response.actions) {
+      const card=node("div","ai-action");card.append(node("strong","",`Приоритет: ${priorities[action.priority] || action.priority}`),node("small","finding-location",reviewCategoryLabels[action.code] || action.code),node("p","",action.explanation),node("strong","","Следующий шаг"),node("p","",action.next_step));panel.append(card);
+    }
+    const limitations=Array.isArray(analysis.response.limitations) ? analysis.response.limitations.join(" ") : analysis.response.limitations;
+    panel.append(node("p","detail-callout",limitations),node("p","detail-subtitle","Это мнение модели по сводке. Рекомендации требуют ручной проверки; файлы и настройки не изменялись."));
+  } else if(analysis.status==="pending") {
+    panel.append(node("p","detail-callout","Разбор уже запрошен. Дождитесь завершения и откройте сводку снова. При прерывании приложения запрос мог быть оплачен; повтор не отправляется."));
+  } else if(analysis.status==="failed") {
+    panel.append(node("p","detail-callout","Ответ модели не подтверждён. Сводка сохранена; повторного запроса для этого набора результатов нет, поскольку попытка могла быть оплачена. Повторное создание такой же сводки не сбрасывает состояние разбора."));
+  } else if(analysis.status==="not_requested") {
+    panel.append(node("p","","В OpenRouter отправятся только количества, коды категорий, статусы инструментов и ограничения проверки. Исходники, логи, пути, названия проектов, UUID, хеши и имена пакетов не отправляются."));
+    const preview=node("details","ai-preview");preview.append(node("summary","","Посмотреть отправляемую сводку"),node("pre","",JSON.stringify(data.payload,null,2)));panel.append(preview);
+    panel.append(node("p","detail-subtitle","Один платный запрос, до 1600 выходных токенов. Используется отдельный ключ AegisOps. Для одного набора результатов — одна попытка без автоматического повтора."));
+    const consent=node("input"),label=node("label","ai-consent");consent.type="checkbox";consent.id=`review-ai-consent-${review.id}`;
+    label.append(consent,document.createTextNode("Отправить показанную сводку в OpenRouter и выполнить один платный разбор"));
+    const run=node("button","primary-button project-ai-start","Разобрать сводку с нейросетью");run.dataset.consentId=consent.id;run.disabled=true;
+    consent.addEventListener("change",()=>{run.disabled=!consent.checked || state.job?.state==="running";});
+    run.addEventListener("click",async()=>{
+      run.disabled=true;run.dataset.compatible="false";consent.disabled=true;
+      try {
+        const result=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_review_ai",review_id:review.id,consent:data.ai_profile})});
+        if(result.error || !result.job) throw new Error(result.error || "Состояние запроса не подтверждено.");
+        renderJob(result.job);
+        if(sequence===detailSequence && !$("drawer").hidden)closeDetail();
+        toast("Состояние нейросетевого разбора показано над списком проектов.");
+      } catch(problem) {if(sequence===detailSequence && !$("drawer").hidden)panel.append(node("p","detail-callout",`${problem.message} Запрос не повторяется автоматически. Откройте сводку снова, чтобы проверить состояние.`));}
+    });
+    panel.append(label,run);
+  } else panel.append(node("p","detail-callout","Состояние разбора неизвестно. Новый запрос не отправлен."));
+  return panel;
 }
 
 function comparisonControls(items,kind,origin) {

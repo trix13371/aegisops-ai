@@ -29,14 +29,8 @@ def parse_json(value: str | bytes) -> object:
 
 
 def explain(summary: Summary, key: SecretStr) -> tuple[Explanation, int, int]:
-    connection: http.client.HTTPSConnection | None = None
-    wire_socket: socket.socket | None = None
-    timer: threading.Timer | None = None
     try:
         summary = Summary.model_validate(summary)
-        secret = key.get_secret_value()
-        if not secret or len(secret) > 4096 or any(not 33 <= ord(char) <= 126 for char in secret):
-            raise AnalysisError()
         instructions = (
             "Ты объясняешь сводку статической проверки на русском языке. Ты не видел код, "
             "файлы или имена проекта. Нельзя утверждать, что приложение протестировано или "
@@ -47,11 +41,32 @@ def explain(summary: Summary, key: SecretStr) -> tuple[Explanation, int, int]:
             "Возврати только JSON по схеме: "
             + json.dumps(Explanation.model_json_schema(), ensure_ascii=False)
         )
+        content, input_tokens, output_tokens = _exchange(
+            summary.model_dump_json(), instructions, key
+        )
+        result = Explanation.model_validate(content)
+        allowed = {item.code for item in summary.categories}
+        if any(item.code not in allowed for item in result.actions):
+            raise AnalysisError()
+        return result, input_tokens, output_tokens
+    except Exception:
+        raise AnalysisError() from None
+
+
+def _exchange(summary_json: str, instructions: str, key: SecretStr) -> tuple[object, int, int]:
+    """Private wire boundary for fixed, locally validated explanation profiles only."""
+    connection: http.client.HTTPSConnection | None = None
+    wire_socket: socket.socket | None = None
+    timer: threading.Timer | None = None
+    try:
+        secret = key.get_secret_value()
+        if not secret or len(secret) > 4096 or any(not 33 <= ord(char) <= 126 for char in secret):
+            raise AnalysisError()
         payload = {
             "model": MODEL,
             "messages": [
                 {"role": "system", "content": instructions},
-                {"role": "user", "content": summary.model_dump_json()},
+                {"role": "user", "content": summary_json},
             ],
             "max_tokens": 1600,
             "temperature": 0,
@@ -157,10 +172,7 @@ def explain(summary: Summary, key: SecretStr) -> tuple[Explanation, int, int]:
             or not isinstance(message.get("content"), str)
         ):
             raise AnalysisError()
-        result = Explanation.model_validate(parse_json(message["content"]))
-        allowed = {item.code for item in summary.categories}
-        if any(item.code not in allowed for item in result.actions):
-            raise AnalysisError()
+        content = parse_json(message["content"])
         input_tokens, output_tokens = usage.get("prompt_tokens"), usage.get("completion_tokens")
         if (
             type(input_tokens) is not int
@@ -169,7 +181,7 @@ def explain(summary: Summary, key: SecretStr) -> tuple[Explanation, int, int]:
             or not 0 <= output_tokens <= 1600
         ):
             raise AnalysisError()
-        return result, input_tokens, output_tokens
+        return content, input_tokens, output_tokens
     except Exception:
         raise AnalysisError() from None
     finally:

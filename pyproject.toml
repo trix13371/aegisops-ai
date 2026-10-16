@@ -120,9 +120,12 @@ name = "Project AI projection and state cannot reach transport, credentials or i
 type = "forbidden"
 source_modules = [
   "aegisops.project_ai.models", "aegisops.project_ai.projection", "aegisops.project_ai.repository",
+  "aegisops.project_ai.review_models", "aegisops.project_ai.review_projection",
+  "aegisops.project_ai.review_repository",
 ]
 forbidden_modules = [
-  "aegisops.project_ai.transport", "aegisops.llm", "aegisops.config", "aegisops.db",
+  "aegisops.project_ai.transport", "aegisops.project_ai.review_transport",
+  "aegisops.llm", "aegisops.config", "aegisops.db",
   "aegisops.authorization", "aegisops.sources", "http", "socket", "subprocess", "kubernetes",
 ]
 
@@ -138,10 +141,20 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Project explanation transport cannot reach incident processing or source services"
 type = "forbidden"
-source_modules = ["aegisops.project_ai.transport"]
+source_modules = ["aegisops.project_ai.transport", "aegisops.project_ai.review_transport"]
 forbidden_modules = [
   "aegisops.llm", "aegisops.config", "aegisops.db", "aegisops.authorization",
   "aegisops.sources", "aegisops.collector", "aegisops.controlplane", "subprocess", "kubernetes",
+]
+
+[[tool.importlinter.contracts]]
+name = "Selected project evidence cannot execute code, call models or reach services"
+type = "forbidden"
+source_modules = ["aegisops.project_reviews"]
+forbidden_modules = [
+  "aegisops.project_ai", "aegisops.llm", "aegisops.config", "aegisops.db",
+  "aegisops.authorization", "aegisops.sources", "aegisops.collector",
+  "http", "socket", "subprocess", "kubernetes",
 ]
 
 [[tool.importlinter.contracts]]

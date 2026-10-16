@@ -34,6 +34,10 @@ from aegisops.pipeline.models import PipelineResult
 from aegisops.project_ai.models import MODEL, PROFILE
 from aegisops.project_ai.projection import project_summary
 from aegisops.project_ai.repository import AnalysisRepository
+from aegisops.project_ai.review_models import REVIEW_PROFILE
+from aegisops.project_ai.review_projection import review_summary
+from aegisops.project_ai.review_repository import ReviewAnalysisRepository
+from aegisops.project_reviews.repository import ReviewRepository
 from aegisops.project_runner.comparison import compare_runs
 from aegisops.project_runner.inspection import inspect_project_package
 from aegisops.project_runner.models import ENVIRONMENTS, profile_for
@@ -82,6 +86,8 @@ class Dashboard:
         self.projects = ProjectRepository(ROOT / ".local/projects")
         self.analyses = AnalysisRepository(ROOT / ".local/project-ai")
         self.runs = RunRepository(ROOT / ".local/project-runs")
+        self.reviews = ReviewRepository(ROOT / ".local/project-reviews", self.projects, self.runs)
+        self.review_analyses = ReviewAnalysisRepository(ROOT / ".local/project-review-ai")
         self.python = str(ROOT / ".venv/Scripts/python.exe")
         if os.name != "nt":
             self.python = sys.executable
@@ -148,6 +154,12 @@ class Dashboard:
             return services
 
     def project_ai_child(self, identifier):
+        return self._project_ai_child(identifier, review=False)
+
+    def project_review_ai_child(self, identifier):
+        return self._project_ai_child(identifier, review=True)
+
+    def _project_ai_child(self, identifier, *, review):
         identifier = str(UUID(str(identifier)))
         if os.name != "nt":
             raise ProjectError("Защищённое подключение OpenRouter настроено для Windows")
@@ -164,8 +176,8 @@ class Dashboard:
                 "-File",
                 str(ROOT / "scripts/openrouter-local.ps1"),
                 "-Mode",
-                "project-report",
-                "-ReportId",
+                "project-review" if review else "project-report",
+                "-ReviewId" if review else "-ReportId",
                 identifier,
             ],
             cwd=ROOT,
@@ -250,6 +262,13 @@ class Dashboard:
             scenario = str(UUID(payload["project_id"]))
             self.projects.get(UUID(scenario))
         elif (
+            mode == "project_review_ai"
+            and set(payload) == {"mode", "review_id", "consent"}
+            and payload.get("consent") == REVIEW_PROFILE
+        ):
+            scenario = str(UUID(payload["review_id"]))
+            review = self.reviews.get(UUID(scenario))
+        elif (
             mode == "project_ai"
             and set(payload) == {"mode", "report_id", "consent"}
             and payload.get("consent") == PROFILE
@@ -266,6 +285,8 @@ class Dashboard:
                 return dict(self.job), False
             if mode == "project_ai":
                 self.analyses.claim(report)
+            if mode == "project_review_ai":
+                self.review_analyses.claim(review)
             if mode == "project_runner":
                 scenario = str(
                     self.runs.create(UUID(scenario), payload.get("environment", "minimal")).id
@@ -286,6 +307,10 @@ class Dashboard:
                 self.job.update(
                     report_id=scenario, message="Запрошен разбор сводки через OpenRouter…"
                 )
+            if mode == "project_review_ai":
+                self.job.update(
+                    review_id=scenario, message="Запрошен разбор сводного отчёта через OpenRouter…"
+                )
             job = dict(self.job)
         threading.Thread(target=self.run_job, args=(mode, scenario), daemon=True).start()
         return job, True
@@ -296,6 +321,24 @@ class Dashboard:
 
     def run_job(self, mode, scenario):
         try:
+            if mode == "project_review_ai":
+                identifier = UUID(scenario)
+                try:
+                    self.project_review_ai_child(identifier)
+                except Exception:  # noqa: S110 -- do not expose provider or credential details
+                    pass
+                self.review_analyses.fail(identifier)
+                review = self.reviews.get(identifier)
+                completed = self.review_analyses.state(review)["status"] == "completed"
+                self.update(
+                    state="completed" if completed else "failed",
+                    stage="done",
+                    review_id=scenario,
+                    message="Нейросетевой разбор сохранён. Откройте сводный отчёт."
+                    if completed
+                    else "Разбор сводного отчёта не подтверждён. Откройте сводку; повтора нет.",
+                )
+                return
             if mode == "project_runner":
                 self.child(["scripts/project-runner-local.py", scenario], timeout=220)
                 result = self.runs.result(UUID(scenario))
@@ -500,6 +543,25 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(200, {"job": self.dashboard.current_job()})
                 if self.path == "/api/projects":
                     return self.send_json(200, self.dashboard.list_projects())
+                if self.path.startswith("/api/project-reviews/"):
+                    identifier = UUID(self.path[len("/api/project-reviews/") :])
+                    reviews = self.dashboard.reviews.history(identifier)
+                    return self.send_json(
+                        200, {"reviews": [item.model_dump(mode="json") for item in reviews]}
+                    )
+                if self.path.startswith("/api/project-review/"):
+                    identifier = UUID(self.path[len("/api/project-review/") :])
+                    review = self.dashboard.reviews.get(identifier)
+                    return self.send_json(
+                        200,
+                        {
+                            "review": review.model_dump(mode="json"),
+                            "analysis": self.dashboard.review_analyses.state(review),
+                            "ai_profile": REVIEW_PROFILE,
+                            "model": MODEL,
+                            "payload": review_summary(review).model_dump(mode="json"),
+                        },
+                    )
                 if self.path.startswith("/api/projects/"):
                     identifier = UUID(self.path[len("/api/projects/") :])
                     reports = self.dashboard.projects.history(identifier)
@@ -596,7 +658,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(403, {"error": "Запрос отклонён"})
         if not self.authorized():
             return self.send_json(401, {"error": "Сессия недоступна"})
-        if self.path not in {"/api/jobs", "/api/stop", "/api/projects", "/api/projects/remove"}:
+        if self.path not in {
+            "/api/jobs",
+            "/api/stop",
+            "/api/projects",
+            "/api/projects/remove",
+            "/api/project-reviews",
+        }:
             return self.send_json(404, {"error": "Команда недоступна"})
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -607,6 +675,25 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 raise ValueError("invalid body")
             payload = json.loads(self.rfile.read(length), object_pairs_hook=unique_object)
+            if self.path == "/api/project-reviews":
+                if not isinstance(payload, dict) or set(payload) != {
+                    "project_id",
+                    "static_report_id",
+                    "run_id",
+                }:
+                    raise ValueError("invalid review request")
+                project_id = UUID(payload["project_id"])
+                static_report_id = (
+                    UUID(payload["static_report_id"])
+                    if payload["static_report_id"] is not None
+                    else None
+                )
+                run_id = UUID(payload["run_id"]) if payload["run_id"] is not None else None
+                with self.dashboard.lock:
+                    if self.dashboard.stopping:
+                        raise ValueError("dashboard is closing")
+                    review = self.dashboard.reviews.create(project_id, static_report_id, run_id)
+                return self.send_json(201, {"review": review.model_dump(mode="json")})
             if self.path == "/api/projects":
                 if not isinstance(payload, dict) or set(payload) != {"name", "path"}:
                     raise ValueError("invalid project request")
