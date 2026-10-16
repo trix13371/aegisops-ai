@@ -6,6 +6,8 @@ from pydantic import Field, StrictBool, StrictStr, model_validator
 from aegisops.domain.common import DTO, Sha256, UTCDateTime
 
 PROFILE = "python-checks-v1"
+Environment = Literal["minimal", "python-data-v1"]
+ENVIRONMENTS = ("minimal", "python-data-v1")
 
 
 class RunClaim(DTO):
@@ -13,6 +15,7 @@ class RunClaim(DTO):
     project_id: UUID
     created_at: UTCDateTime
     profile: Literal["python-checks-v1"] = "python-checks-v1"
+    environment: Environment = "minimal"
 
 
 class SnapshotInfo(DTO):
@@ -50,6 +53,7 @@ class ToolCheck(DTO):
 class RunResult(DTO):
     id: UUID
     project_id: UUID
+    environment: Environment = "minimal"
     completed_at: UTCDateTime
     status: Literal["passed", "issues", "error", "timeout", "not_supported"]
     reason: Literal[

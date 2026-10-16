@@ -444,13 +444,17 @@ function openRunnerDrawer(title,origin) {
   const heading=node("h2","",title); heading.id="detail-title"; $("detail-body").replaceChildren(heading);
   $("close-detail").focus(); return sequence;
 }
+const environmentLabels={minimal:"Базовое · Ruff и pytest", "python-data-v1":"Данные · Pydantic и PyYAML"};
 const runLabels={passed:"Проверки пройдены",issues:"Есть замечания",error:"Ошибка проверки",timeout:"Превышено время",not_supported:"Профиль не подошёл",pending:"Результат неизвестен"};
 async function projectRuns(project,origin) {
   const sequence=openRunnerDrawer(`Проверки Python · ${project.name}`,origin), body=$("detail-body");
   body.append(node("p","detail-callout","Ruff проверит ошибки Python, pytest запустит существующие тесты в отдельном контейнере. Копия файлов может изменяться внутри контейнера; исходная папка не подключается."));
   body.append(node("p","","Сеть отключена; ключи AegisOps и Docker socket не передаются. Лимиты: 512 МБ, 1 CPU, 64 процесса; Ruff — 15 секунд, pytest — 45 секунд. Контейнер удаляется после запуска."));
-  body.append(node("p","","Профиль Python 3.12 содержит только Ruff и pytest. Зависимости, плагины и пакеты проекта не устанавливаются. Настройки инструментов проекта игнорируются; conftest.py выполняется внутри контейнера. Если зависимостей не хватает, pytest покажет ошибку."));
+  body.append(node("p","","Python 3.12: выберите заранее подготовленное окружение. «Данные» добавляет Pydantic 2.14.1 и PyYAML 6.0.3 с закреплёнными версиями. requirements.txt проекта не устанавливается; плагины автоматически не загружаются. Настройки инструментов проекта игнорируются; conftest.py выполняется внутри контейнера."));
   body.append(node("p","detail-subtitle","В снимок входят .py, .json, .yaml/.yml, .toml, .ini, .txt и .csv. Типичные секретные файлы, ссылки, зависимости и служебные папки исключены. Локальные логи могут содержать фрагменты исходников; нейросети они не отправляются."));
+  const environment=node("select"); environment.setAttribute("aria-label","Окружение Python");
+  for(const [value,title] of Object.entries(environmentLabels)) {const option=node("option","",title);option.value=value;environment.append(option);}
+  const environmentLabel=node("label","","Окружение Python"); environmentLabel.append(environment);body.append(environmentLabel);
   const consent=node("input"); consent.type="checkbox"; consent.id=`run-consent-${project.id}`;
   const label=node("label","ai-consent"); label.append(consent,document.createTextNode("Запустить код тестов этого проекта в контейнере Docker"));
   const run=node("button","primary-button runner-start","Запустить Ruff и pytest"); run.dataset.consentId=consent.id; run.disabled=true;
@@ -458,7 +462,7 @@ async function projectRuns(project,origin) {
   run.addEventListener("click",async()=>{
     run.disabled=true;
     try {
-      const data=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_runner",project_id:project.id,consent:"python-checks-v1"})});
+      const data=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_runner",project_id:project.id,consent:"python-checks-v1",environment:environment.value})});
       closeDetail(); renderJob(data.job);
     } catch(problem) {body.append(node("p","detail-callout",`${problem.message} Автоматического повтора нет. Проверьте историю перед новым запуском.`));}
   });
@@ -471,7 +475,7 @@ async function projectRuns(project,origin) {
     if(data.runs.length===1) history.append(node("p","detail-subtitle","Для сравнения нужны два сохранённых запуска этого проекта."));
     for(const item of data.runs) {
       const row=node("div","runner-history-row"), open=node("button","text-button","Открыть запуск");
-      row.append(node("strong","",runLabels[item.result?.status || "pending"]),node("time","",formatTime(item.claim.created_at,true)));
+      row.append(node("strong","",`${runLabels[item.result?.status || "pending"]} · ${environmentLabels[item.claim.environment || "minimal"]}`),node("time","",formatTime(item.claim.created_at,true)));
       open.addEventListener("click",()=>openRunReport(item.claim.id,origin)); row.append(open); history.append(row);
     }
   } catch(problem) {if(sequence===detailSequence) history.append(node("p","detail-callout","История запусков недоступна. Новый запуск не выполнялся."));}
@@ -482,9 +486,15 @@ async function openRunReport(id,origin) {
     const data=await api(`/api/project-run/${id}`); if(sequence!==detailSequence || $("drawer").hidden) return;
     const result=data.result;
     body.append(node("p","detail-subtitle",formatTime(data.claim.created_at,true)),node("span",`status ${result?.status === "passed" ? "passed" : "issues"}`,runLabels[result?.status || "pending"]));
+    pair(body,"Окружение",environmentLabels[data.claim.environment || "minimal"]);
     if(!result) {body.append(node("p","detail-callout","Подтверждённого результата пока нет. Дождитесь завершения. После прерывания контейнер мог остаться активным; автоматического повторного запуска нет.")); return;}
-    const reasons={runner_unavailable:"Образ проверок не подготовлен или Docker Desktop недоступен. Подготовка: scripts/prepare-project-runner.py.",snapshot_rejected:"Не удалось подготовить снимок: нет Python-файлов, достигнут лимит, папка недоступна или изменилась.",sandbox_failed:"Ошибка контейнера, недопустимый ответ или очистка не подтверждена. Успешным этот запуск не считается.",deadline:"Превышено общее время запуска. Проверьте подтверждение удаления контейнера.",uncertain:"Состояние запуска не подтверждено.",checks_completed:"Проверки завершены в рамках выбранного профиля. Это не подтверждает полную работоспособность или безопасность проекта."};
+    const reasons={runner_unavailable:"Образ выбранного окружения не подготовлен или Docker Desktop недоступен.",snapshot_rejected:"Не удалось подготовить снимок: нет Python-файлов, достигнут лимит, папка недоступна или изменилась.",sandbox_failed:"Ошибка контейнера, недопустимый ответ или очистка не подтверждена. Успешным этот запуск не считается.",deadline:"Превышено общее время запуска. Проверьте подтверждение удаления контейнера.",uncertain:"Состояние запуска не подтверждено.",checks_completed:"Проверки завершены в рамках выбранного профиля. Это не подтверждает полную работоспособность или безопасность проекта."};
     body.append(node("p","detail-callout",reasons[result.reason]));
+    if(result.reason === "runner_unavailable") body.append(node("p","detail-subtitle",`Подготовка окружения: .venv/Scripts/python.exe scripts/prepare-project-runner.py${data.claim.environment === "python-data-v1" ? " --environment python-data-v1" : ""}`));
+    if(data.missing_modules?.length) {
+      body.append(node("p","detail-callout",`Недоступны модули: ${data.missing_modules.join(", ")}. Это может быть внешняя зависимость или часть самого проекта. Имя модуля может отличаться от имени пакета.`));
+      body.append(node("p","","Для pydantic и yaml выберите окружение «Данные». Другие зависимости пока не поддерживаются готовыми окружениями. Пакеты автоматически не устанавливаются; диагноз основан на выводе тестов."));
+    }
     pair(body,"Контейнер удалён",result.container_removed ? "Да" : "Не подтверждено");
     if(result.snapshot) {pair(body,"Файлов в снимке",result.snapshot.files);pair(body,"Пропущено файлов/папок",result.snapshot.skipped);pair(body,"SHA256 снимка",result.snapshot.sha256);}
     const labels={passed:"Пройдено",failed:"Найдены ошибки",error:"Ошибка инструмента или среды",timeout:"Время истекло",no_tests:"Тесты не найдены"};
@@ -519,7 +529,7 @@ async function openComparison(kind,base,target,origin) {
     const prefix=kind==="run" ? "run-comparison" : "project-comparison";
     const data=await api(`/api/${prefix}/${base}/${target}`);if(sequence!==detailSequence || $("drawer").hidden) return;
     if(!data.comparable) {
-      const reasons={rules_changed:"Версии правил различаются. Появление и исчезновение замечаний нельзя оценить автоматически.",partial:"Один из отчётов частичный. Отсутствие замечания не означает, что оно устранено.",unfinished:"Один из запусков ещё не имеет подтверждённого результата.",unconfirmed:"Область проверки или результат одного из запусков не подтверждены полностью.",image_changed:"Образы проверок различаются. Автоматическое сравнение отключено."};
+      const reasons={rules_changed:"Версии правил различаются. Появление и исчезновение замечаний нельзя оценить автоматически.",partial:"Один из отчётов частичный. Отсутствие замечания не означает, что оно устранено.",unfinished:"Один из запусков ещё не имеет подтверждённого результата.",unconfirmed:"Область проверки или результат одного из запусков не подтверждены полностью.",environment_changed:"Выбраны разные окружения. Смена зависимостей не считается исправлением кода.",image_changed:"Образы проверок различаются. Автоматическое сравнение отключено."};
       body.append(node("p","detail-callout",reasons[data.reason]));
       if(kind!=="run") {pair(body,"Версии правил",`${data.base_rules} → ${data.target_rules}`);pair(body,"Всего замечаний",`${data.base_total} → ${data.target_total}`);}
       return;

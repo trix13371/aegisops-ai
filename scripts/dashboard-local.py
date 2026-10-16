@@ -35,6 +35,7 @@ from aegisops.project_ai.models import MODEL, PROFILE
 from aegisops.project_ai.projection import project_summary
 from aegisops.project_ai.repository import AnalysisRepository
 from aegisops.project_runner.comparison import compare_runs
+from aegisops.project_runner.models import ENVIRONMENTS
 from aegisops.project_runner.models import PROFILE as RUNNER_PROFILE
 from aegisops.project_runner.repository import RunRepository
 from aegisops.projects.comparison import compare_reports
@@ -238,8 +239,13 @@ class Dashboard:
             self.projects.get(UUID(scenario))
         elif (
             mode == "project_runner"
-            and set(payload) == {"mode", "project_id", "consent"}
+            and set(payload)
+            in (
+                {"mode", "project_id", "consent"},
+                {"mode", "project_id", "consent", "environment"},
+            )
             and payload.get("consent") == RUNNER_PROFILE
+            and payload.get("environment", "minimal") in ENVIRONMENTS
         ):
             scenario = str(UUID(payload["project_id"]))
             self.projects.get(UUID(scenario))
@@ -261,7 +267,9 @@ class Dashboard:
             if mode == "project_ai":
                 self.analyses.claim(report)
             if mode == "project_runner":
-                scenario = str(self.runs.create(UUID(scenario)).id)
+                scenario = str(
+                    self.runs.create(UUID(scenario), payload.get("environment", "minimal")).id
+                )
             self.job = {
                 "id": str(uuid4()),
                 "mode": mode,

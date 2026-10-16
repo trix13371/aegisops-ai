@@ -1,4 +1,5 @@
 *
 !Dockerfile
 !requirements.txt
+!data-requirements.txt
 !entry.py

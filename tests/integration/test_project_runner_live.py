@@ -30,8 +30,8 @@ def real_run(tmp_path, monkeypatch):
     import project_runner_host as host
 
     # Preserve real image pin lookup; worker registries are isolated temporary directories.
-    image = host.read_image()
-    monkeypatch.setattr(worker, "read_image", lambda: image)
+    images = {name: host.read_image(name) for name in ("minimal", "python-data-v1")}
+    monkeypatch.setattr(worker, "read_image", lambda environment="minimal": images[environment])
     monkeypatch.setattr(worker, "ROOT", tmp_path)
     root = tmp_path / "source"
     root.mkdir()
@@ -39,8 +39,8 @@ def real_run(tmp_path, monkeypatch):
     project = projects.add("Disposable test project", str(root))
     runs = RunRepository(tmp_path / ".local/project-runs")
 
-    def launch():
-        claim = runs.create(project.id)
+    def launch(environment="minimal"):
+        claim = runs.create(project.id, environment)
         monkeypatch.setattr(worker.sys, "argv", ["worker", str(claim.id)])
         worker.main()
         result = runs.result(claim.id)
@@ -126,6 +126,48 @@ def test_actual_runner_missing_dependency_is_explicit_tool_error(real_run):
     assert result.status == "error" and result.container_removed
     assert result.checks[1].status == "error"
     assert "ModuleNotFoundError" in result.checks[1].output
+    from aegisops.project_runner.diagnostics import missing_modules
+
+    assert missing_modules(result.checks[1]) == ("noninstalled_aegisops_test_dependency",)
+
+
+def test_dependency_preset_fixes_missing_environment_without_changing_source(real_run):
+    from aegisops.project_runner.diagnostics import missing_modules
+
+    root, launch = real_run
+    (root / "test_data.py").write_text(
+        "import yaml\nfrom pydantic import BaseModel\n"
+        "class Data(BaseModel):\n    value: int\n"
+        "def test_data():\n    assert Data(**yaml.safe_load('value: 42')).value == 42\n"
+    )
+    before = launch()
+    assert before.status == "error" and missing_modules(before.checks[1]) == ("yaml",)
+    after = launch("python-data-v1")
+    assert after.status == "passed" and after.container_removed
+    assert after.environment == "python-data-v1"
+    assert before.snapshot.sha256 == after.snapshot.sha256
+
+
+def test_real_aegisops_static_project_unit_tests_with_prepared_dependencies(real_run):
+    # A read-only selection of existing source/tests; no root conftest or service fixtures.
+    root, launch = real_run
+    files = [
+        "src/aegisops/__init__.py",
+        "src/aegisops/domain/__init__.py",
+        "src/aegisops/domain/common.py",
+        "src/aegisops/io.py",
+        "tests/unit/test_local_projects.py",
+    ]
+    files.extend(
+        str(path.relative_to(ROOT)) for path in (ROOT / "src/aegisops/projects").glob("*.py")
+    )
+    for name in files:
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((ROOT / name).read_bytes())
+    result = launch("python-data-v1")
+    assert result.status == "passed" and result.container_removed
+    assert "passed" in result.checks[1].output
 
 
 def test_actual_runner_bounds_output_and_stops_excessive_logs(real_run):

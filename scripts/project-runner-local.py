@@ -41,7 +41,7 @@ def main():
         repository.write(identifier, "started", "{}")
         started = True
         try:
-            image_id = read_image()
+            image_id = read_image(claim.environment)
             docker(["image", "inspect", image_id])
         except Exception:
             reason = "runner_unavailable"
@@ -106,6 +106,7 @@ def main():
                 result = RunResult(
                     id=claim.id,
                     project_id=claim.project_id,
+                    environment=claim.environment,
                     completed_at=utc_now(),
                     status=status,
                     reason=reason,
@@ -145,6 +146,7 @@ def cleanup(identifier):
             RunResult(
                 id=claim.id,
                 project_id=claim.project_id,
+                environment=claim.environment,
                 completed_at=utc_now(),
                 status="error",
                 reason="uncertain",

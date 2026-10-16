@@ -179,6 +179,23 @@ def test_runner_changed_image_or_missing_result_is_not_comparable():
         compare_runs(base, target, right, left)
 
 
+def test_dependency_environment_change_is_not_a_code_fix_even_with_same_image():
+    project = uuid4()
+    base, left = run(project)
+    target, right = run(project)
+    target = RunClaim.model_validate({**target.model_dump(), "environment": "python-data-v1"})
+    right = RunResult.model_validate({**right.model_dump(), "environment": "python-data-v1"})
+    comparison = compare_runs(base, target, left, right)
+    assert comparison.reason == "environment_changed" and not comparison.transitions
+    with pytest.raises(ProjectError):
+        compare_runs(
+            base,
+            target,
+            left,
+            RunResult.model_validate({**right.model_dump(), "environment": "minimal"}),
+        )
+
+
 def test_runner_unconfirmed_scope_or_truncated_output_blocks_comparison():
     project = uuid4()
     base, left = run(project)

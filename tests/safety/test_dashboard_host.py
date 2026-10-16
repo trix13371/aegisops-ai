@@ -473,6 +473,9 @@ def test_project_ai_fixed_child_never_inherits_dev_or_database_credentials(opera
         {"consent": "python-checks-v1", "image": "user-image"},
         {"consent": "python-checks-v1", "mount": "/host"},
         {"consent": "python-checks-v1", "network": "host"},
+        {"consent": "python-checks-v1", "environment": "arbitrary"},
+        {"consent": "python-checks-v1", "environment": ["python-data-v1"]},
+        {"consent": "python-checks-v1", "environment": "../image"},
     ],
 )
 def test_runner_api_requires_consent_and_rejects_extra_authority(host, tmp_path, extra):
@@ -530,6 +533,20 @@ def test_runner_worker_uses_fixed_script_and_preserves_unknown_state(host, tmp_p
     type(dashboard).run_job(dashboard, "project_runner", str(claim.id))
     assert calls == [(["scripts/project-runner-local.py", str(claim.id)], {"timeout": 220})]
     assert dashboard.job["state"] == "failed" and dashboard.runs.result(claim.id) is None
+
+
+def test_runner_api_accepts_only_fixed_dependency_environment(host, tmp_path):
+    dashboard, request = host
+    report = ai_report(dashboard, tmp_path)
+    payload = {
+        "mode": "project_runner",
+        "project_id": str(report.project_id),
+        "consent": "python-checks-v1",
+        "environment": "python-data-v1",
+    }
+    assert request("/api/jobs", method="POST", auth=True, body=json.dumps(payload))[0] == 202
+    claim = dashboard.runs.claim(UUID(dashboard.job["run_id"]))
+    assert claim.environment == "python-data-v1"
 
 
 def test_static_comparison_api_reads_saved_reports_without_new_jobs(host, tmp_path, monkeypatch):

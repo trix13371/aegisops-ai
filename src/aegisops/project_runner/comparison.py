@@ -20,7 +20,9 @@ class RunComparison(DTO):
     base_id: UUID
     target_id: UUID
     comparable: bool
-    reason: Literal["same_environment", "unfinished", "unconfirmed", "image_changed"]
+    reason: Literal[
+        "same_environment", "unfinished", "unconfirmed", "image_changed", "environment_changed"
+    ]
     same_snapshot: bool | None = None
     transitions: tuple[ToolTransition, ...] = ()
 
@@ -47,9 +49,15 @@ def compare_runs(
     for claim, result in ((base, before), (target, after)):
         if result is not None:
             result = RunResult.model_validate(result)
-            if result.id != claim.id or result.project_id != claim.project_id:
+            if (
+                result.id != claim.id
+                or result.project_id != claim.project_id
+                or result.environment != claim.environment
+            ):
                 raise ProjectError("Результат не соответствует запуску")
-    reason: Literal["same_environment", "unfinished", "unconfirmed", "image_changed"]
+    reason: Literal[
+        "same_environment", "unfinished", "unconfirmed", "image_changed", "environment_changed"
+    ]
     if before is None or after is None:
         reason = "unfinished"
     elif any(
@@ -62,6 +70,8 @@ def compare_runs(
         for item in (before, after)
     ):
         reason = "unconfirmed"
+    elif base.environment != target.environment:
+        reason = "environment_changed"
     elif before.image_id != after.image_id:
         reason = "image_changed"
     else:

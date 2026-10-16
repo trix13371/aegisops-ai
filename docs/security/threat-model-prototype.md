@@ -265,3 +265,10 @@ ID/имени/run+profile labels, без broad prune; неизвестный з�
 Crash/orphan требует явного operator recovery. История .local/project-runs не
 подписана и не входит в F06. Trusted user/daemon/kernel/filesystem остаются
 допущениями; контейнер не гарантирует отсутствие kernel escape. См. ADR-023.
+
+UI07 разрешает только два environment ID из закрытого списка. Зависимости
+операторского preset устанавливаются в образ заранее по закреплённым wheel hashes,
+без сборки sdist и без контекста проекта. API не принимает package spec/URL,
+pip flags, команды или image override. Сеть при тестах остаётся none.
+Missing-module подсказки недоверенные, не являются командами установки и
+выводятся текстом. Смена окружения не считается исправлением кода. См. ADR-026.

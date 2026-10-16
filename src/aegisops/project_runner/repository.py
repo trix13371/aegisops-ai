@@ -8,7 +8,8 @@ from uuid import UUID, uuid4
 
 from aegisops.domain.common import utc_now
 from aegisops.io import read_text, unique_object
-from aegisops.project_runner.models import RunClaim, RunIndex, RunResult
+from aegisops.project_runner.diagnostics import missing_modules
+from aegisops.project_runner.models import Environment, RunClaim, RunIndex, RunResult
 from aegisops.projects.models import ProjectError
 from aegisops.projects.repository import plain_path
 
@@ -39,11 +40,13 @@ class RunRepository:
         path = self.path(project_id, "index")
         return RunIndex.model_validate(self.read(path, 4096)) if path.exists() else RunIndex()
 
-    def create(self, project_id: UUID) -> RunClaim:
+    def create(self, project_id: UUID, environment: Environment = "minimal") -> RunClaim:
         try:
             with self.lock:
                 previous = self.index(project_id)
-                claim = RunClaim(id=uuid4(), project_id=project_id, created_at=utc_now())
+                claim = RunClaim(
+                    id=uuid4(), project_id=project_id, created_at=utc_now(), environment=environment
+                )
                 self.write(claim.id, "claim", claim.model_dump_json())
                 index = RunIndex(runs=(claim.id, *previous.runs)[:20])
                 temporary_id = uuid4()
@@ -72,13 +75,22 @@ class RunRepository:
         if (
             result.id != identifier
             or result.project_id != claim.project_id
+            or result.environment != claim.environment
             or result.completed_at < claim.created_at
         ):
             raise ProjectError("Результат запуска не прошёл проверку")
         return result
 
     def save(self, result: RunResult) -> None:
-        self.write(result.id, "result", RunResult.model_validate(result).model_dump_json())
+        result = RunResult.model_validate(result)
+        claim = self.claim(result.id)
+        if (
+            result.project_id != claim.project_id
+            or result.environment != claim.environment
+            or result.completed_at < claim.created_at
+        ):
+            raise ProjectError("Результат запуска не соответствует запросу")
+        self.write(result.id, "result", result.model_dump_json())
         if self.result(result.id) != result:
             raise ProjectError("Результат запуска не подтверждён")
 
@@ -88,6 +100,9 @@ class RunRepository:
         return {
             "claim": claim.model_dump(mode="json"),
             "result": result.model_dump(mode="json") if result else None,
+            "missing_modules": list(missing_modules(result.checks[1]))
+            if result and len(result.checks) == 2
+            else [],
         }
 
     def history(self, project_id: UUID) -> list[dict[str, object]]:

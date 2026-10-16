@@ -10,6 +10,7 @@ from pathlib import Path
 from uuid import UUID
 
 from aegisops.io import read_text, unique_object
+from aegisops.project_runner.models import ENVIRONMENTS
 from aegisops.projects.repository import plain_path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,20 +27,27 @@ class RunnerFailure(ValueError):
     pass
 
 
-def context_hash():
+def context_hash(environment="minimal"):
+    if environment not in ENVIRONMENTS:
+        raise RunnerFailure("runner_unavailable")
     digest = hashlib.sha256()
-    for name in ("Dockerfile", "requirements.txt", "entry.py"):
+    digest.update(environment.encode())
+    for name in ("Dockerfile", "requirements.txt", "data-requirements.txt", "entry.py"):
         digest.update(name.encode())
         digest.update((ROOT / "runner/python-v1" / name).read_bytes())
     return digest.hexdigest()
 
 
-def read_image():
-    value = json.loads(read_text(plain_path(ROOT / ".local/project-runner/image.json"), 2048))
+def read_image(environment="minimal"):
+    if environment not in ENVIRONMENTS:
+        raise RunnerFailure("runner_unavailable")
+    filename = "image.json" if environment == "minimal" else "python-data-v1.json"
+    value = json.loads(read_text(plain_path(ROOT / ".local/project-runner" / filename), 2048))
     if (
         not isinstance(value, dict)
         or value.get("profile") != PROFILE
-        or value.get("context_sha256") != context_hash()
+        or value.get("environment", "minimal") != environment
+        or value.get("context_sha256") != context_hash(environment)
         or not isinstance(value.get("image_id"), str)
         or not re.fullmatch(r"sha256:[0-9a-f]{64}", value["image_id"])
     ):

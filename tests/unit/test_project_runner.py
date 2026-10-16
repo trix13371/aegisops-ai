@@ -145,7 +145,7 @@ def test_profile_context_changes_invalidate_image_pin(tmp_path, monkeypatch):
     monkeypatch.setattr(host, "ROOT", tmp_path)
     context = tmp_path / "runner/python-v1"
     context.mkdir(parents=True)
-    for name in ("Dockerfile", "entry.py", "requirements.txt"):
+    for name in ("Dockerfile", "entry.py", "requirements.txt", "data-requirements.txt"):
         (context / name).write_text("trusted")
     state = tmp_path / ".local/project-runner"
     state.mkdir(parents=True)
@@ -271,7 +271,7 @@ def test_worker_host_deadline_still_cleans_container_and_records_timeout(
     claim = runs.create(project.id)
     monkeypatch.setattr(worker, "ROOT", tmp_path)
     monkeypatch.setattr(worker.sys, "argv", ["worker", str(claim.id)])
-    monkeypatch.setattr(worker, "read_image", lambda: "sha256:" + "1" * 64)
+    monkeypatch.setattr(worker, "read_image", lambda environment="minimal": "sha256:" + "1" * 64)
     identifier, removed = "2" * 64, []
 
     def docker(arguments, **kwargs):
@@ -294,3 +294,73 @@ def test_worker_host_deadline_still_cleans_container_and_records_timeout(
     result = runs.result(claim.id)
     assert result.status == "timeout" and result.container_removed
     assert removed == [(identifier, claim.id)]
+
+
+def test_environment_is_persisted_and_cannot_be_changed_in_result(case):
+    _, project, runs = case
+    claim = runs.create(project.id, "python-data-v1")
+    assert RunRepository(runs.directory).claim(claim.id).environment == "python-data-v1"
+    with pytest.raises(ProjectError):
+        runs.create(project.id, "user-image")
+    wrong = RunResult(
+        id=claim.id,
+        project_id=project.id,
+        completed_at=utc_now(),
+        status="error",
+        reason="runner_unavailable",
+    )
+    with pytest.raises(ProjectError):
+        runs.save(wrong)
+    assert not runs.path(claim.id, "result").exists()
+    # Read validation rejects a result from another environment, including old default.
+    runs.write(claim.id, "result", wrong.model_dump_json())
+    with pytest.raises(ProjectError):
+        runs.result(claim.id)
+
+
+@pytest.mark.parametrize("status", ["error", "failed"])
+def test_missing_import_hints_are_bounded_deduplicated_and_not_package_install_requests(status):
+    from aegisops.project_runner.diagnostics import missing_modules
+
+    check = ToolCheck(
+        tool="pytest",
+        status=status,
+        exit_code=2 if status == "error" else 1,
+        output="E   ModuleNotFoundError: No module named 'yaml'\n"
+        "ModuleNotFoundError: No module named 'local.module'\n"
+        "ModuleNotFoundError: No module named 'yaml'\n"
+        "ModuleNotFoundError: No module named 'https://evil.invalid/a'\n"
+        "ModuleNotFoundError: No module named 'pip; bad'\n",
+        output_truncated=False,
+    )
+    assert missing_modules(check) == ("yaml", "local.module")
+    assert not missing_modules(ToolCheck.model_validate({**check.model_dump(), "tool": "ruff"}))
+
+
+def test_extended_image_pin_cannot_substitute_minimal_or_unknown_environment(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import project_runner_host as host
+
+    monkeypatch.setattr(host, "ROOT", tmp_path)
+    context = tmp_path / "runner/python-v1"
+    context.mkdir(parents=True)
+    for name in ("Dockerfile", "entry.py", "requirements.txt", "data-requirements.txt"):
+        (context / name).write_text("trusted")
+    state = tmp_path / ".local/project-runner"
+    state.mkdir(parents=True)
+    value = {
+        "profile": host.PROFILE,
+        "environment": "python-data-v1",
+        "image_id": "sha256:" + "1" * 64,
+        "context_sha256": host.context_hash("python-data-v1"),
+    }
+    (state / "python-data-v1.json").write_text(json.dumps(value))
+    assert host.read_image("python-data-v1") == value["image_id"]
+    (state / "image.json").write_text(json.dumps(value))
+    with pytest.raises(host.RunnerFailure):
+        host.read_image()
+    with pytest.raises(host.RunnerFailure):
+        host.read_image("../python-data-v1")
+    (context / "data-requirements.txt").write_text("changed")
+    with pytest.raises(host.RunnerFailure):
+        host.read_image("python-data-v1")
