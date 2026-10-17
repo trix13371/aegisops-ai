@@ -41,6 +41,9 @@ from aegisops.project_ai.review_projection import review_summary
 from aegisops.project_ai.review_repository import ReviewAnalysisRepository
 from aegisops.project_checks.comparison import compare_saved_checks
 from aegisops.project_checks.repository import FullCheckRepository
+from aegisops.project_code.models import CODE_PROFILE, CodePreview, wire_payload
+from aegisops.project_code.repository import CodeRepository
+from aegisops.project_code.source import catalog
 from aegisops.project_reviews.repository import ReviewRepository
 from aegisops.project_runner.comparison import compare_runs
 from aegisops.project_runner.inspection import inspect_project_package
@@ -95,6 +98,7 @@ class Dashboard:
         self.reviews = ReviewRepository(ROOT / ".local/project-reviews", self.projects, self.runs)
         self.review_analyses = ReviewAnalysisRepository(ROOT / ".local/project-review-ai")
         self.full_analyses = FullAnalysisRepository(ROOT / ".local/project-check-ai", self.checks)
+        self.code_analyses = CodeRepository(ROOT / ".local/project-code-ai", self.projects)
         self.python = str(ROOT / ".venv/Scripts/python.exe")
         if os.name != "nt":
             self.python = sys.executable
@@ -169,7 +173,10 @@ class Dashboard:
     def project_check_ai_child(self, identifier):
         return self._project_ai_child(identifier, review=False, full=True)
 
-    def _project_ai_child(self, identifier, *, review, full=False):
+    def project_code_ai_child(self, identifier):
+        return self._project_ai_child(identifier, review=False, code=True)
+
+    def _project_ai_child(self, identifier, *, review, full=False, code=False):
         identifier = str(UUID(str(identifier)))
         if os.name != "nt":
             raise ProjectError("Защищённое подключение OpenRouter настроено для Windows")
@@ -186,8 +193,14 @@ class Dashboard:
                 "-File",
                 str(ROOT / "scripts/openrouter-local.ps1"),
                 "-Mode",
-                "project-check" if full else ("project-review" if review else "project-report"),
-                "-CheckId" if full else ("-ReviewId" if review else "-ReportId"),
+                "project-check"
+                if full
+                else (
+                    "project-code" if code else ("project-review" if review else "project-report")
+                ),
+                "-CheckId"
+                if full
+                else ("-CodeId" if code else ("-ReviewId" if review else "-ReportId")),
                 identifier,
             ],
             cwd=ROOT,
@@ -305,6 +318,14 @@ class Dashboard:
             scenario = str(UUID(payload["report_id"]))
             report = self.projects.read_report(UUID(scenario))
             self.projects.get(report.project_id)
+        elif (
+            mode == "project_code_ai"
+            and set(payload) == {"mode", "preview_id", "consent"}
+            and payload.get("consent") == CODE_PROFILE
+        ):
+            scenario = str(UUID(payload["preview_id"]))
+            preview = self.code_analyses.preview(UUID(scenario))
+            self.projects.get(preview.project_id)
         else:
             raise ValueError("invalid request")
         with self.lock:
@@ -318,6 +339,8 @@ class Dashboard:
                 self.review_analyses.claim(review)
             if mode == "project_check_ai":
                 self.full_analyses.claim(UUID(scenario))
+            if mode == "project_code_ai":
+                self.code_analyses.claim(UUID(scenario))
             if mode == "project_runner":
                 scenario = str(
                     self.runs.create(UUID(scenario), payload.get("environment", "minimal")).id
@@ -355,6 +378,10 @@ class Dashboard:
                     check_id=scenario,
                     message="Запрошен разбор совместной проверки через OpenRouter…",
                 )
+            if mode == "project_code_ai":
+                self.job.update(
+                    preview_id=scenario, message="Запрошен разбор кода проекта через OpenRouter…"
+                )
             job = dict(self.job)
         threading.Thread(target=self.run_job, args=(mode, scenario), daemon=True).start()
         return job, True
@@ -365,6 +392,23 @@ class Dashboard:
 
     def run_job(self, mode, scenario):
         try:
+            if mode == "project_code_ai":
+                identifier = UUID(scenario)
+                try:
+                    self.project_code_ai_child(identifier)
+                except Exception:  # noqa: S110 -- never expose credential or provider details
+                    pass
+                self.code_analyses.fail(identifier)
+                completed = self.code_analyses.state(identifier)["status"] == "completed"
+                self.update(
+                    state="completed" if completed else "failed",
+                    stage="done",
+                    preview_id=scenario,
+                    message="Разбор кода проекта сохранён. Откройте отчёт."
+                    if completed
+                    else "Разбор кода проекта не подтверждён. Повтора нет.",
+                )
+                return
             if mode == "project_check_ai":
                 identifier = UUID(scenario)
                 try:
@@ -729,6 +773,28 @@ class Handler(BaseHTTPRequestHandler):
                     identifier = UUID(self.path[len("/api/project-runs/") :])
                     self.dashboard.projects.get(identifier)
                     return self.send_json(200, {"runs": self.dashboard.runs.history(identifier)})
+                if self.path.startswith("/api/project-code-files/"):
+                    identifier = UUID(self.path[len("/api/project-code-files/") :])
+                    return self.send_json(200, catalog(self.dashboard.projects.get(identifier)))
+                if self.path.startswith("/api/project-code-history/"):
+                    identifier = UUID(self.path[len("/api/project-code-history/") :])
+                    return self.send_json(
+                        200, {"reviews": self.dashboard.code_analyses.history(identifier)}
+                    )
+                if self.path.startswith("/api/project-code/"):
+                    identifier = UUID(self.path[len("/api/project-code/") :])
+                    state = self.dashboard.code_analyses.state(identifier)
+                    return self.send_json(
+                        200,
+                        {
+                            "preview": state["preview"],
+                            "status": state["status"],
+                            "result": state["result"],
+                            "wire_payload": wire_payload(
+                                CodePreview.model_validate(state["preview"])
+                            ),
+                        },
+                    )
                 if self.path.startswith("/api/project-checks/"):
                     identifier = UUID(self.path[len("/api/project-checks/") :])
                     return self.send_json(
@@ -787,17 +853,43 @@ class Handler(BaseHTTPRequestHandler):
             "/api/projects",
             "/api/projects/remove",
             "/api/project-reviews",
+            "/api/project-code-preview",
         }:
             return self.send_json(404, {"error": "Команда недоступна"})
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if (
-                not 0 < length <= (4096 if self.path == "/api/projects" else 1024)
+                not 0
+                < length
+                <= (
+                    8192
+                    if self.path == "/api/project-code-preview"
+                    else (4096 if self.path == "/api/projects" else 1024)
+                )
                 or self.headers.get("Content-Type") != "application/json"
                 or self.headers.get("Transfer-Encoding") is not None
             ):
                 raise ValueError("invalid body")
             payload = json.loads(self.rfile.read(length), object_pairs_hook=unique_object)
+            if self.path == "/api/project-code-preview":
+                if (
+                    not isinstance(payload, dict)
+                    or set(payload) != {"project_id", "files"}
+                    or not isinstance(payload.get("files"), list)
+                    or not 1 <= len(payload["files"]) <= 5
+                    or not all(isinstance(item, str) for item in payload["files"])
+                ):
+                    raise ValueError("invalid preview request")
+                project_id = UUID(payload["project_id"])
+                files = list(payload["files"])
+                self.dashboard.projects.get(project_id)
+                with self.dashboard.lock:
+                    if self.dashboard.stopping:
+                        raise ValueError("dashboard is closing")
+                    if self.dashboard.job and self.dashboard.job["state"] == "running":
+                        raise ProjectError("Дождитесь завершения проверки")
+                    preview = self.dashboard.code_analyses.create(project_id, files)
+                return self.send_json(201, {"preview_id": str(preview.id)})
             if self.path == "/api/project-reviews":
                 if not isinstance(payload, dict) or set(payload) != {
                     "project_id",

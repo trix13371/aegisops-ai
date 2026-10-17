@@ -1,0 +1,29 @@
+{
+  "stage": "UI16",
+  "date": "2026-10-17",
+  "offline": {
+    "passed": 1344,
+    "skipped": 4,
+    "seconds": 120.44
+  },
+  "targeted": {
+    "passed": 33,
+    "skipped": 1,
+    "deselected": 105
+  },
+  "ui_passed": 35,
+  "legacy_regression_passed": 174,
+  "mypy_source_files": 134,
+  "import_contracts_kept": 24,
+  "independent_static_review": "valid; no issues",
+  "runtime_ai_calls": 1,
+  "runtime_fixture": "synthetic average.py only",
+  "runtime_preview": "815117a1-3be5-4017-872d-a1672c72d89c",
+  "runtime_status": "completed",
+  "runtime_findings": 2,
+  "semantically_confirmed_finding": "off-by-one loop bound on line 3",
+  "runtime_limitation": "second division-by-zero advice is unreachable until loop is fixed; prompt strengthened after request, not re-evaluated live",
+  "runtime_input_tokens": 820,
+  "runtime_output_tokens": 602,
+  "wheel_source_files_matched": 7
+}

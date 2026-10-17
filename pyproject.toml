@@ -154,6 +154,30 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "Selected project code models, source and repository cannot execute code, call models or reach services"
+type = "forbidden"
+source_modules = [
+  "aegisops.project_code.models", "aegisops.project_code.source",
+  "aegisops.project_code.repository",
+]
+forbidden_modules = [
+  "aegisops.project_code.transport", "aegisops.project_ai", "aegisops.llm",
+  "aegisops.config", "aegisops.db", "aegisops.authorization", "aegisops.sources",
+  "aegisops.collector", "aegisops.controlplane", "http", "socket", "subprocess",
+  "kubernetes",
+]
+
+[[tool.importlinter.contracts]]
+name = "Selected project code transport cannot reach incident processing or source services"
+type = "forbidden"
+source_modules = ["aegisops.project_code.transport"]
+forbidden_modules = [
+  "aegisops.llm", "aegisops.config", "aegisops.db", "aegisops.authorization",
+  "aegisops.sources", "aegisops.collector", "aegisops.controlplane", "subprocess",
+  "kubernetes",
+]
+
+[[tool.importlinter.contracts]]
 name = "Selected project evidence cannot execute code, call models or reach services"
 type = "forbidden"
 source_modules = ["aegisops.project_reviews"]

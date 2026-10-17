@@ -45,6 +45,9 @@ def host(operator, monkeypatch, tmp_path):
         tmp_path / "private-checks", dashboard.projects, dashboard.runs
     )
     dashboard.full_analyses = FullAnalysisRepository(tmp_path / "private-full-ai", dashboard.checks)
+    from aegisops.project_code.repository import CodeRepository
+
+    dashboard.code_analyses = CodeRepository(tmp_path / "private-code-ai", dashboard.projects)
     dashboard.reviews = ReviewRepository(
         tmp_path / "private-reviews", dashboard.projects, dashboard.runs
     )
@@ -1454,3 +1457,239 @@ def test_comparison_environment_changed_non_comparable(comparison_pair):
     assert data["reasons"] == ["environment_changed"]
     assert data["static"] is None
     assert data["runner"] is None
+
+
+def test_project_code_preview_requires_auth_origin_and_host(host, tmp_path):
+    dashboard, request = host
+    root = tmp_path / "code-preview-auth"
+    root.mkdir()
+    (root / "app.py").write_text("x = 1\n")
+    project = dashboard.projects.add("AuthTest", str(root))
+    payload = json.dumps({"project_id": str(project.id), "files": ["app.py"]})
+    assert request("/api/project-code-preview", method="POST", body=payload)[0] == 401
+    status, _, _ = request(
+        "/api/project-code-preview",
+        method="POST",
+        auth=True,
+        body=payload,
+        headers={"Origin": "https://evil.example"},
+    )
+    assert status == 403
+    assert (
+        request(
+            f"/api/project-code-files/{project.id}",
+            auth=True,
+            headers={"Host": "attacker.example"},
+        )[0]
+        == 403
+    )
+
+
+def test_project_code_preview_rejects_extra_fields_wrong_types_and_invalid_shapes(host, tmp_path):
+    dashboard, request = host
+    root = tmp_path / "code-preview-shapes"
+    root.mkdir()
+    (root / "app.py").write_text("x = 1\n")
+    project = dashboard.projects.add("ShapeTest", str(root))
+    pid = str(project.id)
+    bad_payloads = [
+        "not-a-json-object",
+        123,
+        {"project_id": pid, "files": ["app.py"], "extra": "canary"},
+        {"project_id": pid, "files": []},
+        {"project_id": pid, "files": ["1", "2", "3", "4", "5", "6"]},
+        {"project_id": pid, "files": [123]},
+        {"files": ["app.py"]},
+    ]
+    for bp in bad_payloads:
+        status, _, _ = request(
+            "/api/project-code-preview",
+            method="POST",
+            auth=True,
+            body=json.dumps(bp) if not isinstance(bp, str) else bp,
+        )
+        assert status == 400
+
+
+def test_project_code_preview_rejects_secret_or_escaping_path(host, tmp_path):
+    dashboard, request = host
+    root = tmp_path / "code-preview-escape"
+    root.mkdir()
+    (root / "safe.py").write_text("y = 2\n")
+    (root / ".env").write_text("SECRET=123\n")
+    project = dashboard.projects.add("EscapeTest", str(root))
+    pid = str(project.id)
+    for escape in ["../outside.py", "..\\outside.py", ".env"]:
+        status, _, _ = request(
+            "/api/project-code-preview",
+            method="POST",
+            auth=True,
+            body=json.dumps({"project_id": pid, "files": [escape]}),
+        )
+        assert status == 400
+
+
+def test_project_code_catalog_and_frozen_bytes_get(host, tmp_path):
+    dashboard, request = host
+    root = tmp_path / "code-catalog-frozen"
+    root.mkdir()
+    target = root / "main.py"
+    target.write_text("original_content = 1\n")
+    project = dashboard.projects.add("CatalogTest", str(root))
+    status, _, body = request(f"/api/project-code-files/{project.id}", auth=True)
+    assert status == 200
+    catalog = json.loads(body)
+    assert isinstance(catalog, dict)
+    assert "files" in catalog and "partial" in catalog
+    assert "main.py" in catalog["files"]
+    preview = dashboard.code_analyses.create(project.id, ["main.py"])
+    target.write_text("mutated_content = 999\n")
+    status, _, body = request(f"/api/project-code/{preview.id}", auth=True)
+    assert status == 200
+    preview_data = json.loads(body)
+    assert preview_data["status"] == "not_requested"
+    file_record = (
+        preview_data["files"][0] if "files" in preview_data else preview_data["preview"]["files"][0]
+    )
+    assert file_record["path"] == "main.py"
+    content = file_record.get("content") or file_record.get("text", "")
+    assert "original_content = 1" in content
+    assert "mutated_content" not in content
+    wire = preview_data["wire_payload"]
+    assert not any(
+        key in wire for key in ("status", "id", "preview_id", "created_at", "project_id")
+    )
+    assert set(wire["files"][0].keys()) == {"id", "language", "content"}
+    assert wire["files"][0]["content"] == file_record["content"]
+
+
+def test_project_code_ai_wrong_consent_reject_no_claim(host, tmp_path):
+    dashboard, request = host
+    root = tmp_path / "code-ai-wrong-consent"
+    root.mkdir()
+    (root / "app.py").write_text("a = 10\n")
+    project = dashboard.projects.add("ConsentTest", str(root))
+    preview = dashboard.code_analyses.create(project.id, ["app.py"])
+    bad_body = json.dumps(
+        {
+            "mode": "project_code_ai",
+            "preview_id": str(preview.id),
+            "consent": "wrong-consent-token",
+        }
+    )
+    status, _, _ = request("/api/jobs", method="POST", auth=True, body=bad_body)
+    assert status == 400
+    assert dashboard.code_analyses.read_claim(preview.id) is None
+
+
+def test_project_code_ai_creates_exact_one_claim_when_run_job_stubbed(host, tmp_path, monkeypatch):
+    dashboard, request = host
+    monkeypatch.setattr(dashboard, "run_job", lambda *args: None)
+    root = tmp_path / "code-ai-claim"
+    root.mkdir()
+    (root / "app.py").write_text("b = 20\n")
+    project = dashboard.projects.add("OneClaimTest", str(root))
+    preview = dashboard.code_analyses.create(project.id, ["app.py"])
+    valid_body = json.dumps(
+        {
+            "mode": "project_code_ai",
+            "preview_id": str(preview.id),
+            "consent": "project-code-review-v1",
+        }
+    )
+    status, _, _ = request("/api/jobs", method="POST", auth=True, body=valid_body)
+    assert status == 202
+    claim = dashboard.code_analyses.read_claim(preview.id)
+    assert claim is not None
+    assert str(claim.preview_id) == str(preview.id)
+
+
+def test_project_code_ai_duplicate_post_no_fallback_and_mutex_no_duplicate(
+    host, tmp_path, monkeypatch
+):
+    dashboard, request = host
+    monkeypatch.setattr(dashboard, "run_job", lambda *args: None)
+    root = tmp_path / "code-ai-dupe"
+    root.mkdir()
+    (root / "app.py").write_text("c = 30\n")
+    project = dashboard.projects.add("DupeTest", str(root))
+    preview = dashboard.code_analyses.create(project.id, ["app.py"])
+    body = json.dumps(
+        {
+            "mode": "project_code_ai",
+            "preview_id": str(preview.id),
+            "consent": "project-code-review-v1",
+        }
+    )
+    status1, _, _ = request("/api/jobs", method="POST", auth=True, body=body)
+    assert status1 == 202
+    status2, _, _ = request("/api/jobs", method="POST", auth=True, body=body)
+    assert status2 == 409
+    dashboard.job["state"] = "completed"
+    status3, _, body3 = request("/api/jobs", method="POST", auth=True, body=body)
+    assert status3 == 400
+    assert "уже запрошен" in json.loads(body3)["error"]
+
+
+def test_project_code_ai_child_failure_persistent_failed_and_generic_message(
+    host, tmp_path, monkeypatch
+):
+    dashboard, _ = host
+    root = tmp_path / "code-ai-child-fail"
+    root.mkdir()
+    (root / "app.py").write_text("d = 40\n")
+    project = dashboard.projects.add("FailTest", str(root))
+    preview = dashboard.code_analyses.create(project.id, ["app.py"])
+    dashboard.code_analyses.claim(preview.id)
+    dashboard.job = {"state": "running"}
+
+    def fail_child(identifier):
+        raise RuntimeError("SUPER_SECRET_LEAK_CANARY")
+
+    monkeypatch.setattr(dashboard, "project_code_ai_child", fail_child)
+    type(dashboard).run_job(dashboard, "project_code_ai", str(preview.id))
+    assert dashboard.job["state"] == "failed"
+    assert "SUPER_SECRET_LEAK_CANARY" not in json.dumps(dashboard.job)
+    assert dashboard.job["message"] == "Разбор кода проекта не подтверждён. Повтора нет."
+    assert dashboard.code_analyses.state(preview.id)["status"] == "failed"
+
+
+def test_project_code_ai_child_fixed_launcher_args_and_env_psmodulepath_stripped(
+    operator, monkeypatch
+):
+    dashboard = operator.Dashboard()
+    recorded = {}
+
+    def fake_run(args, **kwargs):
+        recorded["args"] = args
+        recorded["env"] = kwargs.get("env", {})
+
+        class FakeResult:
+            returncode = 0
+            stdout = '{"ok": true}'
+
+        return FakeResult()
+
+    monkeypatch.setattr(operator.subprocess, "run", fake_run)
+    if operator.os.name != "nt":
+
+        class FakeOS:
+            name = "nt"
+            environ = operator.os.environ
+
+            def __getattr__(self, item):
+                return getattr(operator.os, item)
+
+        monkeypatch.setattr(operator, "os", FakeOS())
+    monkeypatch.setenv("PSModulePath", "C:\\forbidden\\module\\path")
+    test_uuid = "11111111-2222-3333-4444-555555555555"
+    dashboard.project_code_ai_child(test_uuid)
+    assert recorded["args"][0] == "powershell.exe"
+    assert recorded["args"][1] == "-NoProfile"
+    assert recorded["args"][2] == "-NonInteractive"
+    assert recorded["args"][3] == "-File"
+    assert recorded["args"][5] == "-Mode"
+    assert recorded["args"][6] == "project-code"
+    assert recorded["args"][7] == "-CodeId"
+    assert recorded["args"][8] == test_uuid
+    assert "PSMODULEPATH" not in {k.upper() for k in recorded["env"]}

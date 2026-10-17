@@ -1548,3 +1548,566 @@ test('26. previousFullCheckControl handles no older, malformed checks, and stale
   assert.strictEqual(calls.filter(c => c.url.includes('/api/project-check-comparison/')).length, 0);
   assert.strictEqual(calls.filter(c => c.method !== 'GET').length, 0);
 });
+
+
+function setupCodeReviewHarness(options = {}) {
+  const calls = [];
+  const {
+    projectId = 'proj-1',
+    previewId = 'prev-1',
+    catalog = { files: ['src/a.js', 'src/b.js', 'src/c.js', 'src/d.js', 'src/e.js', 'src/f.js'] },
+    history = { reviews: [] },
+    previewData = null,
+    previewPostResponse = { preview_id: previewId },
+    jobPostResponse = { job: { id: 'job-1', state: 'running' } }
+  } = options;
+
+  const fetchHandler = async (url, opts = {}) => {
+    const parsedUrl = String(url);
+    const method = (opts.method || 'GET').toUpperCase();
+    calls.push({ url: parsedUrl, method, opts });
+
+    if (parsedUrl.startsWith('/api/project-code-files/')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => catalog
+      };
+    }
+    if (parsedUrl.startsWith('/api/project-code-history/')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => history
+      };
+    }
+    if (parsedUrl === '/api/project-code-preview' && method === 'POST') {
+      if (options.previewPostError) {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({ error: options.previewPostError })
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => previewPostResponse
+      };
+    }
+    if (parsedUrl.startsWith('/api/project-code/')) {
+      const resp = previewData || {
+        status: 'not_requested',
+        preview: {
+          id: previewId,
+          project_id: projectId,
+          created_at: '2025-01-01T00:00:00Z',
+          profile: 'project-code-review-v1',
+          files: [
+            { id: 'f1', path: 'src/a.js', language: 'javascript', lines: 1, content: 'console.log(1);' }
+          ]
+        },
+        wire_payload: {
+          profile: 'project-code-review-v1',
+          files: [{ id: 'f1', language: 'javascript', content: 'console.log(1);' }]
+        }
+      };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => resp
+      };
+    }
+    if (parsedUrl === '/api/jobs' && method === 'POST') {
+      if (options.jobPostError) {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: options.jobPostError })
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => jobPostResponse
+      };
+    }
+    if (parsedUrl === '/api/projects') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ projects: [{ id: projectId, name: 'Test Project', path: '/test' }] })
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({})
+    };
+  };
+
+  const { ctx, doc } = setupContext(fetchHandler);
+  vm.runInContext(`
+    state.projects = [{ id: '${projectId}', name: 'Test Project', path: '/test' }];
+    state.registryReady = true;
+    state.job = null;
+  `, ctx);
+
+  return { ctx, doc, calls, projectId, previewId };
+}
+
+test('Test 27: chooseCodeReview performs only GET catalog and history, never POST on open', async () => {
+  const harness = setupCodeReviewHarness();
+  const { ctx, calls, projectId } = harness;
+
+  await vm.runInContext(`chooseCodeReview({ id: '${projectId}', name: 'Test Project' });`, ctx);
+
+  const getCalls = calls.filter(c => c.method === 'GET');
+  const postCalls = calls.filter(c => c.method === 'POST');
+
+  assert.strictEqual(postCalls.length, 0, 'No POST calls should be made on open');
+  assert.ok(getCalls.some(c => c.url.includes(`/api/project-code-files/${projectId}`)), 'Catalog GET call required');
+  assert.ok(getCalls.some(c => c.url.includes(`/api/project-code-history/${projectId}`)), 'History GET call required');
+});
+
+test('Test 28: file selection capped at 5 and prepare preview triggers exact POST and GET preview without AI consent', async () => {
+  const harness = setupCodeReviewHarness();
+  const { ctx, doc, calls, projectId, previewId } = harness;
+
+  await vm.runInContext(`chooseCodeReview({ id: '${projectId}', name: 'Test Project' });`, ctx);
+
+  const detailBody = doc.getElementById('detail-body');
+  const checkboxes = detailBody.querySelectorAll('input').filter(el => el.type === 'checkbox');
+  assert.strictEqual(checkboxes.length, 6, 'Should display all 6 files from catalog');
+
+  const prepareBtn = doc.querySelector('.primary-button');
+  assert.ok(prepareBtn, 'Prepare button must exist');
+  assert.strictEqual(prepareBtn.disabled, true, 'Prepare button disabled initially');
+
+  for (let i = 0; i < 6; i++) {
+    checkboxes[i].checked = true;
+    checkboxes[i].dispatchEvent({ type: 'change' });
+  }
+
+  const checkedBoxes = Array.from(checkboxes).filter(b => b.checked);
+  assert.strictEqual(checkedBoxes.length, 5, 'Selection must be capped at 5 files');
+  assert.strictEqual(prepareBtn.disabled, false, 'Prepare button enabled when files selected');
+
+  prepareBtn.click();
+  await new Promise(r => setImmediate(r));
+
+  const previewPost = calls.find(c => c.method === 'POST' && c.url === '/api/project-code-preview');
+  assert.ok(previewPost, 'Must send POST to /api/project-code-preview');
+  const postData = JSON.parse(previewPost.opts.body);
+  assert.strictEqual(postData.project_id, projectId);
+  assert.strictEqual(postData.files.length, 5);
+
+  const previewGet = calls.find(c => c.method === 'GET' && c.url === `/api/project-code/${previewId}`);
+  assert.ok(previewGet, 'Must fetch created preview without prior AI consent');
+
+  const aiJobPost = calls.filter(c => c.method === 'POST' && c.url === '/api/jobs');
+  assert.strictEqual(aiJobPost.length, 0, 'No AI job must be requested prior to consent');
+});
+
+test('Test 29: openCodeReview displays literal HTML-like content safely and formats raw wire_payload JSON', async () => {
+  const harness = setupCodeReviewHarness({
+    previewData: {
+      status: 'not_requested',
+      preview: {
+        id: 'prev-xss',
+        project_id: 'proj-1',
+        created_at: '2025-01-01T00:00:00Z',
+        profile: 'project-code-review-v1',
+        files: [
+          {
+            id: 'f-xss',
+            path: 'index.html',
+            language: 'html',
+            lines: 1,
+            content: '<script>alert("pwn");</script>'
+          }
+        ]
+      },
+      wire_payload: {
+        profile: 'project-code-review-v1',
+        files: ['index.html'],
+        raw_meta: { safe: true }
+      }
+    }
+  });
+  const { ctx, doc } = harness;
+
+  await vm.runInContext(`openCodeReview('prev-xss');`, ctx);
+
+  const scriptTags = doc.querySelectorAll('script');
+  assert.strictEqual(scriptTags.length, 0, 'No executable script elements created');
+
+  const preElements = doc.querySelectorAll('pre.code-preview');
+  assert.ok(preElements.length >= 2, 'Should have pre elements for code and wire_payload');
+
+  const codeText = preElements[0].textContent;
+  assert.ok(codeText.includes('<script>alert("pwn");</script>'), 'Content preserved as literal text');
+
+  const wireText = preElements[1].textContent;
+  assert.ok(wireText.includes('"safe": true'), 'wire_payload rendered as formatted JSON string');
+});
+
+test('Test 30: consent must be checked before paid POST, and unknown error locks button and consent permanently', async () => {
+  const harness = setupCodeReviewHarness({
+    jobPostError: 'Unknown failure from payment gateway'
+  });
+  const { ctx, doc, calls, previewId } = harness;
+
+  await vm.runInContext(`openCodeReview('${previewId}');`, ctx);
+
+  const consentCheckbox = doc.getElementById(`code-ai-consent-${previewId}`);
+  const startBtn = doc.querySelector('.project-ai-start');
+
+  assert.ok(consentCheckbox, 'Consent checkbox must be present');
+  assert.ok(startBtn, 'Start analysis button must be present');
+  assert.strictEqual(startBtn.disabled, true, 'Start button disabled before consent');
+
+  consentCheckbox.checked = true;
+  consentCheckbox.dispatchEvent({ type: 'change' });
+  assert.strictEqual(startBtn.disabled, false, 'Start button enabled when consent checked');
+
+  startBtn.click();
+  await new Promise(r => setImmediate(r));
+
+  const jobPostCalls = calls.filter(c => c.method === 'POST' && c.url === '/api/jobs');
+  assert.strictEqual(jobPostCalls.length, 1, 'Exact paid POST call sent');
+  const sentPayload = JSON.parse(jobPostCalls[0].opts.body);
+  assert.deepStrictEqual(sentPayload, {
+    mode: 'project_code_ai',
+    preview_id: previewId,
+    consent: 'project-code-review-v1'
+  });
+
+  assert.strictEqual(startBtn.disabled, true, 'Start button locked after error');
+  assert.strictEqual(consentCheckbox.disabled, true, 'Consent checkbox locked after error');
+  assert.strictEqual(startBtn.dataset.compatible, 'false', 'Compatible flag set to false');
+
+  consentCheckbox.checked = true;
+  consentCheckbox.dispatchEvent({ type: 'change' });
+  assert.strictEqual(startBtn.disabled, true, 'Button remains locked on consent toggle');
+
+  vm.runInContext(`renderJob({ id: 'any-job', state: 'failed' });`, ctx);
+  consentCheckbox.dispatchEvent({ type: 'change' });
+  assert.strictEqual(startBtn.disabled, true, 'Button still locked even after renderJob');
+
+  const jobPostCallsAfter = calls.filter(c => c.method === 'POST' && c.url === '/api/jobs');
+  assert.strictEqual(jobPostCallsAfter.length, 1, 'No second POST attempted');
+});
+
+test('Test 31: completed, pending, and failed states show no paid button, display limitations, and empty findings caveat', async () => {
+  const harnessCompleted = setupCodeReviewHarness({
+    previewData: {
+      status: 'completed',
+      preview: {
+        id: 'prev-comp',
+        project_id: 'proj-1',
+        created_at: '2025-01-01T00:00:00Z',
+        profile: 'project-code-review-v1',
+        files: [{ id: 'f1', path: 'src/a.js', content: 'code' }]
+      },
+      result: {
+        response: {
+          summary: 'Review completed without errors.',
+          findings: [],
+          limitations: 'Static analysis only.'
+        }
+      }
+    }
+  });
+  await vm.runInContext(`openCodeReview('prev-comp');`, harnessCompleted.ctx);
+
+  let startBtn = harnessCompleted.doc.querySelector('.project-ai-start');
+  assert.strictEqual(startBtn, null, 'No paid button shown when status is completed');
+  const textCompleted = harnessCompleted.doc.getElementById('detail-body').textContent;
+  assert.ok(textCompleted.includes('Модель не вернула замечаний. Пустой список не доказывает отсутствие ошибок.'), 'Empty findings caveat shown');
+  assert.ok(textCompleted.includes('Ограничения ответа: Static analysis only.'), 'Response limitations shown');
+
+  const harnessPending = setupCodeReviewHarness({
+    previewData: {
+      status: 'pending',
+      preview: {
+        id: 'prev-pend',
+        project_id: 'proj-1',
+        created_at: '2025-01-01T00:00:00Z',
+        profile: 'project-code-review-v1',
+        files: [{ id: 'f1', path: 'src/a.js', content: 'code' }]
+      }
+    }
+  });
+  await vm.runInContext(`openCodeReview('prev-pend');`, harnessPending.ctx);
+  assert.strictEqual(harnessPending.doc.querySelector('.project-ai-start'), null, 'No paid button when pending');
+  assert.ok(harnessPending.doc.getElementById('detail-body').textContent.includes('Запрос уже отправлен.'), 'Pending warning displayed');
+
+  const harnessFailed = setupCodeReviewHarness({
+    previewData: {
+      status: 'failed',
+      preview: {
+        id: 'prev-fail',
+        project_id: 'proj-1',
+        created_at: '2025-01-01T00:00:00Z',
+        profile: 'project-code-review-v1',
+        files: []
+      }
+    }
+  });
+  await vm.runInContext(`openCodeReview('prev-fail');`, harnessFailed.ctx);
+  assert.strictEqual(harnessFailed.doc.querySelector('.project-ai-start'), null, 'No paid button when failed');
+  assert.ok(harnessFailed.doc.getElementById('detail-body').textContent.includes('Результат не подтверждён. Повторного запроса нет'), 'Failed warning displayed');
+});
+
+test('Test 32: stale responses from old calls cannot overwrite or close newer drawer', async () => {
+  let resolveFirst;
+  const firstPromise = new Promise(resolve => { resolveFirst = resolve; });
+
+  const harness = setupCodeReviewHarness();
+  const { ctx, doc } = harness;
+
+  const customFetch = async (url, opts) => {
+    const parsedUrl = String(url);
+    if (parsedUrl.includes('/api/project-code/prev-slow')) {
+      await firstPromise;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'not_requested',
+          preview: {
+            id: 'prev-slow',
+            project_id: 'proj-1',
+            created_at: '2025-01-01T00:00:00Z',
+            profile: 'project-code-review-v1',
+            files: [{ id: 'f1', path: 'src/slow.js', content: 'slow' }]
+          }
+        })
+      };
+    }
+    if (parsedUrl.includes('/api/project-code/prev-fast')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'not_requested',
+          preview: {
+            id: 'prev-fast',
+            project_id: 'proj-1',
+            created_at: '2025-01-01T00:00:00Z',
+            profile: 'project-code-review-v1',
+            files: [{ id: 'f2', path: 'src/fast.js', content: 'fast' }]
+          }
+        })
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({})
+    };
+  };
+
+  ctx.fetch = customFetch;
+
+  const slowCall = vm.runInContext(`openCodeReview('prev-slow');`, ctx);
+  await vm.runInContext(`openCodeReview('prev-fast');`, ctx);
+
+  assert.ok(doc.getElementById('detail-body').textContent.includes('src/fast.js'), 'Faster newer preview displayed');
+
+  resolveFirst();
+  await slowCall;
+
+  const currentBody = doc.getElementById('detail-body').textContent;
+  assert.ok(currentBody.includes('src/fast.js'), 'Newer preview must not be overwritten');
+  assert.strictEqual(currentBody.includes('src/slow.js'), false, 'Stale preview must not leak into current drawer');
+});
+
+test('Test 33: job-detail route preview-id opens openCodeReview', async () => {
+  const harness = setupCodeReviewHarness();
+  const { ctx, doc, previewId } = harness;
+
+  vm.runInContext(`
+    renderJob({
+      id: 'job-review-1',
+      mode: 'project_code_ai',
+      state: 'completed',
+      preview_id: '${previewId}'
+    });
+  `, ctx);
+
+  const jobDetailBtn = doc.getElementById('job-detail');
+  assert.ok(jobDetailBtn, 'Job detail button must exist');
+  assert.strictEqual(jobDetailBtn.hidden, false, 'Job detail button must be visible for active job');
+
+  jobDetailBtn.click();
+  await new Promise(r => setImmediate(r));
+
+  assert.strictEqual(doc.getElementById('drawer').hidden, false, 'Drawer must be open');
+  const drawerTitle = doc.getElementById('detail-title').textContent;
+  assert.ok(drawerTitle.includes('Разбор кода'), 'Job detail navigated to code review drawer');
+});
+test('Test 34: delayed local preview POST response cannot overwrite or close newer drawer', async () => {
+  let resolvePreviewPost;
+  const previewPostPromise = new Promise(resolve => { resolvePreviewPost = resolve; });
+
+  const harness = setupCodeReviewHarness();
+  const { ctx, doc, projectId } = harness;
+
+  const customFetch = async (url, opts = {}) => {
+    const parsedUrl = String(url);
+    const method = (opts.method || 'GET').toUpperCase();
+    if (parsedUrl === '/api/project-code-preview' && method === 'POST') {
+      await previewPostPromise;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ preview_id: 'prev-slow-post' })
+      };
+    }
+    if (parsedUrl.startsWith('/api/project-code-files/')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ files: ['src/slow.js'] })
+      };
+    }
+    if (parsedUrl.startsWith('/api/project-code-history/')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ reviews: [] })
+      };
+    }
+    if (parsedUrl.includes('/api/project-code/prev-newer')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'not_requested',
+          preview: {
+            id: 'prev-newer',
+            project_id: projectId,
+            created_at: '2025-01-01T00:00:00Z',
+            profile: 'project-code-review-v1',
+            files: [{ id: 'f2', path: 'src/newer.js', content: 'newer content' }]
+          }
+        })
+      };
+    }
+    if (parsedUrl.includes('/api/project-code/prev-slow-post')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'not_requested',
+          preview: {
+            id: 'prev-slow-post',
+            project_id: projectId,
+            created_at: '2025-01-01T00:00:00Z',
+            profile: 'project-code-review-v1',
+            files: [{ id: 'f1', path: 'src/slow.js', content: 'slow content' }]
+          }
+        })
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  ctx.fetch = customFetch;
+
+  await vm.runInContext(`chooseCodeReview({ id: '${projectId}', name: 'Test Project' });`, ctx);
+  const detailBody = doc.getElementById('detail-body');
+  const checkboxes = detailBody.querySelectorAll('input').filter(el => el.type === 'checkbox');
+  checkboxes[0].checked = true;
+  checkboxes[0].dispatchEvent({ type: 'change' });
+
+  const prepareBtn = doc.querySelector('.primary-button');
+  prepareBtn.click();
+
+  await vm.runInContext(`openCodeReview('prev-newer');`, ctx);
+  assert.ok(doc.getElementById('detail-body').textContent.includes('src/newer.js'), 'Newer drawer opened');
+
+  resolvePreviewPost();
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+
+  const bodyText = doc.getElementById('detail-body').textContent;
+  assert.ok(bodyText.includes('src/newer.js'), 'Newer preview content retained');
+  assert.strictEqual(bodyText.includes('src/slow.js'), false, 'Stale preview POST must not overwrite newer drawer');
+});
+
+test('Test 35: delayed paid POST response cannot overwrite or close newer drawer', async () => {
+  let resolveJobPost;
+  const jobPostPromise = new Promise(resolve => { resolveJobPost = resolve; });
+
+  const harness = setupCodeReviewHarness();
+  const { ctx, doc, previewId, projectId } = harness;
+
+  const customFetch = async (url, opts = {}) => {
+    const parsedUrl = String(url);
+    const method = (opts.method || 'GET').toUpperCase();
+    if (parsedUrl === '/api/jobs' && method === 'POST') {
+      await jobPostPromise;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ job: { id: 'job-delayed', state: 'running' } })
+      };
+    }
+    if (parsedUrl.includes('/api/project-code/prev-newer')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'not_requested',
+          preview: {
+            id: 'prev-newer',
+            project_id: projectId,
+            created_at: '2025-01-01T00:00:00Z',
+            profile: 'project-code-review-v1',
+            files: [{ id: 'f-newer', path: 'src/newer.js', content: 'newer file' }]
+          }
+        })
+      };
+    }
+    if (parsedUrl.includes(`/api/project-code/${previewId}`)) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'not_requested',
+          preview: {
+            id: previewId,
+            project_id: projectId,
+            created_at: '2025-01-01T00:00:00Z',
+            profile: 'project-code-review-v1',
+            files: [{ id: 'f1', path: 'src/a.js', content: 'code' }]
+          }
+        })
+      };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  ctx.fetch = customFetch;
+
+  await vm.runInContext(`openCodeReview('${previewId}');`, ctx);
+  const consentCheckbox = doc.getElementById(`code-ai-consent-${previewId}`);
+  const startBtn = doc.querySelector('.project-ai-start');
+  consentCheckbox.checked = true;
+  consentCheckbox.dispatchEvent({ type: 'change' });
+  startBtn.click();
+
+  await vm.runInContext(`openCodeReview('prev-newer');`, ctx);
+  assert.ok(doc.getElementById('detail-body').textContent.includes('src/newer.js'), 'Newer preview drawer opened');
+
+  resolveJobPost();
+  await new Promise(r => setImmediate(r));
+  await new Promise(r => setImmediate(r));
+
+  const bodyText = doc.getElementById('detail-body').textContent;
+  assert.ok(bodyText.includes('src/newer.js'), 'Newer drawer kept intact after delayed job POST');
+  assert.strictEqual(doc.getElementById('drawer').hidden, false, 'Drawer remains open');
+});

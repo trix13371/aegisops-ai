@@ -53,8 +53,16 @@ def explain(summary: Summary, key: SecretStr) -> tuple[Explanation, int, int]:
         raise AnalysisError() from None
 
 
-def _exchange(summary_json: str, instructions: str, key: SecretStr) -> tuple[object, int, int]:
+def _exchange(
+    summary_json: str,
+    instructions: str,
+    key: SecretStr,
+    *,
+    source_review: bool = False,
+) -> tuple[object, int, int]:
     """Private wire boundary for fixed, locally validated explanation profiles only."""
+    max_request = 65536 if source_review else 16384
+    max_output = 2800 if source_review else 1600
     connection: http.client.HTTPSConnection | None = None
     wire_socket: socket.socket | None = None
     timer: threading.Timer | None = None
@@ -68,7 +76,7 @@ def _exchange(summary_json: str, instructions: str, key: SecretStr) -> tuple[obj
                 {"role": "system", "content": instructions},
                 {"role": "user", "content": summary_json},
             ],
-            "max_tokens": 1600,
+            "max_tokens": max_output,
             "temperature": 0,
             "stream": False,
             "reasoning": {"enabled": False},
@@ -76,7 +84,7 @@ def _exchange(summary_json: str, instructions: str, key: SecretStr) -> tuple[obj
             "provider": {"allow_fallbacks": False},
         }
         body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
-        if len(body) > 16384:
+        if len(body) > max_request:
             raise AnalysisError()
         host = "openrouter.ai"
         proxy = getproxies().get("https")
@@ -178,7 +186,7 @@ def _exchange(summary_json: str, instructions: str, key: SecretStr) -> tuple[obj
             type(input_tokens) is not int
             or not 0 <= input_tokens <= 100000
             or type(output_tokens) is not int
-            or not 0 <= output_tokens <= 1600
+            or not 0 <= output_tokens <= max_output
         ):
             raise AnalysisError()
         return content, input_tokens, output_tokens
