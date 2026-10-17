@@ -2111,3 +2111,75 @@ test('Test 35: delayed paid POST response cannot overwrite or close newer drawer
   assert.ok(bodyText.includes('src/newer.js'), 'Newer drawer kept intact after delayed job POST');
   assert.strictEqual(doc.getElementById('drawer').hidden, false, 'Drawer remains open');
 });
+
+test('openCodeMap uses GET only and safely renders file paths', async () => {
+  const calls = [];
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    return { ok: true, json: async () => ({ files: [{ path: '<script>alert(1)</script>', symbols: ['fn1'], imports: ['mod1'] }], parsed_count: 1 }) };
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeMap({ id: "p1", name: "Proj 1" }, null)', ctx);
+  await new Promise(setImmediate);
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].method, 'GET');
+  assert.strictEqual(calls[0].url, '/api/project-code-map/p1');
+  const body = doc.getElementById('detail-body');
+  assert.ok(body.textContent.includes('<script>alert(1)</script>'));
+});
+
+test('openCodeEvaluation requires explicit consent before single jobs POST', async () => {
+  const calls = [];
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null });
+    if (url === '/api/project-code-evaluation') return { ok: true, json: async () => ({ cases: [{ id: 'case1', content: 'test code', expected: [{ start_line: 1, end_line: 2 }] }], history: [] }) };
+    return { ok: true, json: async () => ({ job: { id: 'j1', state: 'queued' } }) };
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeEvaluation(null)', ctx);
+  await new Promise(setImmediate);
+  assert.strictEqual(calls.length, 1);
+  const btn = doc.querySelector('button.project-ai-start');
+  assert.ok(btn && btn.disabled);
+  const checkbox = doc.querySelectorAll('input').find(i => i.id === 'code-eval-consent');
+  checkbox.checked = true;
+  checkbox.dispatchEvent({ type: 'change' });
+  assert.strictEqual(btn.disabled, false);
+  btn.click();
+  await new Promise(setImmediate);
+  assert.strictEqual(calls.length, 2);
+  assert.deepStrictEqual(calls[1], { url: '/api/jobs', method: 'POST', body: { mode: 'project_code_evaluation', consent: 'project-code-evaluation-v1' } });
+});
+
+test('openCodeLab displays preview and locks on POST failure preventing second POST', async () => {
+  const calls = [];
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null });
+    if (url === '/api/project-code-lab/prev-1') {
+      return { ok: true, json: async () => ({
+        preview: { project_id: 'p1' },
+        review: { findings: [{ title: 'Finding 1' }] },
+        lab: { status: 'not_requested' },
+        payloads: [{ finding_index: 0, profile: 'project-code-fix-v1' }]
+      }) };
+    }
+    throw new Error('network down');
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeLab("prev-1", null)', ctx);
+  await new Promise(setImmediate);
+  const body = doc.getElementById('detail-body');
+  assert.ok(body.textContent.includes('Finding 1'));
+  const btn = doc.querySelector('button.project-ai-start');
+  const checkbox = doc.querySelectorAll('input').find(i => i.id === 'code-fix-consent-prev-1');
+  checkbox.checked = true;
+  checkbox.dispatchEvent({ type: 'change' });
+  btn.click();
+  await new Promise(setImmediate);
+  assert.strictEqual(calls.length, 2);
+  assert.deepStrictEqual(calls[1], { url: '/api/jobs', method: 'POST', body: { mode: 'project_code_fix', preview_id: 'prev-1', finding_index: 0, consent: 'project-code-fix-v1' } });
+  assert.strictEqual(btn.disabled, true);
+  btn.click();
+  await new Promise(setImmediate);
+  assert.strictEqual(calls.length, 2);
+});

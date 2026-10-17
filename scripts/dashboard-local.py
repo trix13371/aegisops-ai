@@ -41,6 +41,10 @@ from aegisops.project_ai.review_projection import review_summary
 from aegisops.project_ai.review_repository import ReviewAnalysisRepository
 from aegisops.project_checks.comparison import compare_saved_checks
 from aegisops.project_checks.repository import FullCheckRepository
+from aegisops.project_code.context import build_map, suggest_context
+from aegisops.project_code.evaluation import cases
+from aegisops.project_code.evaluation_repository import EvalRepository
+from aegisops.project_code.lab import LabRepository, proposal_payload
 from aegisops.project_code.models import CODE_PROFILE, CodePreview, wire_payload
 from aegisops.project_code.repository import CodeRepository
 from aegisops.project_code.source import catalog
@@ -99,6 +103,8 @@ class Dashboard:
         self.review_analyses = ReviewAnalysisRepository(ROOT / ".local/project-review-ai")
         self.full_analyses = FullAnalysisRepository(ROOT / ".local/project-check-ai", self.checks)
         self.code_analyses = CodeRepository(ROOT / ".local/project-code-ai", self.projects)
+        self.code_lab = LabRepository(ROOT / ".local/project-code-lab", self.code_analyses)
+        self.code_evaluation = EvalRepository(ROOT / ".local/project-code-eval", self.projects)
         self.python = str(ROOT / ".venv/Scripts/python.exe")
         if os.name != "nt":
             self.python = sys.executable
@@ -176,7 +182,15 @@ class Dashboard:
     def project_code_ai_child(self, identifier):
         return self._project_ai_child(identifier, review=False, code=True)
 
-    def _project_ai_child(self, identifier, *, review, full=False, code=False):
+    def project_code_fix_child(self, identifier):
+        return self._project_ai_child(identifier, review=False, code=True, fix=True)
+
+    def project_code_evaluation_child(self, identifier):
+        return self._project_ai_child(identifier, review=False, code=True, evaluation=True)
+
+    def _project_ai_child(
+        self, identifier, *, review, full=False, code=False, fix=False, evaluation=False
+    ):
         identifier = str(UUID(str(identifier)))
         if os.name != "nt":
             raise ProjectError("Защищённое подключение OpenRouter настроено для Windows")
@@ -196,7 +210,17 @@ class Dashboard:
                 "project-check"
                 if full
                 else (
-                    "project-code" if code else ("project-review" if review else "project-report")
+                    "project-code-fix"
+                    if fix
+                    else (
+                        "project-code-evaluation"
+                        if evaluation
+                        else (
+                            "project-code"
+                            if code
+                            else ("project-review" if review else "project-report")
+                        )
+                    )
                 ),
                 "-CheckId"
                 if full
@@ -208,7 +232,7 @@ class Dashboard:
             stdin=subprocess.DEVNULL,
             capture_output=True,
             encoding="utf-8",
-            timeout=80,
+            timeout=160 if evaluation else 80,
             creationflags=subprocess.CREATE_NO_WINDOW,
             check=False,
         )
@@ -326,6 +350,43 @@ class Dashboard:
             scenario = str(UUID(payload["preview_id"]))
             preview = self.code_analyses.preview(UUID(scenario))
             self.projects.get(preview.project_id)
+        elif (
+            mode == "project_code_fix"
+            and set(payload) == {"mode", "preview_id", "finding_index", "consent"}
+            and payload.get("consent") == "project-code-fix-v1"
+            and type(payload.get("finding_index")) is int
+        ):
+            scenario = str(UUID(payload["preview_id"]))
+            preview, result = self.code_lab.evidence(UUID(scenario))
+            self.projects.get(preview.project_id)
+            if result.response is None:
+                raise ValueError("invalid request")
+            if proposal_payload(preview, result.response, payload["finding_index"]) is None:
+                raise ValueError("invalid request")
+        elif (
+            mode == "project_code_verify"
+            and set(payload) == {"mode", "preview_id", "environment", "consent"}
+            and payload.get("consent") == "project-code-verification-v1"
+            and payload.get("environment") in ENVIRONMENTS
+        ):
+            scenario = str(UUID(payload["preview_id"]))
+            current = self.code_lab.result(UUID(scenario))
+            if current is None:
+                raise ValueError("invalid request")
+            if current.status != "completed":
+                raise ValueError("invalid request")
+            if current.proposal is None:
+                raise ValueError("invalid request")
+            preview, result = self.code_lab.evidence(UUID(scenario))
+            self.projects.get(preview.project_id)
+            if result.response is None:
+                raise ValueError("invalid request")
+        elif (
+            mode == "project_code_evaluation"
+            and set(payload) == {"mode", "consent"}
+            and payload.get("consent") == "project-code-evaluation-v1"
+        ):
+            scenario = None
         else:
             raise ValueError("invalid request")
         with self.lock:
@@ -341,6 +402,12 @@ class Dashboard:
                 self.full_analyses.claim(UUID(scenario))
             if mode == "project_code_ai":
                 self.code_analyses.claim(UUID(scenario))
+            if mode == "project_code_fix":
+                self.code_lab.claim(UUID(scenario), payload["finding_index"])
+            if mode == "project_code_verify":
+                self.code_lab.verify_claim(UUID(scenario), payload["environment"])
+            if mode == "project_code_evaluation":
+                scenario = str(self.code_evaluation.create().id)
             if mode == "project_runner":
                 scenario = str(
                     self.runs.create(UUID(scenario), payload.get("environment", "minimal")).id
@@ -382,6 +449,19 @@ class Dashboard:
                 self.job.update(
                     preview_id=scenario, message="Запрошен разбор кода проекта через OpenRouter…"
                 )
+            if mode == "project_code_fix":
+                self.job.update(
+                    lab_id=scenario, message="Запрошено предложение исправления через OpenRouter…"
+                )
+            if mode == "project_code_verify":
+                self.job.update(
+                    lab_id=scenario, message="Проверяем исправление в изолированной среде…"
+                )
+            if mode == "project_code_evaluation":
+                self.job.update(
+                    evaluation_id=scenario,
+                    message="Запускаем синтетическую оценку через OpenRouter…",
+                )
             job = dict(self.job)
         threading.Thread(target=self.run_job, args=(mode, scenario), daemon=True).start()
         return job, True
@@ -392,6 +472,71 @@ class Dashboard:
 
     def run_job(self, mode, scenario):
         try:
+            if mode == "project_code_fix":
+                identifier = UUID(scenario)
+                try:
+                    self.project_code_fix_child(identifier)
+                except Exception:  # noqa: S110 -- never expose credential or provider details
+                    pass
+                self.code_lab.fail(identifier)
+                state = self.code_lab.state(identifier)
+                completed = state["status"] == "completed"
+                self.update(
+                    state="completed" if completed else "failed",
+                    stage="done",
+                    lab_id=scenario,
+                    message="Предложение исправления сохранено. Откройте лабораторию."
+                    if completed
+                    else "Предложение исправления не подтверждено. Повтора нет.",
+                )
+                return
+            if mode == "project_code_verify":
+                identifier = UUID(scenario)
+                try:
+                    self.child(
+                        ["scripts/project-code-verify-worker.py", scenario],
+                        timeout=240,
+                    )
+                except Exception:  # noqa: S110 -- never expose credential or provider details
+                    pass
+                state = self.code_lab.state(identifier)
+                verification = self.code_lab.verification(identifier)
+                if verification is None or verification.get("status") != "completed":
+                    self.update(
+                        state="failed",
+                        stage="done",
+                        lab_id=scenario,
+                        message="Результат проверки неизвестен. Откройте лабораторию; повтора нет.",
+                    )
+                else:
+                    outcome = (verification.get("result") or {}).get("status")
+                    self.update(
+                        state="completed",
+                        stage="done",
+                        lab_id=scenario,
+                        message="Проверка завершена. Откройте результат."
+                        if outcome != "inconclusive"
+                        else "Проверка завершена с неопределённым результатом. "
+                        "Откройте результат; ограничение указано явно.",
+                    )
+                return
+            if mode == "project_code_evaluation":
+                identifier = UUID(scenario)
+                try:
+                    self.project_code_evaluation_child(identifier)
+                except Exception:  # noqa: S110 -- never expose credential or provider details
+                    pass
+                state = self.code_evaluation.state(identifier)
+                completed = state["status"] == "completed"
+                self.update(
+                    state="completed" if completed else "failed",
+                    stage="done",
+                    evaluation_id=scenario,
+                    message="Синтетическая оценка сохранена. Откройте результаты."
+                    if completed
+                    else "Синтетическая оценка не подтверждена. Повтора нет.",
+                )
+                return
             if mode == "project_code_ai":
                 identifier = UUID(scenario)
                 try:
@@ -773,6 +918,40 @@ class Handler(BaseHTTPRequestHandler):
                     identifier = UUID(self.path[len("/api/project-runs/") :])
                     self.dashboard.projects.get(identifier)
                     return self.send_json(200, {"runs": self.dashboard.runs.history(identifier)})
+                if self.path.startswith("/api/project-code-map/"):
+                    identifier = UUID(self.path[len("/api/project-code-map/") :])
+                    return self.send_json(200, build_map(self.dashboard.projects.get(identifier)))
+                if self.path.startswith("/api/project-code-lab/"):
+                    identifier = UUID(self.path[len("/api/project-code-lab/") :])
+                    preview, result = self.dashboard.code_lab.evidence(identifier)
+                    review = result.response
+                    payloads = (
+                        [
+                            proposal_payload(preview, review, index)
+                            for index in range(len(review.findings))
+                        ]
+                        if review is not None
+                        else []
+                    )
+                    return self.send_json(
+                        200,
+                        {
+                            "preview": preview.model_dump(mode="json"),
+                            "review": review.model_dump(mode="json")
+                            if review is not None
+                            else None,
+                            "lab": self.dashboard.code_lab.state(identifier),
+                            "payloads": payloads,
+                        },
+                    )
+                if self.path == "/api/project-code-evaluation":
+                    return self.send_json(
+                        200,
+                        {
+                            "cases": cases(),
+                            "history": self.dashboard.code_evaluation.history(),
+                        },
+                    )
                 if self.path.startswith("/api/project-code-files/"):
                     identifier = UUID(self.path[len("/api/project-code-files/") :])
                     return self.send_json(200, catalog(self.dashboard.projects.get(identifier)))
@@ -854,6 +1033,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/projects/remove",
             "/api/project-reviews",
             "/api/project-code-preview",
+            "/api/project-code-context",
         }:
             return self.send_json(404, {"error": "Команда недоступна"})
         try:
@@ -863,7 +1043,7 @@ class Handler(BaseHTTPRequestHandler):
                 < length
                 <= (
                     8192
-                    if self.path == "/api/project-code-preview"
+                    if self.path in {"/api/project-code-preview", "/api/project-code-context"}
                     else (4096 if self.path == "/api/projects" else 1024)
                 )
                 or self.headers.get("Content-Type") != "application/json"
@@ -871,6 +1051,19 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 raise ValueError("invalid body")
             payload = json.loads(self.rfile.read(length), object_pairs_hook=unique_object)
+            if self.path == "/api/project-code-context":
+                if (
+                    not isinstance(payload, dict)
+                    or set(payload) != {"project_id", "files"}
+                    or not isinstance(payload.get("files"), list)
+                    or not 1 <= len(payload["files"]) <= 5
+                    or not all(isinstance(item, str) for item in payload["files"])
+                ):
+                    raise ValueError("invalid context request")
+                project_id = UUID(payload["project_id"])
+                files = list(payload["files"])
+                project = self.dashboard.projects.get(project_id)
+                return self.send_json(200, suggest_context(project, files))
             if self.path == "/api/project-code-preview":
                 if (
                     not isinstance(payload, dict)

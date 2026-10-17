@@ -45,9 +45,13 @@ def host(operator, monkeypatch, tmp_path):
         tmp_path / "private-checks", dashboard.projects, dashboard.runs
     )
     dashboard.full_analyses = FullAnalysisRepository(tmp_path / "private-full-ai", dashboard.checks)
+    from aegisops.project_code.evaluation_repository import EvalRepository
+    from aegisops.project_code.lab import LabRepository
     from aegisops.project_code.repository import CodeRepository
 
     dashboard.code_analyses = CodeRepository(tmp_path / "private-code-ai", dashboard.projects)
+    dashboard.code_lab = LabRepository(tmp_path / "private-lab", dashboard.code_analyses)
+    dashboard.code_evaluation = EvalRepository(tmp_path / "private-eval", dashboard.projects)
     dashboard.reviews = ReviewRepository(
         tmp_path / "private-reviews", dashboard.projects, dashboard.runs
     )
@@ -1693,3 +1697,95 @@ def test_project_code_ai_child_fixed_launcher_args_and_env_psmodulepath_stripped
     assert recorded["args"][7] == "-CodeId"
     assert recorded["args"][8] == test_uuid
     assert "PSMODULEPATH" not in {k.upper() for k in recorded["env"]}
+
+
+def test_ui17_code_map_auth_host_and_listing(host, tmp_path):
+    dashboard, request = host
+    folder = tmp_path / "demo_src"
+    folder.mkdir()
+    (folder / "a.py").write_text("print('hello')")
+    dashboard.projects.add("demo", str(folder))
+
+    path = f"/api/project-code-map/{dashboard.projects.list()[0].id}"
+    assert request(path)[0] == 401
+    assert request(path, auth=True, headers={"Host": "evil.com"})[0] == 403
+
+    status, _, body = request(path, auth=True)
+    assert status == 200
+    payload = json.loads(body.decode("utf-8"))
+    paths = [item["path"] for item in payload.get("files", [])]
+    assert "a.py" in paths
+
+
+def test_ui17_code_context_suggestions_and_validation(host, tmp_path):
+    dashboard, request = host
+    folder = tmp_path / "demo_context"
+    folder.mkdir()
+    (folder / "a.py").write_text("import b\n")
+    (folder / "b.py").write_text("x = 1\n")
+    dashboard.projects.add("demo", str(folder))
+
+    path = "/api/project-code-context"
+    body = json.dumps({"project_id": str(dashboard.projects.list()[0].id), "files": ["a.py"]})
+    status, _, resp_body = request(path, method="POST", auth=True, body=body)
+    assert status == 200
+    data = json.loads(resp_body.decode("utf-8"))
+    assert "map" in data and "suggestions" in data and "selected" in data
+    assert data["selected"] == ["a.py"]
+    suggested_paths = [item["path"] for item in data["suggestions"]]
+    assert "b.py" in suggested_paths
+
+    invalid_body = json.dumps({"paths": "not-a-list"})
+    inv_status, _, _ = request(path, method="POST", auth=True, body=invalid_body)
+    assert inv_status == 400
+
+
+def test_ui17_code_evaluation_get_contract(host, tmp_path):
+    dashboard, request = host
+    folder = tmp_path / "demo_eval_get"
+    folder.mkdir()
+    (folder / "a.py").write_text("# eval demo")
+    dashboard.projects.add("demo", str(folder))
+
+    path = "/api/project-code-evaluation"
+    status, _, body = request(path, auth=True)
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    cases = data.get("cases", [])
+    assert len(cases) == 3
+    for case in cases:
+        assert {"id", "title", "content", "expected"}.issubset(case.keys())
+    assert data.get("history") == []
+
+
+def test_ui17_code_evaluation_post_consent_and_mutex(host, tmp_path):
+    dashboard, request = host
+    folder = tmp_path / "demo_eval_post"
+    folder.mkdir()
+    (folder / "a.py").write_text("# eval post")
+    dashboard.projects.add("demo", str(folder))
+
+    eval_path = "/api/project-code-evaluation"
+    wrong_payload = json.dumps(
+        {"mode": "project_code_evaluation", "consent": "wrongstring", "case_id": "case-1"}
+    )
+    status, _, _ = request("/api/jobs", method="POST", auth=True, body=wrong_payload)
+    assert status == 400
+    _, _, get_body = request(eval_path, auth=True)
+    assert json.loads(get_body.decode("utf-8")).get("history") == []
+
+    correct_payload = json.dumps(
+        {
+            "mode": "project_code_evaluation",
+            "consent": "project-code-evaluation-v1",
+        }
+    )
+    status_ok, _, _ = request("/api/jobs", method="POST", auth=True, body=correct_payload)
+    assert status_ok == 202
+    _, _, get_body2 = request(eval_path, auth=True)
+    assert len(json.loads(get_body2.decode("utf-8")).get("history", [])) == 1
+
+    status_conflict, _, _ = request("/api/jobs", method="POST", auth=True, body=correct_payload)
+    assert status_conflict == 409
+    _, _, get_body3 = request(eval_path, auth=True)
+    assert len(json.loads(get_body3.decode("utf-8")).get("history", [])) == 1

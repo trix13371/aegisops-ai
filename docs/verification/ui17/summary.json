@@ -1,0 +1,74 @@
+{
+  "stage": "UI17",
+  "date": "2026-10-17",
+  "features": [
+    "bounded_local_project_map",
+    "related_file_suggestions",
+    "frozen_before_after_verification",
+    "single_file_diff_and_reproduction_test",
+    "three_case_synthetic_ai_evaluation"
+  ],
+  "offline": {
+    "passed": 1362,
+    "skipped": 4,
+    "seconds": 127.52,
+    "artifact": ".local/ui17-offline-final.xml",
+    "note": "Before final missing-newline diff fix; final targeted tests cover that change."
+  },
+  "final_core_worker": {
+    "passed": 15,
+    "artifact": ".local/ui17-core-final.xml"
+  },
+  "http_core": {
+    "passed": 132,
+    "artifact": ".local/ui17-targeted-final.xml"
+  },
+  "ui_passed": 38,
+  "mypy_source_files": 140,
+  "import_contracts_kept": 25,
+  "wheel_source_files_matched": 8,
+  "runtime_fixture": "Synthetic average.py only; no arbitrary user project source",
+  "runtime_preview": "83f0cc3b-cf7f-4a03-9b3e-765da9ab5e1d",
+  "runtime_review_status": "completed",
+  "runtime_proposal_status": "completed",
+  "runtime_verification": {
+    "status": "inconclusive",
+    "reason": "runner_unavailable",
+    "execution_scope": "not_started",
+    "before": "7557b5aa-7d3e-49e6-b037-22269fe3cc9b",
+    "after": "dd964c09-1a70-4430-a0fa-ed2b7c1cf96e",
+    "live_generated_test_execution_confirmed": false
+  },
+  "runtime_evaluation": {
+    "id": "0ed50238-9529-4b44-ad18-bdfaa5534448",
+    "status": "completed",
+    "answered": 3,
+    "total": 3,
+    "tp": 1,
+    "fp": 1,
+    "fn": 0,
+    "precision": 0.5,
+    "recall": 1.0,
+    "scope": "synthetic-line-overlap-v1",
+    "general_model_accuracy": false
+  },
+  "preserved_failed_attempts": [
+    {
+      "preview": "815117a1-3be5-4017-872d-a1672c72d89c",
+      "operation": "proposal",
+      "reason": "not retained by initial version"
+    },
+    {
+      "preview": "c522730c-0982-4d9c-84ae-ecabd74f55c7",
+      "operation": "review",
+      "reason": "unconfirmed after approximately 30 seconds"
+    }
+  ],
+  "diff_export": {
+    "payload": "validated from rendered data link",
+    "git_apply_check": "passed on synthetic folder without applying",
+    "iab_download_event_confirmed": false
+  },
+  "review_limitations": "Static model reviews missed DTO mismatches later found in browser and orchestration checks. Generic unknown failure classification retained deliberately.",
+  "github_pushed": false
+}

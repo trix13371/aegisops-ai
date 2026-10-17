@@ -141,12 +141,15 @@ function renderJob(job) {
     : job.mode === "project_ai" ? "Разбор сводки через OpenRouter · без передачи исходников"
     : job.mode === "project_check_ai" ? "Объяснение файлов и тестов · OpenRouter · без исходников и логов"
     : job.mode === "project_code_ai" ? "Разбор выбранного кода · OpenRouter · отправляются исходники выбранных файлов"
+    : job.mode === "project_code_fix" ? "Исправление и проверка · OpenRouter · платный запрос только после согласия"
+    : job.mode === "project_code_verify" ? "Проверка в Docker · без сети и ключей AegisOps"
+    : job.mode === "project_code_evaluation" ? "Оценка качества AI · синтетические примеры · до 3 платных запросов"
     : job.mode === "project" && job.files_checked !== undefined
     ? `Проверено файлов: ${job.files_checked} · Замечаний: ${job.findings_count} · Статическая проверка`
     : job.snapshot_count !== undefined
     ? `Наблюдений: ${job.snapshot_count} · Инцидентов: ${job.incident_count} · ${sourceLabel(job.mode === "synthetic" ? "synthetic_fixture" : "local_kind")}`
     : "Результат появится здесь. Можно оставить эту страницу открытой.";
-  $("job-detail").hidden = !job.check_id && !job.audit_ids?.length && !job.report_id && !job.run_id && !job.review_id && !job.preview_id;
+  $("job-detail").hidden = !job.check_id && !job.audit_ids?.length && !job.report_id && !job.run_id && !job.review_id && !job.preview_id && !job.lab_id && !job.evaluation_id;
   $("job-detail").replaceChildren(document.createTextNode(job.preview_id ? "Разбор выбранного кода · OpenRouter " : job.check_id ? "Открыть проверку файлов и тестов " : job.review_id ? "Открыть сводный отчёт " : job.run_id ? "Результаты запуска " : job.report_id ? "Открыть отчёт " : "Открыть результат "), icon("arrow"));
   if (running && state.polling === null) state.polling = setTimeout(pollJob, 1500);
 }
@@ -299,6 +302,8 @@ $("close-detail").addEventListener("click", closeDetail);
 $("drawer-backdrop").addEventListener("click", closeDetail);
 $("job-detail").addEventListener("click", () => {
   if (state.job?.check_id) openFullCheck(state.job.check_id, $("job-detail"));
+  else if (state.job?.lab_id) openCodeLab(state.job.lab_id, $("job-detail"));
+  else if (state.job?.evaluation_id) openCodeEvaluation($("job-detail"));
   else if (state.job?.preview_id) openCodeReview(state.job.preview_id, $("job-detail"));
   else if (state.job?.review_id) openReview(state.job.review_id, $("job-detail"));
   else if (state.job?.run_id) openRunReport(state.job.run_id, $("job-detail"));
@@ -423,6 +428,7 @@ function chooseProjectCheck(project,origin) {
   body.append(node("p","drawer-intro","Выберите, что хотите узнать. На следующем экране будет описание и кнопка запуска."));
   body.append(actionOption("Файлы + тесты","Один общий снимок исходников: сначала статическая проверка файлов, затем тесты в Docker на тех же скопированных файлах. Итог общий.","Нужен Docker","layers",()=>chooseFullCheckLanguage(project,origin)),actionOption("Файлы и настройки","Проверка форматов и настроек контейнеров. Код проекта не запускается.","Без Docker","scan",()=>staticCheck(project,origin)),actionOption("Тесты Python","Проверка Python и запуск существующих тестов в отдельном контейнере.","Нужен Docker","play",()=>projectRuns(project,origin,"python")),actionOption("Тесты JavaScript / TypeScript","Проверка TypeScript и тесты Node.js или Vitest. Окружение подбирается по package.json.","Нужен Docker","play",()=>projectRuns(project,origin,"javascript")));
   body.append(actionOption("Разбор кода нейросетью","Выбранные файлы отправляются в OpenRouter для платного разбора. Исходный код покидает этот компьютер.","OpenRouter · платно","spark",()=>chooseCodeReview(project,origin)));
+  body.append(actionOption("Оценка качества AI","Синтетический контрольный набор из 3 примеров. До 3 платных запросов в OpenRouter; реальный код проекта не отправляется.","OpenRouter · платно","spark",()=>openCodeEvaluation(origin)));
   body.append(node("p","check-note","Бесплатные проверки выше не вызывают нейросеть. Пункт «Разбор кода нейросетью» — отдельный платный запрос: в OpenRouter уходит исходный код выбранных файлов."));
 }
 function chooseFullCheckLanguage(project,origin) {
@@ -1111,6 +1117,7 @@ async function chooseCodeReview(project,origin){
   openRunnerDrawer(`Разбор кода · ${project.name}`,origin);const sequence=detailSequence;const body=$("detail-body");
   drawerBack(body,"К выбору проверки",()=>chooseProjectCheck(project,origin));
   body.append(node("p","drawer-intro","Выберите до 5 файлов. В OpenRouter уйдёт исходный код выбранных файлов; пути и названия отдельно не отправляются, но могут встречаться внутри кода."));
+  const mapButton=node("button","action-option");mapButton.append(node("span","action-option-copy","Карта проекта"),node("small","","Локальный разбор связей файлов. Без нейросети и без оплаты."));mapButton.addEventListener("click",()=>openCodeMap(project,origin));body.append(mapButton);
   const panel=node("div","detail-panel");body.append(panel);
   panel.append(node("p","detail-callout","Загрузка списка файлов…"));
   let catalog,history;
@@ -1137,16 +1144,20 @@ async function chooseCodeReview(project,origin){
     panel.append(section);
   }
   if(!files.length){panel.append(node("p","detail-callout","Нет доступных файлов для разбора."));return;}
-  const selected=new Set();let pending=false;const boxes=[];
+  const selected=new Set();let pending=false;const boxes=[];const boxByPath=new Map();
   const counter=node("p","detail-subtitle","Выбрано файлов: 0 из 5");
   const list=node("div","detail-panel");
+  const suggest=node("button","action-option","Подобрать связанные файлы");suggest.disabled=true;
+  const suggestNote=node("p","detail-callout","Локальный подбор связанных файлов. Нейросеть не вызывается, оплата не производится.");
+  const suggestBox=node("div","detail-panel");
   const prepare=node("button","primary-button","Подготовить предпросмотр");prepare.disabled=true;
   const sync=()=>{
     counter.textContent=`Выбрано файлов: ${selected.size} из 5`;
     prepare.disabled=pending || selected.size===0 || !state.registryReady || state.job?.state==="running";
+    suggest.disabled=pending || selected.size===0 || !state.registryReady || state.job?.state==="running";
   };
   for(const path of files){
-    const row=node("label","ai-consent");const box=node("input");box.type="checkbox";boxes.push(box);
+    const row=node("label","ai-consent");const box=node("input");box.type="checkbox";boxes.push(box);boxByPath.set(path,box);
     box.addEventListener("change",()=>{
       if(pending){box.checked=!box.checked;return;}
       if(box.checked){
@@ -1156,6 +1167,36 @@ async function chooseCodeReview(project,origin){
     });
     row.append(box,document.createTextNode(path));list.append(row);
   }
+  suggest.addEventListener("click",async()=>{
+    if(pending || suggest.disabled || selected.size===0)return;
+    pending=true;for(const box of boxes)box.disabled=true;sync();suggestBox.replaceChildren();
+    try {
+      const result=await api("/api/project-code-context",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({project_id:project.id,files:[...selected]})});
+      if(!isCodeCurrent(sequence,panel))return;
+      const suggestions=result && Array.isArray(result.suggestions) ? result.suggestions : [];
+      if(!suggestions.length){suggestBox.append(node("p","detail-callout","Связанные файлы не найдены. Нейросеть не вызывалась."));return;}
+      suggestBox.append(node("p","detail-subtitle","Связанные файлы · локальный подбор"));
+      for(const item of suggestions){
+        const path=item && item.path;if(typeof path!=="string")continue;
+        const card=node("div","ai-action");card.append(node("strong","",path),node("p","",item.reason || "Связь по локальному разбору."));
+        const add=node("button","action-option","Добавить");
+        const box=boxByPath.get(path);
+        if(!box){add.disabled=true;add.dataset.compatible="false";}
+        add.addEventListener("click",()=>{
+          if(pending || add.disabled)return;
+          const target=boxByPath.get(path);if(!target)return;
+          if(!target.checked){
+            if(selected.size>=5){add.disabled=true;add.dataset.compatible="false";return;}
+            target.checked=true;target.dispatchEvent(new Event("change"));
+          }
+          add.disabled=true;add.dataset.compatible="false";
+        });
+        card.append(add);suggestBox.append(card);
+      }
+    } catch(problem) {
+      if(isCodeCurrent(sequence,panel))suggestBox.replaceChildren(node("p","detail-callout","Подбор связанных файлов недоступен. Нейросеть не вызывалась."));
+    } finally {pending=false;if(isCodeCurrent(sequence,panel)){for(const box of boxes)box.disabled=false;sync();}}
+  });
   prepare.addEventListener("click",async()=>{
     if(pending || prepare.disabled || selected.size===0)return;
     pending=true;for(const box of boxes)box.disabled=true;sync();
@@ -1171,8 +1212,33 @@ async function chooseCodeReview(project,origin){
       }
     } finally {pending=false;if(isCodeCurrent(sequence,panel)){for(const box of boxes)box.disabled=false;sync();}}
   });
-  panel.append(counter,list,node("p","detail-subtitle","Ограничения: не более 5 файлов, до 12 КиБ на файл и до 24 КиБ суммарно. Точный размер проверяется локально при подготовке предпросмотра, без обращения к нейросети."),prepare);
+  panel.append(counter,list,suggest,suggestNote,suggestBox,node("p","detail-subtitle","Ограничения: не более 5 файлов, до 12 КиБ на файл и до 24 КиБ суммарно. Точный размер проверяется локально при подготовке предпросмотра, без обращения к нейросети."),prepare);
   sync();
+}
+async function openCodeMap(project,origin){
+  openRunnerDrawer(`Карта проекта · ${project.name}`,origin);const sequence=detailSequence;const body=$("detail-body");
+  drawerBack(body,"К выбору файлов",()=>chooseCodeReview(project,origin));
+  body.append(node("p","drawer-intro","Локальный разбор связей файлов. Нейросеть не вызывается, оплата не производится, исходный код никуда не отправляется."));
+  const panel=node("div","detail-panel");body.append(panel);panel.append(node("p","detail-callout","Загрузка карты…"));
+  let data;
+  try {data=await api(`/api/project-code-map/${encodeURIComponent(project.id)}`);}
+  catch(problem) {if(isCodeCurrent(sequence,panel))panel.replaceChildren(node("p","detail-callout","Карта недоступна. Нейросеть не вызывалась."));return;}
+  if(!isCodeCurrent(sequence,panel))return;
+  if(!data || typeof data!=="object" || !Array.isArray(data.files)){panel.replaceChildren(node("p","detail-callout","Карта недоступна. Нейросеть не вызывалась."));return;}
+  panel.replaceChildren();
+  if(data.partial)panel.append(node("p","detail-callout","Карта неполная: часть каталога не прочитана."));
+  panel.append(node("p","detail-subtitle",`Файлов в карте: ${data.files.length}${typeof data.parsed_count==="number" ? ` · разобрано: ${data.parsed_count}` : ""}`));
+  panel.append(node("p","detail-callout","Это локальные связи по разбору файлов, а не полный граф вызовов. Связи могут быть неполными."));
+  for(const file of data.files){
+    const details=node("details","ai-preview");
+    const symbols=Array.isArray(file.symbols) ? file.symbols : [];
+    const imports=Array.isArray(file.imports) ? file.imports : [];
+    details.append(node("summary","",`${file.path || "?"} · ${file.role || "файл"} · символов: ${symbols.length} · импортов: ${imports.length}`));
+    if(symbols.length)details.append(node("p","detail-subtitle",`Символы: ${symbols.slice(0,20).join(", ")}`));
+    if(imports.length)details.append(node("p","detail-subtitle",`Импорты: ${imports.slice(0,20).join(", ")}`));
+    panel.append(details);
+  }
+  if(!data.files.length)panel.append(node("p","detail-callout","Файлы не найдены."));
 }
 async function openCodeReview(id,origin){
   openRunnerDrawer("Разбор кода · OpenRouter",origin);const sequence=detailSequence;const body=$("detail-body");
@@ -1219,6 +1285,7 @@ async function openCodeReview(id,origin){
         panel.append(card);
       }
       if(!findings.length)panel.append(node("p","detail-callout","Модель не вернула замечаний. Пустой список не доказывает отсутствие ошибок."));
+      if(findings.length){const lab=node("button","action-option","Исправление и проверка");lab.append(node("span","action-option-copy","Предложить исправление и проверить его в Docker. Платный запрос только после отдельного согласия."));lab.addEventListener("click",()=>openCodeLab(id,origin));panel.append(lab);}
       if(typeof result.response.limitations==="string" && result.response.limitations)panel.append(node("p","detail-callout",`Ограничения ответа: ${result.response.limitations}`));
       panel.append(node("p","detail-subtitle","Это мнение модели. Замечания требуют ручной проверки; код не исполнялся и файлы не изменялись."));
     } else {panel.append(node("p","detail-callout","Результат не подтверждён. Повтор автоматически не выполняется."));}
@@ -1253,5 +1320,193 @@ async function openCodeReview(id,origin){
   }
 }
 
+async function openCodeLab(id,origin){
+  openRunnerDrawer("Исправление и проверка · OpenRouter",origin);const sequence=detailSequence;const body=$("detail-body");
+  const panel=node("div","detail-panel");body.append(panel);panel.append(node("p","detail-callout","Загрузка лаборатории…"));
+  let data;
+  try {data=await api(`/api/project-code-lab/${encodeURIComponent(id)}`);}
+  catch(problem) {if(isCodeCurrent(sequence,panel))panel.replaceChildren(node("p","detail-callout","Лаборатория недоступна. Платный запрос не отправлялся."));return;}
+  if(!isCodeCurrent(sequence,panel))return;
+  const preview=data && data.preview,review=data && data.review,lab=data && data.lab,payloads=data && Array.isArray(data.payloads) ? data.payloads : [];
+  if(!data || typeof data!=="object" || !preview || typeof preview!=="object" || !review || typeof review!=="object" || !Array.isArray(payloads)){
+    panel.replaceChildren(node("p","detail-callout","Лаборатория недоступна. Платный запрос не отправлялся."));return;
+  }
+  panel.replaceChildren();
+  const project=state.projects?.find(item=>item.id===preview.project_id);
+  if(project)drawerBack(body,"К разбору кода",()=>openCodeReview(id,origin));
+  const findings=Array.isArray(review.findings) ? review.findings : [];
+  if(!findings.length){panel.append(node("p","detail-callout","Нет замечаний для исправления."));return;}
+  const status=lab && lab.status;
+  const fileLanguage=(()=>{const files=preview && Array.isArray(preview.files) ? preview.files : [];
+    const proposal=lab && lab.result && lab.result.proposal;const fid=proposal && proposal.file_id;
+    const hit=files.find(f=>f && f.id===fid);return hit && typeof hit.language==="string" ? hit.language.toLowerCase() : "";})();
+  const envForLanguage=fileLanguage==="python" ? ["minimal","python-data-v1"] : fileLanguage==="javascript" ? ["node-js-v1"] : fileLanguage==="typescript" ? ["node-vitest-v1"] : [];
+  const savedIndex=(lab && Number.isInteger(lab.claim && lab.claim.finding_index) && lab.claim.finding_index>=0 && lab.claim.finding_index<findings.length) ? lab.claim.finding_index : -1;
+  panel.append(node("p","detail-subtitle","Выберите замечание"));
+  const select=node("select");
+  findings.forEach((finding,index)=>{const option=node("option","",`${index+1}. ${finding && finding.title ? finding.title : "Замечание"}`);option.value=String(index);select.append(option);});
+  panel.append(select);
+  const detail=node("div","detail-panel");panel.append(detail);
+  const renderPayload=()=>{
+    detail.replaceChildren();
+    const index=Number(select.value)||0;const payload=payloads[index];
+    if(!payload){detail.append(node("p","detail-callout","Для этого замечания предложение недоступно."));return;}
+    detail.append(node("p","detail-callout","Внимание: в отличие от разбора, здесь в OpenRouter отправляются относительные пути файлов вместе с исходным кодом."));
+    const pre=node("pre","code-preview",JSON.stringify(payload,null,2));pre.style.maxHeight="360px";pre.style.overflow="auto";pre.style.whiteSpace="pre";
+    const wrap=node("details","ai-preview");wrap.append(node("summary","","Точные данные запроса"),pre);detail.append(wrap);
+  };
+  select.addEventListener("change",renderPayload);
+  if(savedIndex>=0)select.value=String(savedIndex);
+  renderPayload();
+  select.disabled=status!=="not_requested";
+  const codePre=(text)=>{const pre=node("pre","code-preview",text);pre.style.maxHeight="360px";pre.style.overflow="auto";pre.style.whiteSpace="pre";return pre;};const lenientText=v=>typeof v==="string" ? v : "";
+  if(status==="completed"){
+    const proposal=lab.result && lab.result.proposal;
+    if(proposal && typeof proposal==="object"){
+      panel.append(node("span","status passed","Предложение получено"),node("p","ai-summary",lenientText(proposal.explanation)));
+      const diffText=lenientText(lab.diff);
+      if(diffText){panel.append(node("p","detail-subtitle","Предложенный diff"),codePre(diffText));
+        const link=node("a","action-option","Скачать diff");link.href="data:text/plain;charset=utf-8,"+encodeURIComponent(diffText);link.download="aegis-proposal.patch";panel.append(link);}
+      const testText=lenientText(proposal.test_code);
+      if(testText){panel.append(node("p","detail-subtitle","Сгенерированный тест"),codePre(testText));}
+      panel.append(node("p","detail-callout","Код не проверен и не применён. Автоматического применения нет."));
+    } else {panel.append(node("p","detail-callout","Результат не подтверждён. Повтор автоматически не выполняется."));}
+    const verification=lab.verification;
+    if(verification===null || verification===undefined){
+      panel.append(node("p","detail-subtitle","Проверка в Docker"));
+      const consent=node("input"),label=node("label","ai-consent");consent.type="checkbox";consent.id=`code-verify-consent-${id}`;
+      label.append(consent,document.createTextNode("Запустить исходную и предложенную копии с этим тестом в Docker"));
+      const env=node("select");
+      envForLanguage.forEach(name=>{const option=node("option","",name);option.value=name;env.append(option);});
+      const run=node("button","primary-button project-ai-start","Запустить проверку");run.dataset.consentId=consent.id;run.disabled=true;
+      let submitted=false;
+      const sync=()=>{run.disabled=submitted || !consent.checked || !envForLanguage.length || !env.value || state.job?.state==="running" || !state.registryReady;run.dataset.compatible=(submitted || !state.registryReady || !envForLanguage.length) ? "false" : "true";};
+      consent.addEventListener("change",()=>{if(submitted)return;sync();});
+      run.addEventListener("click",async()=>{
+        if(submitted || run.disabled || !consent.checked || !state.registryReady || !envForLanguage.includes(env.value))return;
+        submitted=true;run.disabled=true;run.dataset.compatible="false";consent.disabled=true;env.disabled=true;select.disabled=true;
+        try {
+          const result=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_code_verify",preview_id:id,environment:env.value,consent:"project-code-verification-v1"})});
+          if(result.error || !result.job)throw new Error(result.error || "Состояние запроса не подтверждено.");
+          renderJob(result.job);
+          if(isCodeCurrent(sequence,panel))closeDetail();
+        } catch(problem) {
+          if(isCodeCurrent(sequence,panel))panel.append(node("p","detail-callout","Состояние запроса не подтверждено. Повтор автоматически не выполняется."));
+        }
+      });
+      panel.append(label,env,run);sync();
+    } else if(verification && typeof verification==="object"){
+      if(verification.status==="pending"){
+        panel.append(node("p","detail-subtitle","Проверка: ожидает выполнения"),node("p","detail-callout","Запуск уже отправлен. Повтор не выполняется."));
+      } else {
+        const v=verification.result;const verdict=v && v.status;
+        const text=verdict==="reproduced" ? "Замечание воспроизведено: до — ошибка, после — успешно" : verdict==="not_reproduced" ? "Замечание не воспроизведено" : "Не удалось сделать вывод";
+        panel.append(node("p","detail-subtitle",`Проверка: ${text}`));
+        panel.append(node("p","detail-callout","Сгенерированный тест до/после не является доказательством корректности. Неполный Docker или неопределённое окружение — не ошибка."));
+        if(v && v.before && v.before.id){const before=node("button","action-option","Лог до");before.addEventListener("click",()=>openRunReport(v.before.id,$("detail-body")));panel.append(before);}
+        if(v && v.after && v.after.id){const after=node("button","action-option","Лог после");after.addEventListener("click",()=>openRunReport(v.after.id,$("detail-body")));panel.append(after);}
+      }
+    } else {
+      panel.append(node("p","detail-callout","Состояние проверки неизвестно. Новый запрос не отправлен."));
+    }
+  } else if(status==="pending"){
+    panel.append(node("p","detail-callout","Запрос уже отправлен. Дождитесь завершения и откройте снова. Повтор не отправляется."));
+  } else if(status==="failed"){
+    const failureCode=lab.result && lab.result.failure_code;
+    const failureTexts={transport:"Не удалось связаться с моделью. Повторного запроса нет.",invalid_response:"Модель вернула ответ в неожиданном формате. Повторного запроса нет.",invalid_proposal:"Предложение не прошло проверку. Повторного запроса нет.",unknown:"Результат не подтверждён. Повторного запроса нет."};
+    const failureText=typeof failureCode==="string" && Object.prototype.hasOwnProperty.call(failureTexts,failureCode) ? failureTexts[failureCode] : failureTexts.unknown;
+    panel.append(node("p","detail-callout",failureText));
+  } else if(status==="not_requested"){
+    panel.append(node("p","detail-subtitle","Один платный запрос на исправление и тест. Для одного предпросмотра — одна попытка без автоматического повтора."));
+    const consent=node("input"),label=node("label","ai-consent");consent.type="checkbox";consent.id=`code-fix-consent-${id}`;
+    label.append(consent,document.createTextNode("Один платный запрос на исправление и тест"));
+    const run=node("button","primary-button project-ai-start","Предложить исправление");run.dataset.consentId=consent.id;run.disabled=true;
+    let submitted=false;
+    const profileOk=()=>{const idx=Number(select.value)||0;const payload=payloads[idx];return !!payload && payload.profile==="project-code-fix-v1";};
+    const sync=()=>{run.disabled=submitted || !consent.checked || !profileOk() || state.job?.state==="running" || !state.registryReady;run.dataset.compatible=(submitted || !state.registryReady || !profileOk()) ? "false" : "true";};
+    consent.addEventListener("change",()=>{if(submitted)return;sync();});
+    select.addEventListener("change",()=>{if(submitted)return;sync();});
+    run.addEventListener("click",async()=>{
+      if(submitted || run.disabled || !consent.checked || !state.registryReady || !profileOk())return;
+      submitted=true;run.disabled=true;run.dataset.compatible="false";consent.disabled=true;select.disabled=true;
+      try {
+        const result=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_code_fix",preview_id:id,finding_index:Number(select.value)||0,consent:"project-code-fix-v1"})});
+        if(result.error || !result.job)throw new Error(result.error || "Состояние запроса не подтверждено.");
+        renderJob(result.job);
+        if(isCodeCurrent(sequence,panel))closeDetail();
+      } catch(problem) {
+        if(isCodeCurrent(sequence,panel))panel.append(node("p","detail-callout","Состояние запроса не подтверждено. Повтор автоматически не выполняется."));
+      }
+    });
+    sync();panel.append(label,run);
+  } else {
+    panel.append(node("p","detail-callout","Состояние неизвестно. Новый запрос не отправлен."));
+  }
+}
+async function openCodeEvaluation(origin){
+  openRunnerDrawer("Оценка качества AI",origin);const sequence=detailSequence;const body=$("detail-body");
+  drawerBack(body,"К выбору проверки",()=>{closeDetail();});
+  body.append(node("p","drawer-intro","Синтетический контрольный набор. Реальный код проекта не отправляется."));
+  const panel=node("div","detail-panel");body.append(panel);panel.append(node("p","detail-callout","Загрузка набора…"));
+  let data;
+  try {data=await api("/api/project-code-evaluation");}
+  catch(problem) {if(isCodeCurrent(sequence,panel))panel.replaceChildren(node("p","detail-callout","Набор недоступен. Платный запрос не отправлялся."));return;}
+  if(!isCodeCurrent(sequence,panel))return;
+  const cases=data && Array.isArray(data.cases) ? data.cases : [],history=data && Array.isArray(data.history) ? data.history : [];
+  panel.replaceChildren();
+  panel.append(node("p","detail-subtitle",`Синтетический контрольный набор · ${cases.length} ${cases.length===1?"пример":cases.length<5?"примера":"примеров"}`));
+  panel.append(node("p","detail-callout","Это не общая точность. Оценка по небольшому набору с эвристикой пересечения строк, а не семантическое доказательство."));
+  const codePre=(text,maxHeight)=>{const pre=node("pre","code-preview",text);pre.style.maxHeight=maxHeight;pre.style.overflow="auto";pre.style.whiteSpace="pre";return pre;};
+  for(const item of cases){
+    const card=node("div","ai-action");card.append(node("strong","",item.title ? `${item.id || "Пример"} · ${item.title}` : (item.id || "Пример")));
+    if(typeof item.content==="string" && item.content){card.append(codePre(item.content,"200px"));}
+    const expected=Array.isArray(item.expected) ? item.expected : [];
+    if(!expected.length){card.append(node("p","detail-callout","Замечаний не ожидается"));}
+    else {const sp=node("div","detail-callout");
+      for(const span of expected){const cats=Array.isArray(span.categories)?span.categories.join(", "):"";sp.append(node("p","",`Строки ${span.start_line ?? "?"}–${span.end_line ?? "?"}${cats?` · ${cats}`:""}`));}
+      card.append(sp);}
+    if(typeof item.description==="string" && item.description){card.append(node("p","detail-callout",item.description));}
+    panel.append(card);
+  }
+  if(history.length){
+    const latest=history[0];
+    panel.append(node("p","detail-subtitle","Последний отчёт"));
+    const report=latest && latest.result && latest.result.report;
+    if(report && typeof report==="object"){
+      const metric=v=>v===null || v===undefined ? "недостаточно данных" : v;
+      panel.append(node("p","",`Precision: ${metric(report.overall_precision)} · Recall: ${metric(report.overall_recall)}`));
+      panel.append(node("p","",`Отвечено: ${report.answered ?? "?"} из ${report.total ?? "?"} · Полнота отчёта: ${report.complete===false ? "неполный" : "полный"}`));
+      const perCase=report.per_case && typeof report.per_case==="object" ? report.per_case : null;
+      if(perCase){for(const caseId of Object.keys(perCase)){const row=perCase[caseId] && typeof perCase[caseId]==="object" ? perCase[caseId] : {};
+        panel.append(node("p","detail-callout",`${caseId}: отвечено ${row.answered ?? "?"} · TP ${row.tp ?? "?"} · FP ${row.fp ?? "?"} · FN ${row.fn ?? "?"}`));}}
+      if(typeof report.limitations==="string" && report.limitations){
+        const lim=node("div","detail-callout");lim.append(node("p","","Ограничения:"));lim.append(node("p","",report.limitations));panel.append(lim);}
+      else if(Array.isArray(report.limitations) && report.limitations.length){
+        const lim=node("div","detail-callout");lim.append(node("p","","Ограничения:"));
+        for(const line of report.limitations)lim.append(node("p","",String(line)));panel.append(lim);}
+      if(report.complete===false)panel.append(node("p","detail-callout","Отчёт неполный. Итоговые метрики могут быть недостоверны."));
+    } else {panel.append(node("p","detail-callout","Отчёт недоступен."));}
+  } else {panel.append(node("p","detail-callout","Истории оценок нет. После запуска отчёт появится здесь."));}
+  panel.append(node("p","detail-subtitle","До 3 платных запросов в OpenRouter. Отправляются только синтетические примеры."));
+  const consent=node("input"),label=node("label","ai-consent");consent.type="checkbox";consent.id="code-eval-consent";
+  label.append(consent,document.createTextNode("Разрешить до 3 платных запросов на синтетических примерах"));
+  const run=node("button","primary-button project-ai-start","Запустить оценку");run.dataset.consentId=consent.id;run.disabled=true;
+  let submitted=false;
+  const sync=()=>{run.disabled=submitted || !consent.checked || state.job?.state==="running" || !state.registryReady;run.dataset.compatible=(submitted || !state.registryReady) ? "false" : "true";};
+  consent.addEventListener("change",()=>{if(submitted)return;sync();});
+  run.addEventListener("click",async()=>{
+    if(submitted || run.disabled || !consent.checked || !state.registryReady)return;
+    submitted=true;run.disabled=true;run.dataset.compatible="false";consent.disabled=true;
+    try {
+      const result=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_code_evaluation",consent:"project-code-evaluation-v1"})});
+      if(result.error || !result.job)throw new Error(result.error || "Состояние запроса не подтверждено.");
+      renderJob(result.job);
+      if(isCodeCurrent(sequence,panel))closeDetail();
+    } catch(problem) {
+      if(isCodeCurrent(sequence,panel))panel.append(node("p","detail-callout","Состояние запроса не подтверждено. Повтор автоматически не выполняется."));
+    }
+  });
+  panel.append(label,run);sync();
+}
 showView("projects");
 refresh();

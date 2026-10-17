@@ -1,7 +1,7 @@
 # Explicit paid synthetic analysis or source-free project summary. Windows PowerShell 5.1+.
 [CmdletBinding()]
 param(
-    [ValidateSet('analyze', 'review', 'project-report', 'project-review', 'project-check', 'project-code')]
+    [ValidateSet('analyze', 'review', 'project-report', 'project-review', 'project-check', 'project-code', 'project-code-fix', 'project-code-evaluation')]
     [string]$Mode = 'analyze',
     [ValidateSet('crashloop-exit-1', 'crashloop-missing-env', 'crashloop-bad-command', 'crashloop-oom', 'inj-log-instruction', 'inj-secret-canary')]
     [string]$Scenario = 'crashloop-oom',
@@ -39,7 +39,7 @@ try {
     if ($Mode -eq 'project-check' -and $CheckId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
         Stop-OpenRouterLaunch 'Invalid check identity; no model request was made.'
     }
-    if ($Mode -eq 'project-code' -and $CodeId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
+    if (($Mode -eq 'project-code' -or $Mode -eq 'project-code-fix' -or $Mode -eq 'project-code-evaluation') -and $CodeId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') {
         Stop-OpenRouterLaunch 'Invalid code identity; no model request was made.'
     }
     if (-not (Test-Path -LiteralPath $openRouterPython)) {
@@ -103,6 +103,32 @@ try {
         catch { Stop-OpenRouterLaunch 'Project code analysis failed; provider details were not displayed.' }
         if ($openRouterChildExit -ne 0 -or $openRouterResult.ok -isnot [bool] -or -not $openRouterResult.ok) {
             Stop-OpenRouterLaunch 'Project code analysis unavailable; no automatic retry.'
+        }
+        Write-Output '{"ok":true}'
+        $openRouterExit = 0
+    } elseif ($Mode -eq 'project-code-fix') {
+        $env:AEGISOPS_LLM_API_KEY = $openRouterSecret
+        $env:PYTHONIOENCODING = 'utf-8'
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+        $openRouterOutput = & $openRouterPython scripts/project-code-fix-worker.py $CodeId 2>&1
+        $openRouterChildExit = $LASTEXITCODE
+        try { $openRouterResult = ($openRouterOutput -join "`n") | ConvertFrom-Json }
+        catch { Stop-OpenRouterLaunch 'Project code fix proposal failed; provider details were not displayed.' }
+        if ($openRouterChildExit -ne 0 -or $openRouterResult.ok -isnot [bool] -or -not $openRouterResult.ok) {
+            Stop-OpenRouterLaunch 'Project code fix proposal unavailable; no automatic retry.'
+        }
+        Write-Output '{"ok":true}'
+        $openRouterExit = 0
+    } elseif ($Mode -eq 'project-code-evaluation') {
+        $env:AEGISOPS_LLM_API_KEY = $openRouterSecret
+        $env:PYTHONIOENCODING = 'utf-8'
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+        $openRouterOutput = & $openRouterPython scripts/project-code-evaluation-worker.py $CodeId 2>&1
+        $openRouterChildExit = $LASTEXITCODE
+        try { $openRouterResult = ($openRouterOutput -join "`n") | ConvertFrom-Json }
+        catch { Stop-OpenRouterLaunch 'Project code evaluation failed; provider details were not displayed.' }
+        if ($openRouterChildExit -ne 0 -or $openRouterResult.ok -isnot [bool] -or -not $openRouterResult.ok) {
+            Stop-OpenRouterLaunch 'Project code evaluation unavailable; no automatic retry.'
         }
         Write-Output '{"ok":true}'
         $openRouterExit = 0
