@@ -1021,7 +1021,7 @@ test('14. Unknown POST error locks controls and prevents automatic repeated call
   assert.strictEqual(postCount, 1);
 });
 
-test('15. projectResults checks tab uses GET-only with no comparison element', async () => {
+test('15. projectResults checks tab uses GET-only comparison controls', async () => {
   const calls = [];
   const fetchMock = async (url, opts = {}) => {
     calls.push({ url, method: opts.method || 'GET' });
@@ -1046,7 +1046,7 @@ test('15. projectResults checks tab uses GET-only with no comparison element', a
   const nonGet = calls.filter(c => c.method !== 'GET');
   assert.strictEqual(nonGet.length, 0);
   assert.ok(calls.some(c => c.url.includes('/api/project-checks/p_chk')));
-  assert.strictEqual(doc.querySelector('.result-comparison'), null);
+  assert.ok(doc.querySelector('.result-comparison'));
   const rows = doc.querySelectorAll('.result-row');
   assert.strictEqual(rows.length, 2);
 });
@@ -1363,4 +1363,188 @@ test('Test 21: delayed old AI GET resolved after new drawer cannot append stale 
   assert.strictEqual(aiCalls.length, 1);
   const body = doc.getElementById('detail-body');
   assert.strictEqual(body.textContent.includes('STALE_CANARY_SUMMARY'), false);
+});
+
+
+test('22. openFullComparison renders comparable comparison with regressed top section', async () => {
+  const calls = [];
+  const fixture = {
+    project_id: 'p1',
+    base: { id: 'b1', created_at: '2026-03-30T10:00:00Z', status: 'issues', profile: 'python-checks-v1', environment: 'minimal', rules_version: 'local-static-v2', image_id: 'sha256:' + 'a'.repeat(64) },
+    target: { id: 't1', created_at: '2026-03-30T11:00:00Z', status: 'passed', profile: 'python-checks-v1', environment: 'minimal', rules_version: 'local-static-v2', image_id: 'sha256:' + 'a'.repeat(64) },
+    comparable: true,
+    reasons: [],
+    same_snapshot: false,
+    static: {
+      added: [{ severity: 'error', file: '<b>app.py</b>', line: 12, location: 'main()', message: '<script>alert(1)</script>' }],
+      removed: [{ severity: 'warning', file: 'util.py', line: 5, message: 'deprecated' }],
+      unchanged: 3
+    },
+    runner: {
+      transitions: [
+        { tool: 'pytest', before: 'passed', after: 'failed', change: 'no_longer_passed' },
+        { tool: 'ruff', before: 'failed', after: 'passed', change: 'now_passed' }
+      ]
+    }
+  };
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    return { ok: true, json: async () => fixture };
+  });
+  vm.runInContext('state.projects = [{ id: "p1", name: "P1", path: "/p1" }]', ctx);
+  const origin = doc.createElement('button');
+  await ctx.openFullComparison('b1', 't1', origin);
+
+  assert.strictEqual(calls.filter(c => c.method !== 'GET').length, 0);
+  const text = doc.getElementById('detail-body').textContent;
+  assert.ok(!text.includes('исправлено'));
+  assert.ok(text.includes('Сначала проверьте'));
+  assert.ok(text.includes('Требует внимания'));
+  assert.ok(text.includes('pytest'));
+  assert.ok(text.includes('Новые замечания'));
+  assert.ok(text.includes('Больше не отмечаются'));
+  assert.ok(text.includes('Остались в отчёте'));
+  const priorityIdx = text.indexOf('Сначала проверьте');
+  const findingsIdx = text.indexOf('Новые замечания: 1');
+  assert.ok(priorityIdx !== -1 && findingsIdx !== -1 && priorityIdx < findingsIdx);
+  assert.strictEqual(doc.querySelectorAll('script').length, 0);
+  assert.strictEqual(doc.querySelectorAll('b').length, 0);
+  assert.ok(text.includes('<b>app.py</b>'));
+  assert.ok(text.includes('<script>alert(1)</script>'));
+});
+
+test('23. openFullComparison renders incompatible and unfinished states without fake counts', async () => {
+  const fixture = {
+    project_id: 'p1',
+    base: { id: 'b1', created_at: '2026-03-30T10:00:00Z', status: 'pending', profile: 'p-v1', environment: 'minimal', rules_version: 'r1' },
+    target: { id: 't1', created_at: '2026-03-30T11:00:00Z', status: 'passed', profile: 'p-v2', environment: 'docker', rules_version: 'r2' },
+    comparable: false,
+    reasons: ['environment_changed', 'image_changed'],
+    static: null,
+    runner: null
+  };
+  const calls = [];
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    return { ok: true, json: async () => fixture };
+  });
+  const origin = doc.createElement('button');
+  await ctx.openFullComparison('b1', 't1', origin);
+
+  assert.strictEqual(calls.filter(c => c.method !== 'GET').length, 0);
+  assert.strictEqual(doc.querySelectorAll('.report-stat').length, 0);
+  assert.strictEqual(doc.querySelectorAll('.finding-card').length, 0);
+  const bodyText = doc.getElementById('detail-body').textContent;
+  assert.ok(bodyText.includes('Условия проверки различаются'));
+  assert.ok(bodyText.includes('Выбраны разные окружения.'));
+  assert.ok(bodyText.includes('Образы проверок различаются.'));
+  const buttons = doc.querySelectorAll('.comparison-controls button');
+  assert.strictEqual(buttons.length, 2);
+});
+
+test('24. comparisonControls submits selected IDs via GET on button click', async () => {
+  const calls = [];
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    return { ok: true, json: async () => ({ project_id: 'p', base: { id: 'b', created_at: '2026-01-01T00:00:00Z' }, target: { id: 't', created_at: '2026-01-02T00:00:00Z' }, reasons: [] }) };
+  });
+  const origin = doc.createElement('button');
+  const items = [
+    { id: 't_id', time: '2026-03-30T12:00:00Z' },
+    { id: 'b_id', time: '2026-03-30T11:00:00Z' }
+  ];
+  const controls = ctx.comparisonControls(items, 'check', origin);
+  doc.getElementById('detail-body').append(controls);
+  const compareBtn = controls.querySelector('button');
+  const selects = controls.querySelectorAll('select');
+  assert.strictEqual(selects[0].value, 'b_id');
+  assert.strictEqual(selects[1].value, 't_id');
+
+  compareBtn.click();
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(calls.filter(c => c.method !== 'GET').length, 0);
+  assert.ok(calls.some(c => c.url.includes('/api/project-check-comparison/b_id/t_id')));
+});
+
+test('25. previousFullCheckControl selects nearest older entry including pending', async () => {
+  const calls = [];
+  const history = {
+    checks: [
+      { claim: { id: 'chk_new', created_at: '2026-03-30T04:00:00Z', project_id: 'p1' }, result: { status: 'passed' } },
+      { claim: { id: 'chk_curr', created_at: '2026-03-30T03:00:00Z', project_id: 'p1' }, result: { status: 'passed' } },
+      { claim: { id: 'chk_older_pending', created_at: '2026-03-30T02:00:00Z', project_id: 'p1' }, result: { status: 'pending' } },
+      { claim: { id: 'chk_oldest', created_at: '2026-03-30T01:00:00Z', project_id: 'p1' }, result: { status: 'passed' } }
+    ]
+  };
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    if (url.includes('/api/project-checks/p1')) return { ok: true, json: async () => history };
+    return { ok: true, json: async () => ({ project_id: 'p1', base: { id: 'chk_older_pending', created_at: '2026-03-30T02:00:00Z' }, target: { id: 'chk_curr', created_at: '2026-03-30T03:00:00Z' }, reasons: [] }) };
+  });
+  const origin = doc.createElement('button');
+  const seq = ctx.openRunnerDrawer('Тест предыдущей', origin);
+  const claim = { id: 'chk_curr', created_at: '2026-03-30T03:00:00Z', project_id: 'p1' };
+  const control = ctx.previousFullCheckControl(claim, origin, seq);
+  doc.getElementById('detail-body').append(control);
+
+  const btn = control.querySelector('button');
+  btn.click();
+  await new Promise(r => setImmediate(r));
+
+  assert.strictEqual(calls.filter(c => c.method !== 'GET').length, 0);
+  assert.ok(calls.some(c => c.url.includes('/api/project-check-comparison/chk_older_pending/chk_curr')));
+});
+
+test('26. previousFullCheckControl handles no older, malformed checks, and stale drawer responses', async () => {
+  let resolveHistory;
+  const historyPromise = new Promise(resolve => { resolveHistory = resolve; });
+  const calls = [];
+  let historyPayload = { checks: null };
+  let deferHistory = false;
+
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    if (url.includes('/api/project-checks/p1')) {
+      if (deferHistory) {
+        await historyPromise;
+        return { ok: true, json: async () => ({ checks: [{ claim: { id: 'old1', created_at: '2026-03-30T01:00:00Z', project_id: 'p1' } }] }) };
+      }
+      return { ok: true, json: async () => historyPayload };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+
+  const origin = doc.createElement('button');
+  let seq = ctx.openRunnerDrawer('Тест', origin);
+  let claim = { id: 'chk_curr', created_at: '2026-03-30T03:00:00Z', project_id: 'p1' };
+  let control = ctx.previousFullCheckControl(claim, origin, seq);
+  doc.getElementById('detail-body').append(control);
+  let callout = control.querySelector('.detail-callout');
+
+  control.querySelector('button').click();
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(callout.hidden, false);
+  assert.ok(callout.textContent.includes('Не удалось прочитать историю проверок.'));
+
+  historyPayload = { checks: [] };
+  control.querySelector('button').click();
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(callout.hidden, false);
+  assert.ok(callout.textContent.includes('нет предыдущей проверки'));
+
+  deferHistory = true;
+  seq = ctx.openRunnerDrawer('Stale Check', origin);
+  claim = { id: 'chk_stale', created_at: '2026-03-30T03:00:00Z', project_id: 'p1' };
+  control = ctx.previousFullCheckControl(claim, origin, seq);
+  doc.getElementById('detail-body').append(control);
+  control.querySelector('button').click();
+  await new Promise(r => setImmediate(r));
+
+  ctx.openRunnerDrawer('New Drawer Opened', origin);
+  resolveHistory();
+  await new Promise(r => setImmediate(r));
+
+  assert.strictEqual(calls.filter(c => c.url.includes('/api/project-checks/p1')).length, 3);
+  assert.strictEqual(calls.filter(c => c.url.includes('/api/project-check-comparison/')).length, 0);
+  assert.strictEqual(calls.filter(c => c.method !== 'GET').length, 0);
 });

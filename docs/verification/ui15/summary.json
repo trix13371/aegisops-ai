@@ -1,0 +1,25 @@
+{
+  "stage": "UI15",
+  "date": "2026-10-17",
+  "offline": {
+    "passed": 1315,
+    "skipped": 3
+  },
+  "targeted": {
+    "passed": 25,
+    "deselected": 104
+  },
+  "ui_passed": 26,
+  "mypy_source_files": 129,
+  "import_contracts_kept": 22,
+  "independent_static_review": "accept",
+  "runtime_ai_calls": 0,
+  "browser": {
+    "base_check": "381a36e9-cf2b-42d5-9b12-7ed99df08b1b",
+    "target_check": "28313225-4697-404e-b12f-038b11aca2d1",
+    "comparable": false,
+    "reason": "incomplete",
+    "target_execution_started": false
+  },
+  "wheel_source_bytes_match": true
+}

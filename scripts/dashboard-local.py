@@ -39,6 +39,7 @@ from aegisops.project_ai.repository import AnalysisRepository
 from aegisops.project_ai.review_models import REVIEW_PROFILE
 from aegisops.project_ai.review_projection import review_summary
 from aegisops.project_ai.review_repository import ReviewAnalysisRepository
+from aegisops.project_checks.comparison import compare_saved_checks
 from aegisops.project_checks.repository import FullCheckRepository
 from aegisops.project_reviews.repository import ReviewRepository
 from aegisops.project_runner.comparison import compare_runs
@@ -733,6 +734,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(
                         200, {"checks": self.dashboard.checks.history(identifier)}
                     )
+                if self.path.startswith("/api/project-check-comparison/"):
+                    identifiers = self.path[len("/api/project-check-comparison/") :].split("/")
+                    if len(identifiers) != 2:
+                        raise ValueError("invalid comparison")
+                    comparison = compare_saved_checks(
+                        self.dashboard.checks, UUID(identifiers[0]), UUID(identifiers[1])
+                    )
+                    return self.send_json(200, comparison.model_dump(mode="json"))
                 if self.path.startswith("/api/project-check/"):
                     identifier = UUID(self.path[len("/api/project-check/") :])
                     return self.send_json(200, self.dashboard.checks.state(identifier))

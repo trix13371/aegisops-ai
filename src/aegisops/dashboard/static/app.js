@@ -465,8 +465,8 @@ async function projectResults(project,origin,selected="files") {
         panel.append(node("h3","result-empty-title",kind==="reviews" ? "Сводных отчётов пока нет" : kind==="checks" ? "Проверок «Файлы + тесты» пока нет" : "Здесь появятся результаты"),node("p","",kind==="reviews" ? "Сначала сохраните проверку файлов или запуск тестов, затем объедините их в сводку." : kind==="checks" ? "Проверка «Файлы + тесты» делает один общий снимок исходников: статическая проверка файлов и тесты в Docker на тех же скопированных файлах. Выберите её на карточке проекта." : "Выберите проверку на карточке проекта. Готовый результат сохранится здесь."));
         if(kind!=="reviews") {const choose=node("button","secondary-button","Выбрать проверку");choose.addEventListener("click",()=>kind==="checks" ? chooseFullCheckLanguage(project,origin) : chooseProjectCheck(project,origin));panel.append(choose);}
       }
-      if(items.length>=2 && (kind==="files" || kind==="tests")) {
-        const compare=node("details","result-comparison"),summary=node("summary","","Сравнить два результата");compare.append(summary,comparisonControls(items.map(item=>({id:kind==="files" ? item.id : item.claim.id,time:kind==="files" ? item.completed_at : item.claim.created_at})),kind==="files" ? "project" : "run",origin));panel.append(compare);
+      if(items.length>=2 && (kind==="files" || kind==="tests" || kind==="checks")) {
+        const compare=node("details","result-comparison"),summary=node("summary","","Сравнить два результата");compare.append(summary,comparisonControls(items.map(item=>({id:kind==="files" ? item.id : item.claim.id,time:kind==="files" ? item.completed_at : item.claim.created_at})),kind==="files" ? "project" : kind==="checks" ? "check" : "run",origin));panel.append(compare);
       }
       for(const item of items) {
         const row=node("div","result-row"),copy=node("div","result-row-copy"),open=node("button","secondary-button result-open","Открыть"),time=kind==="files" ? item.completed_at : kind==="tests" ? item.claim.created_at : kind==="checks" ? item.claim.created_at : item.created_at;
@@ -644,6 +644,7 @@ async function openFullCheck(id,origin) {
     const claim=data.claim,project=state.projects.find(item=>item.id===claim.project_id);
     if(project)drawerBack(body,"К результатам проекта",()=>projectResults(project,origin,"checks"));
     body.append(node("p","detail-subtitle",`${formatTime(claim.created_at,true)} · ${environmentLabels[claim.environment || "minimal"] || claim.environment || ""}`));
+    body.append(previousFullCheckControl(claim,origin,sequence));
     if(!data.result) {
       body.append(node("p","detail-callout","Результат пока не подтверждён. Дождитесь завершения. Автоматического повторного запуска нет."));
       const runLink=node("button","text-button","Открыть сохранённый запуск");runLink.addEventListener("click",()=>openRunReport(claim.id,origin));body.append(runLink);
@@ -964,8 +965,106 @@ function comparisonControls(items,kind,origin) {
   base.value=items[1].id; target.value=items[0].id;
   const compare=node("button","text-button","Сравнить отчёты"); compare.append(icon("layers"));
   const update=()=>{compare.disabled=base.value===target.value;}; base.addEventListener("change",update);target.addEventListener("change",update);
-  compare.addEventListener("click",()=>openComparison(kind,base.value,target.value,kind==="run" ? origin : compare));
+  compare.addEventListener("click",()=>kind==="check" ? openFullComparison(base.value,target.value,origin) : openComparison(kind,base.value,target.value,kind==="run" ? origin : compare));
   baseLabel.append(base);targetLabel.append(target);controls.append(baseLabel,targetLabel,compare);return controls;
+}
+function previousFullCheckControl(claim,origin,sequence) {
+  const wrap=node("div","comparison-controls"),button=node("button","text-button","Сравнить с предыдущей проверкой");
+  button.append(icon("layers"));
+  const callout=node("p","detail-callout");callout.hidden=true;
+  button.addEventListener("click",async()=>{
+    if(button.disabled)return;button.disabled=true;
+    try {
+      const previous=await findPreviousFullCheck(claim,origin,sequence);
+      if(sequence!==detailSequence || $("drawer").hidden || !button.isConnected)return;
+      if(!previous) {callout.textContent="В доступной истории нет предыдущей проверки. Можно выбрать две проверки в истории проекта.";callout.hidden=false;return;}
+      callout.hidden=true;openFullComparison(previous,claim.id,origin);
+    } catch(problem) {
+      if(sequence!==detailSequence || $("drawer").hidden || !button.isConnected)return;
+      callout.textContent="Не удалось прочитать историю проверок. Обновите данные или откройте проект снова. Новые проверки не запускались.";callout.hidden=false;
+    } finally {if(button.isConnected)button.disabled=false;}
+  });
+  wrap.append(button,callout);return wrap;
+}
+async function findPreviousFullCheck(claim,origin,sequence) {
+  const data=await api(`/api/project-checks/${encodeURIComponent(claim.project_id)}`);
+  if(sequence!==detailSequence || $("drawer").hidden)return null;
+  const current=Date.parse(claim.created_at);
+  if(!Number.isFinite(current)) throw new Error("invalid current date");
+  if(!data || typeof data!=="object" || !Array.isArray(data.checks)) throw new Error("invalid checks payload");
+  const older=[];
+  for(const item of data.checks) {
+    if(!item || typeof item!=="object") throw new Error("invalid check entry");
+    const entry=item.claim;
+    if(!entry || typeof entry!=="object") throw new Error("invalid claim entry");
+    if(typeof entry.id!=="string" || typeof entry.project_id!=="string") throw new Error("invalid claim id");
+    if(entry.project_id!==claim.project_id) throw new Error("claim project mismatch");
+    const created=Date.parse(entry.created_at);
+    if(!Number.isFinite(created)) throw new Error("invalid claim date");
+    if(entry.id===claim.id) continue;
+    if(created<current) older.push({id:entry.id,created});
+  }
+  older.sort((a,b)=>b.created-a.created);
+  return older.length ? older[0].id : null;
+}
+async function openFullComparison(base,target,origin) {
+  const sequence=openRunnerDrawer("Сравнение файлов и тестов",origin),body=$("detail-body");
+  try {
+    const data=await api(`/api/project-check-comparison/${encodeURIComponent(base)}/${encodeURIComponent(target)}`);
+    if(sequence!==detailSequence || $("drawer").hidden)return;
+    const project=state.projects.find(item=>item.id===data.project_id);
+    if(project)drawerBack(body,"К результатам проекта",()=>projectResults(project,origin,"checks"));
+    const side=item=>`${formatTime(item.created_at,true)} · ${fullCheckStatusLabels[item.status] || "Результат пока не подтверждён"} · ${environmentLabels[item.environment || "minimal"] || item.environment || ""} · ${item.profile || ""} · ${item.rules_version || "правила не указаны"}`;
+    pair(body,"Исходная проверка",side(data.base));pair(body,"Сравниваемая проверка",side(data.target));
+    if(!data.comparable) {
+      const changed=data.reasons.some(reason=>reason==="profile_changed" || reason==="environment_changed" || reason==="image_changed" || reason==="rules_changed");
+      body.append(node("h3","result-empty-title",changed ? "Условия проверки различаются" : "Результаты неполные"));
+      const reasonLabels={unfinished:"Одна из проверок ещё не завершена.",missing_static:"У одной из проверок нет сохранённого статического отчёта.",incomplete:"Одна из проверок завершилась неполно.",profile_changed:"Выбранные профили проверки различаются.",environment_changed:"Выбраны разные окружения.",image_changed:"Образы проверок различаются.",rules_changed:"Версии правил различаются."};
+      for(const reason of data.reasons)body.append(node("p","detail-callout",reasonLabels[reason] || "Условия сравнения не выполнены."));
+      body.append(node("p","detail-subtitle","Сравнение не выполняется, пока условия проверок различаются или результаты неполные. Это не подтверждает исправление кода."));
+    } else {
+      const regressed=data.runner ? data.runner.transitions.filter(item=>item.change==="no_longer_passed") : [];
+      const addedErrors=data.static ? data.static.added.filter(item=>item.severity==="error") : [];
+      const addedWarnings=data.static ? data.static.added.filter(item=>item.severity!=="error") : [];
+      const unchangedCount=data.static ? data.static.unchanged : 0;
+      const hasFlags=regressed.length>0 || addedErrors.length>0 || addedWarnings.length>0;
+      if(hasFlags) {
+        const first=section("Сначала проверьте");
+        if(regressed.length) first.append(node("p","detail-callout",`Инструменты, которые перестали проходить: ${regressed.map(item=>toolLabels[item.tool] || item.tool).join(", ")}.`));
+        if(addedErrors.length) first.append(node("p","detail-callout",`Новых ошибок: ${addedErrors.length}.`));
+        else if(addedWarnings.length) first.append(node("p","detail-callout",`Новых предупреждений: ${addedWarnings.length}.`));
+        else if(!regressed.length) first.append(node("p","detail-callout",`Замечаний без изменений: ${unchangedCount}.`));
+        body.append(first);
+      }
+      if(data.static) {
+        const stats=node("div","report-stats");
+        for(const [value,label] of [[data.static.added.length,"Новые замечания"],[data.static.removed.length,"Больше не отмечаются"],[data.static.unchanged,"Остались в отчёте"]]) {const cell=node("div","report-stat");cell.append(node("strong","",value),node("span","",label));stats.append(cell);}body.append(stats);
+        body.append(node("p","detail-callout","Исчезновение записи не доказывает исправление: могла измениться строка или имя файла."));
+        const added=[...data.static.added].sort((a,b)=>(a.severity==="error" ? 0 : 1)-(b.severity==="error" ? 0 : 1));
+        for(const [title,items] of [["Новые замечания",added],["Больше не отмечаются",data.static.removed]]) {
+          const group=section(`${title}: ${items.length}`);
+          for(const item of items) {const card=node("div",`finding-card ${item.severity}`);card.append(node("strong","",`${item.file}${item.line ? ` · строка ${item.line}` : ""}`));if(item.location)card.append(node("code","finding-location",item.location));card.append(node("p","",item.message));if(item.recommendation)card.append(node("p","detail-subtitle",item.recommendation));group.append(card);}body.append(group);
+        }
+      }
+      if(data.runner) {
+        const statuses={passed:"Пройдено",failed:"Есть замечания",no_tests:"Тесты не найдены",timeout:"Превышено время",error:"Ошибка",skipped:"Пропущено"};
+        const changes={unchanged:"Статус не изменился",now_passed:"Теперь пройдено",no_longer_passed:"Больше не проходит",changed:"Статус изменился"};
+        const regressed=data.runner.transitions.filter(item=>item.change==="no_longer_passed");
+        if(regressed.length) {const group=section("Требует внимания");for(const item of regressed)group.append(node("p","detail-callout",`${toolLabels[item.tool] || item.tool}: ${changes[item.change]} · ${statuses[item.before] || item.before} → ${statuses[item.after] || item.after}`));body.append(group);}
+        const group=section("Инструменты");
+        for(const item of data.runner.transitions)group.append(node("p","",`${toolLabels[item.tool] || item.tool}: ${changes[item.change]} · ${statuses[item.before] || item.before} → ${statuses[item.after] || item.after}`));
+        body.append(group);
+        body.append(node("p","detail-subtitle","Сравниваются только итоговые статусы инструментов, а не отдельные тесты или количество ошибок."));
+      }
+      if(data.same_snapshot===true)body.append(node("p","detail-subtitle","Снимок файлов совпадает. Одинаковый ввод может давать разные результаты из-за поведения тестов."));
+      else if(data.same_snapshot===false)body.append(node("p","detail-subtitle","Снимок файлов изменился."));
+    }
+    const links=node("div","comparison-controls");
+    const openBase=node("button","text-button","Открыть исходную проверку");openBase.addEventListener("click",()=>openFullCheck(data.base.id,origin));
+    const openTarget=node("button","text-button","Открыть сравниваемую проверку");openTarget.addEventListener("click",()=>openFullCheck(data.target.id,origin));
+    links.append(openBase,openTarget);body.append(links);
+    body.append(node("p","detail-subtitle","Сравнение использует сохранённые результаты. Новые проверки и запросы нейросети не запускаются."));
+  } catch(problem) {if(sequence===detailSequence && !$("drawer").hidden)body.append(node("p","detail-callout","Сравнение недоступно. Новые проверки не запускались."));}
 }
 async function openComparison(kind,base,target,origin) {
   const sequence=openRunnerDrawer(kind==="run" ? "Сравнение запусков кода" : "Сравнение статических отчётов",origin), body=$("detail-body");

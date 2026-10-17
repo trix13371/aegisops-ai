@@ -1317,3 +1317,140 @@ def test_run_job_failure_safe_handling(operator, full_evidence, monkeypatch):
     assert "CANARY" not in dashboard.job["message"]
     state = dashboard.full_analyses.state(check.id)
     assert state["status"] == "failed"
+
+
+@pytest.fixture
+def comparison_pair(full_evidence):
+    dashboard, request, check1 = full_evidence
+    from aegisops.domain.common import utc_now
+    from aegisops.project_checks.models import build_result
+    from aegisops.project_checks.snapshot import scan_snapshot
+    from aegisops.project_runner.models import RunResult, ToolCheck
+    from aegisops.project_runner.snapshot import snapshot_project
+
+    def _create_second(environment="minimal"):
+        project = dashboard.projects.get(check1.project_id)
+        claim2 = dashboard.checks.create(project.id, environment)
+        snap2 = snapshot_project(project, claim2.profile)
+        rep2 = scan_snapshot(project.id, snap2)
+        dashboard.projects.save_report(rep2)
+        tools = (
+            ToolCheck(
+                tool="ruff", status="passed", exit_code=0, output="ok", output_truncated=False
+            ),
+            ToolCheck(
+                tool="pytest", status="passed", exit_code=0, output="ok", output_truncated=False
+            ),
+        )
+        run2 = RunResult(
+            id=claim2.id,
+            project_id=project.id,
+            environment=environment,
+            profile=claim2.profile,
+            completed_at=utc_now(),
+            status="passed",
+            reason="checks_completed",
+            snapshot=snap2.info,
+            image_id="sha256:" + "a" * 64,
+            checks=tools,
+            container_removed=True,
+            execution_scope="container",
+        )
+        dashboard.runs.save(run2)
+        check2 = build_result(claim2, rep2, run2)
+        dashboard.checks.save(check2)
+        return check2
+
+    return dashboard, request, check1, _create_second
+
+
+def test_comparison_endpoint_auth_and_routing_boundaries(comparison_pair):
+    dashboard, request, check1, create_second = comparison_pair
+    check2 = create_second()
+    path = f"/api/project-check-comparison/{check1.id}/{check2.id}"
+    status, _, _ = request(path, auth=False)
+    assert status == 401
+    status, _, _ = request(path, auth=True, headers={"Host": "attacker.local"})
+    assert status == 403
+    status, _, _ = request(f"/api/project-check-comparison/{check1.id}/not-a-uuid", auth=True)
+    assert status == 503
+    status, _, _ = request(f"{path}/extra", auth=True)
+    assert status == 503
+
+
+def test_comparison_endpoint_success_read_only(comparison_pair, monkeypatch):
+    dashboard, request, check1, create_second = comparison_pair
+    check2 = create_second()
+    monkeypatch.setattr(dashboard.analyses, "claim", pytest.fail)
+    monkeypatch.setattr(dashboard.full_analyses, "claim", pytest.fail)
+    monkeypatch.setattr(dashboard.runs, "create", pytest.fail)
+
+    def _tree_bytes(base_dir):
+        return {p: p.read_bytes() for p in base_dir.rglob("*") if p.is_file()}
+
+    before = {
+        "checks": _tree_bytes(dashboard.checks.directory),
+        "runs": _tree_bytes(dashboard.runs.directory),
+        "projects": _tree_bytes(dashboard.projects.directory),
+    }
+    status, _, body = request(f"/api/project-check-comparison/{check1.id}/{check2.id}", auth=True)
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["comparable"] is True
+    assert data["reasons"] == []
+    assert data["static"] is not None and data["runner"] is not None
+    assert data["base"]["id"] == str(check1.id)
+    assert data["target"]["id"] == str(check2.id)
+    after = {
+        "checks": _tree_bytes(dashboard.checks.directory),
+        "runs": _tree_bytes(dashboard.runs.directory),
+        "projects": _tree_bytes(dashboard.projects.directory),
+    }
+    assert before == after
+
+
+def test_comparison_endpoint_distinct_same_project_constraints(comparison_pair, tmp_path):
+    dashboard, request, check1, create_second = comparison_pair
+    check2 = create_second()
+    status, _, _ = request(f"/api/project-check-comparison/{check1.id}/{check1.id}", auth=True)
+    assert status == 503
+    other_dir = tmp_path / "other-proj"
+    other_dir.mkdir()
+    (other_dir / "main.py").write_text("print('other')\n", encoding="utf-8")
+    (other_dir / "compose.yaml").write_text(
+        "services:\n  app:\n    image: test\n", encoding="utf-8"
+    )
+    other_proj = dashboard.projects.add("Other", str(other_dir))
+    other_claim = dashboard.checks.create(other_proj.id, "minimal")
+    status, _, _ = request(f"/api/project-check-comparison/{check1.id}/{other_claim.id}", auth=True)
+    assert status == 503
+    from uuid import uuid4
+
+    status, _, _ = request(f"/api/project-check-comparison/{check1.id}/{uuid4()}", auth=True)
+    assert status == 503
+    dashboard.projects.remove(check1.project_id)
+    status, _, _ = request(f"/api/project-check-comparison/{check1.id}/{check2.id}", auth=True)
+    assert status == 503
+
+
+def test_comparison_tampered_source_rejected(comparison_pair):
+    dashboard, request, check1, create_second = comparison_pair
+    check2 = create_second()
+    report_path = dashboard.projects.directory / "reports" / f"{check1.static_report_id}.json"
+    report_data = json.loads(report_path.read_text(encoding="utf-8"))
+    report_data["created_at"] = "2020-01-01T00:00:00Z"
+    report_path.write_text(json.dumps(report_data), encoding="utf-8")
+    status, _, _ = request(f"/api/project-check-comparison/{check1.id}/{check2.id}", auth=True)
+    assert status == 503
+
+
+def test_comparison_environment_changed_non_comparable(comparison_pair):
+    dashboard, request, check1, create_second = comparison_pair
+    check2 = create_second(environment="python-data-v1")
+    status, _, body = request(f"/api/project-check-comparison/{check1.id}/{check2.id}", auth=True)
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["comparable"] is False
+    assert data["reasons"] == ["environment_changed"]
+    assert data["static"] is None
+    assert data["runner"] is None
