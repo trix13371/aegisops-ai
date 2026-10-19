@@ -2843,8 +2843,9 @@ test('history partial masks overall metrics, shows coverage status, literals not
   assert.ok(humanText.includes('Отвечено: 4 из 9'));
   assert.ok(humanText.includes('Итого: TP 1 · FP 2 · FN 3'));
   assert.ok(humanText.includes('python: отвечено 1 из 3 · precision/recall недоступны'));
-  assert.ok(humanText.includes('Токены: вход 10 · выход 20'));
+  assert.ok(humanText.includes('Токены принятых ответов: вход 10 · выход 20'));
   assert.ok(humanText.includes('Тестовые ограничения'));
+  assert.ok(humanText.includes('Неуспешный запрос тоже мог быть платным; его расход здесь неизвестен.'));
   assert.ok(body.textContent.includes(maliciousHtml));
   assert.strictEqual(doc.querySelectorAll('script').length, 0);
 
@@ -2904,7 +2905,7 @@ test('latest completed v2 history renders metrics, tokens, and coverage without 
   const humanText = Array.from(body.querySelectorAll('p')).map(p => p.textContent || '').join(' ');
   assert.ok(humanText.includes('Precision: 0.625 · Recall: 0.5'));
   assert.ok(humanText.includes('python: отвечено 3 из 3 · precision 0.75 · recall 0.6 · TP 3 · FP 1 · FN 2'));
-  assert.ok(humanText.includes('Токены: вход 15 · выход 25'));
+  assert.ok(humanText.includes('Токены принятых ответов: вход 15 · выход 25'));
   assert.ok(!humanText.includes('?'));
 });
 
@@ -2946,4 +2947,163 @@ test('latest legacy v1 history renders legacy callout and preserves scope withou
   assert.ok(bodyText.includes('Отчёт формата v1 (устаревший). Метрики v2 недоступны; ниже показан сохранённый отчёт как есть.'));
   assert.ok(bodyText.includes('synthetic-line-overlap-v1'));
   assert.ok(!bodyText.includes('Отчёт неполный'));
+});
+
+test('latest failed v2 history renders failure cause, case id, no-retry notice, and incomplete callout without triggering POST', async () => {
+  const catalog = createValidV2Catalog();
+  catalog.history = [
+    {
+      claim: {
+        suite_profile: 'synthetic-file-overlap-v2',
+        fixture_sha256: 'e'.repeat(64)
+      },
+      status: 'failed',
+      result: {
+        failure: {
+          code: 'timeout',
+          case_id: catalog.cases[0].id
+        },
+        report: {
+          scope: 'synthetic-file-overlap-v2',
+          complete: false,
+          answered: 0,
+          total: 9,
+          tp: 0,
+          fp: 0,
+          fn: 0
+        },
+        usage: {}
+      }
+    }
+  ];
+
+  let getCalls = 0;
+  let postCalls = 0;
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    const method = opts.method || 'GET';
+    if (method === 'GET' && url === '/api/project-code-evaluation-v2') {
+      getCalls++;
+      return { ok: true, json: async () => catalog };
+    }
+    if (method === 'POST') {
+      postCalls++;
+      return { ok: true, json: async () => ({}) };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeEvaluation(null)', ctx);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(getCalls, 1);
+  assert.strictEqual(postCalls, 0);
+
+  const consentCheckbox = doc.getElementById('code-eval-consent');
+  assert.ok(consentCheckbox);
+  assert.strictEqual(consentCheckbox.checked, false);
+
+  const body = doc.getElementById('detail-body');
+  const paragraphs = Array.from(body.querySelectorAll('p')).map(p => p.textContent || '').join(' ');
+  assert.ok(paragraphs.includes('Причина сбоя: превышено время ожидания'));
+  assert.ok(Array.from(body.querySelectorAll("p")).some(p => p.textContent.startsWith("Причина сбоя:") && p.textContent.includes(catalog.cases[0].id)));
+  assert.ok(paragraphs.includes('Повтор автоматически не выполняется.'));
+  assert.ok(paragraphs.includes('Отчёт неполный'));
+});
+
+test('old failed record without failure object renders not-saved cause and never shows fake timeout', async () => {
+  const catalog = createValidV2Catalog();
+  catalog.history = [
+    {
+      claim: {
+        suite_profile: 'synthetic-file-overlap-v2',
+        fixture_sha256: 'f'.repeat(64)
+      },
+      status: 'failed',
+      result: {
+        report: {
+          scope: 'synthetic-file-overlap-v2',
+          complete: false,
+          answered: 0,
+          total: 9
+        }
+      }
+    }
+  ];
+
+  let getCalls = 0;
+  let postCalls = 0;
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    const method = opts.method || 'GET';
+    if (method === 'GET' && url === '/api/project-code-evaluation-v2') {
+      getCalls++;
+      return { ok: true, json: async () => catalog };
+    }
+    if (method === 'POST') {
+      postCalls++;
+      return { ok: true, json: async () => ({}) };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeEvaluation(null)', ctx);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(getCalls, 1);
+  assert.strictEqual(postCalls, 0);
+  const body = doc.getElementById('detail-body');
+  const paragraphs = Array.from(body.querySelectorAll('p')).map(p => p.textContent || '').join(' ');
+  assert.ok(paragraphs.includes('Причина сбоя не была сохранена. Повтор автоматически не выполняется.'));
+  assert.ok(!paragraphs.includes('превышено время ожидания'));
+});
+
+test('unknown failure code with html canary is not rendered or executed and uses generic fallback cause', async () => {
+  const catalog = createValidV2Catalog();
+  const htmlCanary = '<img src=x onerror=alert(1)>CANARY_XSS';
+  catalog.history = [
+    {
+      claim: {
+        suite_profile: 'synthetic-file-overlap-v2',
+        fixture_sha256: 'a'.repeat(64)
+      },
+      status: 'failed',
+      result: {
+        failure: {
+          code: htmlCanary,
+          case_id: catalog.cases[0].id
+        },
+        report: {
+          scope: 'synthetic-file-overlap-v2',
+          complete: false,
+          answered: 0,
+          total: 9
+        }
+      }
+    }
+  ];
+
+  let getCalls = 0;
+  let postCalls = 0;
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    const method = opts.method || 'GET';
+    if (method === 'GET' && url === '/api/project-code-evaluation-v2') {
+      getCalls++;
+      return { ok: true, json: async () => catalog };
+    }
+    if (method === 'POST') {
+      postCalls++;
+      return { ok: true, json: async () => ({}) };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeEvaluation(null)', ctx);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(getCalls, 1);
+  assert.strictEqual(postCalls, 0);
+  assert.strictEqual(doc.querySelectorAll('img').length, 0);
+  const body = doc.getElementById('detail-body');
+  assert.ok(!body.textContent.includes('CANARY_XSS'));
+  const paragraphs = Array.from(body.querySelectorAll('p')).map(p => p.textContent || '').join(' ');
+  assert.ok(paragraphs.includes('Причина сбоя не была сохранена. Повтор автоматически не выполняется.'));
 });

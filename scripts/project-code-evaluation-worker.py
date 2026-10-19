@@ -18,6 +18,7 @@ from pydantic import SecretStr
 
 from aegisops.assistant.runtime import runtime_model
 from aegisops.domain.common import utc_now
+from aegisops.project_ai.transport import AnalysisError
 from aegisops.project_code import evaluation as _v1
 from aegisops.project_code import evaluation_v2 as _v2
 from aegisops.project_code.evaluation_repository import EvalRepository
@@ -87,7 +88,7 @@ def _max_requests(profile: str) -> int:
     raise ValueError("unknown profile")
 
 
-def _build_result(profile: str, identifier, claim, answers, usage, status):
+def _build_result(profile: str, identifier, claim, answers, usage, status, failure=None):
     result_class = _result_class(profile)
     if profile == _V1_PROFILE:
         return result_class(
@@ -109,6 +110,7 @@ def _build_result(profile: str, identifier, claim, answers, usage, status):
         answers=answers,
         usage=usage,
         report=_score(profile, answers),
+        failure=failure,
     )
 
 
@@ -118,6 +120,8 @@ def main():
     answers: dict[str, object] = {}
     usage: dict[str, object] = {}
     profile = _V1_PROFILE
+    current_case_id: str | None = None
+    failure_code = "unavailable"
     projects = ProjectRepository(ROOT / ".local/projects")
     repository = EvalRepository(ROOT / ".local/project-code-eval", projects)
     try:
@@ -143,9 +147,21 @@ def main():
             if _fixture_digest(profile) != claim.fixture_sha256:
                 raise ValueError("fixture changed before case")
             preview = _case_preview(profile, case.id, identifier)
-            review, input_tokens, output_tokens = explain_code(
-                preview, SecretStr(os.environ.get("AEGISOPS_LLM_API_KEY", ""))
-            )
+            current_case_id = case.id
+            try:
+                review, input_tokens, output_tokens = explain_code(
+                    preview, SecretStr(os.environ.get("AEGISOPS_LLM_API_KEY", ""))
+                )
+            except AnalysisError as exc:
+                failure_code = (
+                    exc.code
+                    if type(exc.code) is str and exc.code in _v2.FAILURE_CODES
+                    else "unavailable"
+                )
+                raise
+            except Exception:
+                failure_code = "unavailable"
+                raise
             if profile == _V2_PROFILE:
                 usage[case.id] = _v2.CaseUsage(
                     input_tokens=input_tokens,
@@ -165,7 +181,15 @@ def main():
             try:
                 claim = repository.read_claim(identifier)
                 if claim is not None and repository.result(identifier) is None:
-                    failed = _build_result(profile, identifier, claim, answers, usage, "failed")
+                    failure = None
+                    if profile == _V2_PROFILE:
+                        failure = _v2.EvalFailure(
+                            code=failure_code,
+                            case_id=current_case_id,
+                        )
+                    failed = _build_result(
+                        profile, identifier, claim, answers, usage, "failed", failure
+                    )
                     repository.save(failed)
             except Exception:  # noqa: S110 -- fixed output even if storage is corrupt
                 pass

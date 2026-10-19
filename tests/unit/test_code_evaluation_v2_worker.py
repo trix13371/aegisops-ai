@@ -253,3 +253,88 @@ def test_worker_fixture_mismatch_or_too_many_cases_zero_calls(worker_env, monkey
     assert exit_code2 == 1
     assert json.loads(captured2.out.strip()) == {"ok": False}
     assert calls == 0
+
+
+def test_worker_v2_analysis_error_timeout_preserves_two_answers_and_failure(
+    worker_env, monkeypatch, capsys
+):
+    worker, repo = worker_env
+    claim = repo.create("synthetic-file-overlap-v2")
+    monkeypatch.setattr(sys, "argv", ["worker.py", str(claim.id)])
+
+    cases = worker._cases("synthetic-file-overlap-v2")
+    third_case_id = cases[2].id
+    calls = 0
+
+    def failing_explain(preview, key):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise worker.AnalysisError("timeout")
+        return (
+            CodeReview(summary="Synthetic response", findings=(), limitations="Fixture only"),
+            10,
+            5,
+        )
+
+    monkeypatch.setattr(worker, "explain_code", failing_explain)
+
+    exit_code = worker.main()
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert json.loads(captured.out.strip()) == {"ok": False}
+    assert calls == 3
+    assert CANARY not in captured.out
+    assert CANARY not in captured.err
+
+    saved = repo.result(claim.id)
+    assert saved is not None
+    assert saved.status == "failed"
+    assert len(saved.answers) == 2
+    assert len(saved.usage) == 2
+    assert saved.failure is not None
+    assert saved.failure.code == "timeout"
+    assert saved.failure.case_id == third_case_id
+
+    raw_record = repo._read(claim.id, "result", 524288)
+    assert CANARY not in str(raw_record)
+
+
+def test_worker_v2_unknown_failure_code_falls_back_to_unavailable(worker_env, monkeypatch, capsys):
+    worker, repo = worker_env
+    claim = repo.create("synthetic-file-overlap-v2")
+    monkeypatch.setattr(sys, "argv", ["worker.py", str(claim.id)])
+
+    cases = worker._cases("synthetic-file-overlap-v2")
+    first_case_id = cases[0].id
+    calls = 0
+    malicious_code = f"<script>{CANARY}</script>"
+
+    def failing_explain(preview, key):
+        nonlocal calls
+        calls += 1
+        err = worker.AnalysisError("network")
+        err.code = malicious_code
+        raise err
+
+    monkeypatch.setattr(worker, "explain_code", failing_explain)
+
+    exit_code = worker.main()
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert json.loads(captured.out.strip()) == {"ok": False}
+    assert calls == 1
+    assert CANARY not in captured.out
+    assert CANARY not in captured.err
+
+    saved = repo.result(claim.id)
+    assert saved is not None
+    assert saved.status == "failed"
+    assert len(saved.answers) == 0
+    assert len(saved.usage) == 0
+    assert saved.failure is not None
+    assert saved.failure.code == "unavailable"
+    assert saved.failure.case_id == first_case_id
+
+    raw_record = repo._read(claim.id, "result", 524288)
+    assert CANARY not in str(raw_record)

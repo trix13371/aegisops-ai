@@ -47,5 +47,7 @@ def explain_code(preview: CodePreview, key: SecretStr) -> tuple[CodeReview, int,
         )
         review = CodeReview.model_validate(content)
         return validate_review(preview, review), input_tokens, output_tokens
+    except AnalysisError:
+        raise
     except Exception:
-        raise AnalysisError() from None
+        raise AnalysisError("invalid_review") from None

@@ -1618,6 +1618,19 @@ async function openCodeEvaluation(origin){
       return;
     }
     const complete=report && typeof report==="object" && report.complete===true;
+    const failure=latest && latest.result && latest.result.failure && typeof latest.result.failure==="object" ? latest.result.failure : null;
+    if(failure){
+      const failureLabels={unavailable:"недоступно",timeout:"превышено время ожидания",network:"сетевая ошибка",http_error:"ошибка HTTP",invalid_response:"некорректный ответ",invalid_review:"некорректный разбор"};
+      const failureCode=typeof failure.code==="string" && Object.prototype.hasOwnProperty.call(failureLabels,failure.code) ? failure.code : null;
+      if(failureCode){
+        const failureText=node("p","detail-callout",`Причина сбоя: ${failureLabels[failureCode]}`);
+        if(typeof failure.case_id==="string" && failure.case_id)failureText.append(node("span","",` · случай ${failure.case_id}`));
+        panel.append(failureText);
+      }
+      panel.append(node("p","detail-callout",failureCode?"Повтор автоматически не выполняется.":"Причина сбоя не была сохранена. Повтор автоматически не выполняется."));
+    } else if(latest && latest.status==="failed"){
+      panel.append(node("p","detail-callout","Причина сбоя не была сохранена. Повтор автоматически не выполняется."));
+    }
     if(scope)panel.append(node("p","",`Область: ${scope}`));
     if(latest && typeof latest.status==="string" && latest.status)panel.append(node("p","",`Статус: ${latest.status}`));
     if(latest && latest.claim && typeof latest.claim.suite_profile==="string" && latest.claim.suite_profile)panel.append(node("p","",`Профиль набора: ${latest.claim.suite_profile}`));
@@ -1651,7 +1664,8 @@ async function openCodeEvaluation(origin){
     if(inj)panel.append(node("p","detail-callout",`Примеры с инъекциями: отвечено ${inj.answered ?? "?"} из ${inj.total ?? "?"} · пройдено ${inj.passed ?? "?"} · ложных срабатываний ${inj.false_positive_cases ?? "?"}`));
     const usage=latest && latest.result && latest.result.usage && typeof latest.result.usage==="object" ? latest.result.usage : null;
     if(usage){let inTok=0,outTok=0;for(const k of Object.keys(usage)){const u=usage[k] && typeof usage[k]==="object" ? usage[k] : {};if(typeof u.input_tokens==="number")inTok+=u.input_tokens;if(typeof u.output_tokens==="number")outTok+=u.output_tokens;}
-      panel.append(node("p","detail-callout",`Токены: вход ${inTok} · выход ${outTok}`));}
+      panel.append(node("p","detail-callout",`Токены принятых ответов: вход ${inTok} · выход ${outTok}`));
+      if(!complete) panel.append(node("p","detail-callout","Неуспешный запрос тоже мог быть платным; его расход здесь неизвестен."));}
     if(report && typeof report==="object" && typeof report.limitations==="string" && report.limitations){
       const lim=node("div","detail-callout");lim.append(node("p","","Ограничения:"));lim.append(node("p","",report.limitations));panel.append(lim);}
     else if(report && typeof report==="object" && Array.isArray(report.limitations) && report.limitations.length){

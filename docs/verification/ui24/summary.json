@@ -1,0 +1,55 @@
+{
+  "stage": "UI24",
+  "date": "2026-10-19",
+  "feature": "live evaluation attempted; safe diagnostics added",
+  "runtime_evaluation": {
+    "id": "8c994c21-36b2-4142-b7e2-3a2931b9910f",
+    "profile": "synthetic-file-overlap-v2",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "fixture_sha256": "10fc0928fed0bb440c1ad8e10731f587fb9040c94cf0b517e492c52b83a1ed92",
+    "authorized_suites": 1,
+    "suite_request_limit": 9,
+    "attempted_cases": 1,
+    "accepted_answers": 0,
+    "total": 9,
+    "status": "failed",
+    "precision": null,
+    "recall": null,
+    "elapsed_claim_to_result_seconds": 31.5,
+    "failure_cause": "unknown; not captured by original implementation",
+    "actual_charge": "unknown",
+    "retry_performed": false,
+    "quality_measured": false,
+    "original_record_modified": false
+  },
+  "unauthenticated_network_probe": {
+    "operation": "HTTPS HEAD to provider website; no key and no model call",
+    "http_status": 200,
+    "seconds": 0.5
+  },
+  "regression_with_postgresql": {
+    "passed": 1593,
+    "skipped": 4,
+    "deselected": 69,
+    "seconds": 186.06,
+    "excluded_markers": [
+      "llm_live",
+      "kind_live",
+      "opa_live",
+      "runner_live"
+    ]
+  },
+  "focused_diagnostics_and_worker_passed": 16,
+  "new_python_tests": 11,
+  "ui_passed": 56,
+  "mypy_source_files": 149,
+  "import_contracts_kept": 25,
+  "schemas_verified": 57,
+  "independent_review": "pass",
+  "gitleaks_staged": "no leaks found",
+  "wheel_source_byte_matches": 4,
+  "sdist_worker_byte_matches": 1,
+  "runtime_assistant_credentials_modified": false,
+  "github_push_performed": false,
+  "screenshot": ".local/ui24-evaluation-result.png"
+}

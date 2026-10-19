@@ -15,14 +15,26 @@ from aegisops.assistant.runtime import runtime_selection
 from aegisops.io import unique_object
 from aegisops.project_ai.models import MODEL, Explanation, Summary
 
+_ANALYSIS_CODES: frozenset[str] = frozenset(
+    {
+        "unavailable",
+        "timeout",
+        "network",
+        "http_error",
+        "invalid_response",
+        "invalid_review",
+    }
+)
+
 
 class AnalysisError(ValueError):
-    def __init__(self) -> None:
+    def __init__(self, code: str = "unavailable") -> None:
+        self.code = code if type(code) is str and code in _ANALYSIS_CODES else "unavailable"
         super().__init__("Нейросетевой разбор недоступен. Повтор автоматически не выполняется")
 
 
 def reject_constant(value: str) -> None:
-    raise AnalysisError()
+    raise AnalysisError("invalid_response")
 
 
 def parse_json(value: str | bytes) -> object:
@@ -48,8 +60,10 @@ def explain(summary: Summary, key: SecretStr) -> tuple[Explanation, int, int]:
         result = Explanation.model_validate(content)
         allowed = {item.code for item in summary.categories}
         if any(item.code not in allowed for item in result.actions):
-            raise AnalysisError()
+            raise AnalysisError("invalid_review")
         return result, input_tokens, output_tokens
+    except AnalysisError:
+        raise
     except Exception:
         raise AnalysisError() from None
 
@@ -74,6 +88,8 @@ def _exchange(
                 selection,
                 source_review=source_review,
             )
+        except AnalysisError:
+            raise
         except Exception:
             raise AnalysisError() from None
     max_request = 65536 if source_review else 16384
@@ -84,7 +100,7 @@ def _exchange(
     try:
         secret = key.get_secret_value()
         if not secret or len(secret) > 4096 or any(not 33 <= ord(char) <= 126 for char in secret):
-            raise AnalysisError()
+            raise AnalysisError("unavailable")
         payload = {
             "model": MODEL,
             "messages": [
@@ -100,7 +116,7 @@ def _exchange(
         }
         body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
         if len(body) > max_request:
-            raise AnalysisError()
+            raise AnalysisError("unavailable")
         host = "openrouter.ai"
         proxy = getproxies().get("https")
         endpoint = urlsplit(proxy) if proxy and not proxy_bypass(host) else None
@@ -113,10 +129,10 @@ def _exchange(
             or endpoint.query
             or endpoint.fragment
         ):
-            raise AnalysisError()
+            raise AnalysisError("unavailable")
         proxy_host = endpoint.hostname if endpoint else host
         if proxy_host is None:
-            raise AnalysisError()
+            raise AnalysisError("unavailable")
         connection = http.client.HTTPSConnection(
             proxy_host,
             (endpoint.port or 80) if endpoint else 443,
@@ -138,53 +154,77 @@ def _exchange(
         timer = threading.Timer(30, abort)
         timer.daemon = True
         timer.start()
-        connection.connect()
+        try:
+            connection.connect()
+        except TimeoutError:
+            raise AnalysisError("timeout") from None
+        except OSError as exc:
+            if time.monotonic() >= deadline or isinstance(exc, socket.timeout):
+                raise AnalysisError("timeout") from None
+            raise AnalysisError("network") from None
         wire_socket = connection.sock
         if time.monotonic() >= deadline:
-            raise AnalysisError()
-        connection.request(
-            "POST",
-            "/api/v1/chat/completions",
-            body=body,
-            headers={
-                "Authorization": "Bearer " + secret,
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "AegisOps/0.1",
-            },
-        )
-        response = connection.getresponse()
+            raise AnalysisError("timeout")
         try:
+            connection.request(
+                "POST",
+                "/api/v1/chat/completions",
+                body=body,
+                headers={
+                    "Authorization": "Bearer " + secret,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "AegisOps/0.1",
+                },
+            )
+            response = connection.getresponse()
+        except TimeoutError:
+            raise AnalysisError("timeout") from None
+        except OSError as exc:
+            if time.monotonic() >= deadline or isinstance(exc, socket.timeout):
+                raise AnalysisError("timeout") from None
+            raise AnalysisError("network") from None
+        try:
+            if response.status != 200:
+                raise AnalysisError("http_error")
             length = response.getheader("Content-Length")
-            if (
-                response.status != 200
-                or length is not None
-                and (not length.isdecimal() or int(length) > 65536)
-            ):
-                raise AnalysisError()
+            if length is not None and (not length.isdecimal() or int(length) > 65536):
+                raise AnalysisError("invalid_response")
             data = bytearray()
             while True:
                 if time.monotonic() >= deadline:
-                    raise AnalysisError()
+                    raise AnalysisError("timeout")
                 if connection.sock is not None:
                     connection.sock.settimeout(max(0.01, deadline - time.monotonic()))
-                chunk = response.read1(min(4096, 65537 - len(data)))
+                try:
+                    chunk = response.read1(min(4096, 65537 - len(data)))
+                except TimeoutError:
+                    raise AnalysisError("timeout") from None
+                except OSError as exc:
+                    if time.monotonic() >= deadline or isinstance(exc, socket.timeout):
+                        raise AnalysisError("timeout") from None
+                    raise AnalysisError("network") from None
                 data.extend(chunk)
                 if len(data) > 65536:
-                    raise AnalysisError()
+                    raise AnalysisError("invalid_response")
                 if not chunk:
                     break
-            reply = parse_json(bytes(data))
+            try:
+                reply = parse_json(bytes(data))
+            except AnalysisError:
+                raise
+            except Exception:
+                raise AnalysisError("invalid_response") from None
         finally:
             response.close()
         if not isinstance(reply, dict) or reply.get("model") != MODEL:
-            raise AnalysisError()
+            raise AnalysisError("invalid_response")
         choices = reply.get("choices")
         if not isinstance(choices, list) or len(choices) != 1:
-            raise AnalysisError()
+            raise AnalysisError("invalid_response")
         choice = choices[0]
         if not isinstance(choice, dict) or choice.get("finish_reason") != "stop":
-            raise AnalysisError()
+            raise AnalysisError("invalid_response")
         message, usage = choice.get("message"), reply.get("usage")
         if (
             not isinstance(message, dict)
@@ -194,8 +234,13 @@ def _exchange(
             or message.get("refusal")
             or not isinstance(message.get("content"), str)
         ):
-            raise AnalysisError()
-        content = parse_json(message["content"])
+            raise AnalysisError("invalid_response")
+        try:
+            content = parse_json(message["content"])
+        except AnalysisError:
+            raise
+        except Exception:
+            raise AnalysisError("invalid_response") from None
         input_tokens, output_tokens = usage.get("prompt_tokens"), usage.get("completion_tokens")
         if (
             type(input_tokens) is not int
@@ -203,8 +248,10 @@ def _exchange(
             or type(output_tokens) is not int
             or not 0 <= output_tokens <= max_output
         ):
-            raise AnalysisError()
+            raise AnalysisError("invalid_response")
         return content, input_tokens, output_tokens
+    except AnalysisError:
+        raise
     except Exception:
         raise AnalysisError() from None
     finally:

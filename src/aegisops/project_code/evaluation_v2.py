@@ -292,6 +292,41 @@ class CaseUsage(DTO):
     output_tokens: StrictInt = Field(ge=0, le=2800)
 
 
+FAILURE_CODES: Final[frozenset[str]] = frozenset(
+    {
+        "unavailable",
+        "timeout",
+        "network",
+        "http_error",
+        "invalid_response",
+        "invalid_review",
+    }
+)
+
+
+def _known_case_id(value: str) -> str:
+    _case(value)
+    return value
+
+
+class EvalFailure(DTO):
+    code: Literal[
+        "unavailable",
+        "timeout",
+        "network",
+        "http_error",
+        "invalid_response",
+        "invalid_review",
+    ]
+    case_id: str | None = None
+
+    @model_validator(mode="after")
+    def consistent(self) -> Self:
+        if self.case_id is not None:
+            _known_case_id(self.case_id)
+        return self
+
+
 class EvalResultV2(DTO):
     suite_profile: Literal["synthetic-file-overlap-v2"] = SCOPE
     id: UUID
@@ -302,6 +337,7 @@ class EvalResultV2(DTO):
     answers: dict[str, CodeReview] = Field(default_factory=dict)
     usage: dict[str, CaseUsage] = Field(default_factory=dict)
     report: dict[str, object] = Field(default_factory=dict)
+    failure: EvalFailure | None = None
 
     @model_validator(mode="after")
     def consistent(self) -> Self:
@@ -313,6 +349,8 @@ class EvalResultV2(DTO):
             raise ValueError("usage keys must match answered case ids")
         if self.status == "completed" and len(self.answers) != CASE_COUNT:
             raise ValueError("completed requires nine answers")
+        if self.status == "completed" and self.failure is not None:
+            raise ValueError("completed must not carry failure")
         expected_report = score_answers(self.answers)
         canonical = json.dumps(
             expected_report,
@@ -350,7 +388,9 @@ __all__ = (
     "MAX_REQUESTS",
     "SCOPE",
     "CaseUsage",
+    "EvalFailure",
     "EvalResultV2",
+    "FAILURE_CODES",
     "case_preview",
     "cases",
     "fixture_digest",
