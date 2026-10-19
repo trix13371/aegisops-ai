@@ -15,6 +15,7 @@ from aegisops.project_code.models import (
     MAX_FILES,
     MAX_TOTAL_BYTES,
 )
+from aegisops.project_code.selection import choose_candidates, file_role
 from aegisops.project_code.source import SUFFIX_LANGUAGE, capture, catalog
 from aegisops.projects.models import Project, ProjectError
 
@@ -32,28 +33,6 @@ RECOMMEND_LIMITATIONS: Final[tuple[str, ...]] = (
     "Файлы могут измениться до предпросмотра.",
 )
 
-ENTRYPOINT_STEMS: Final[frozenset[str]] = frozenset(
-    {"main", "app", "server", "index", "cli", "__main__"}
-)
-CONFIG_NAMES: Final[frozenset[str]] = frozenset(
-    {
-        "package.json",
-        "pyproject.toml",
-        "setup.py",
-        "setup.cfg",
-        "tox.ini",
-        "requirements.txt",
-        "dockerfile",
-        "docker-compose.yml",
-        "docker-compose.yaml",
-        "compose.yml",
-        "compose.yaml",
-        "makefile",
-        "tsconfig.json",
-        "vite.config.ts",
-        "vite.config.js",
-    }
-)
 JS_SUFFIXES: Final[tuple[str, ...]] = (".js", ".mjs", ".cjs", ".ts", ".tsx")
 JS_RESOLVE_SUFFIXES: Final[tuple[str, ...]] = (".js", ".mjs", ".cjs", ".ts")
 
@@ -68,23 +47,7 @@ def _language(path: str) -> str:
 
 
 def _role(path: str) -> str:
-    name = path.rsplit("/", 1)[-1]
-    lower = name.lower()
-    stem = lower.rsplit(".", 1)[0]
-    parts = path.lower().split("/")
-    if lower in CONFIG_NAMES or stem in CONFIG_NAMES:
-        return "config"
-    if lower.endswith(".md"):
-        return "docs"
-    if "tests" in parts[:-1] or "test" in parts[:-1]:
-        return "test"
-    if lower.startswith("test_") or "_test." in lower:
-        return "test"
-    if ".test." in lower or ".spec." in lower:
-        return "test"
-    if stem in ENTRYPOINT_STEMS:
-        return "entrypoint"
-    return "module"
+    return file_role(path)
 
 
 def _module_candidates(path: str) -> list[str]:
@@ -150,8 +113,19 @@ def _python_meta(text: str, path: str) -> tuple[list[str], list[str], bool]:
         tree = ast.parse(text)
     except (SyntaxError, ValueError, RecursionError):
         return [], [], False
+
     symbols: list[str] = []
     imports: list[str] = []
+
+    def _add_import(candidate: str) -> None:
+        if len(imports) >= MAX_IMPORTS:
+            return
+        if len(candidate) > MAX_IMPORT_LEN:
+            return
+        if candidate in imports:
+            return
+        imports.append(candidate)
+
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if len(symbols) < MAX_SYMBOLS and node.name not in symbols:
@@ -159,19 +133,29 @@ def _python_meta(text: str, path: str) -> tuple[list[str], list[str], bool]:
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 for candidate in _resolve_absolute(alias.name):
-                    if len(imports) < MAX_IMPORTS:
-                        imports.append(candidate[:MAX_IMPORT_LEN])
+                    _add_import(candidate)
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
             level = node.level or 0
             if level:
-                for candidate in _resolve_relative(path, module, level):
-                    if len(imports) < MAX_IMPORTS:
-                        imports.append(candidate[:MAX_IMPORT_LEN])
+                if module:
+                    for candidate in _resolve_relative(path, module, level):
+                        _add_import(candidate)
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    submodule = f"{module}.{alias.name}" if module else alias.name
+                    for candidate in _resolve_relative(path, submodule, level):
+                        _add_import(candidate)
             elif module:
                 for candidate in _resolve_absolute(module):
-                    if len(imports) < MAX_IMPORTS:
-                        imports.append(candidate[:MAX_IMPORT_LEN])
+                    _add_import(candidate)
+                for alias in node.names:
+                    if alias.name == "*":
+                        continue
+                    for candidate in _resolve_absolute(f"{module}.{alias.name}"):
+                        _add_import(candidate)
+
     return symbols, imports, True
 
 
@@ -233,7 +217,7 @@ def build_map(project: Project) -> dict[str, object]:
     limitations: list[str] = []
     if partial:
         limitations.append("Список файлов неполный: достигнут лимит обхода.")
-    candidates = files[:MAX_CANDIDATES]
+    candidates = choose_candidates(files, MAX_CANDIDATES)
     if len(files) > MAX_CANDIDATES:
         limitations.append("Проанализированы не все файлы: лимит кандидатов.")
     deadline = time.monotonic() + DEADLINE_SECONDS
@@ -385,7 +369,7 @@ def _recommend_rank(node: _Node, inbound: dict[str, int]) -> tuple[int, int, str
     if role == "entrypoint":
         order = 0
     elif role == "module":
-        order = 1
+        order = 1 if node["language"] in {"python", "javascript", "typescript"} else 4
     elif role == "test":
         order = 2
     elif role == "config":
@@ -459,7 +443,11 @@ def recommend_review(project: Project) -> dict[str, object]:
     if anchor is None:
         for node in ranked:
             if node["role"] == "module":
-                if add(node, "Центральный модуль проекта."):
+                if inbound.get(node["path"], 0) > 0:
+                    reason = "Центральный модуль проекта."
+                else:
+                    reason = "Дополнительный модуль проекта."
+                if add(node, reason):
                     anchor = node
                     break
     if anchor is not None:
@@ -483,6 +471,11 @@ def recommend_review(project: Project) -> dict[str, object]:
                 ):
                     if add(candidate, "Связанный тест опорного файла."):
                         break
+        if not any(item["reason"] == "Связанный тест опорного файла." for item in selected):
+            for candidate in ranked:
+                if candidate["role"] == "test":
+                    if add(candidate, "Тестовый файл для ручной проверки."):
+                        break
         for candidate in ranked:
             if candidate["role"] == "config":
                 if add(candidate, "Конфигурация проекта."):
@@ -491,7 +484,10 @@ def recommend_review(project: Project) -> dict[str, object]:
         if len(selected) >= MAX_FILES:
             break
         if node["role"] in ("entrypoint", "module"):
-            add(node, "Центральный модуль проекта.")
+            if inbound.get(node["path"], 0) > 0:
+                add(node, "Центральный модуль проекта.")
+            else:
+                add(node, "Дополнительный модуль проекта.")
     for node in ranked:
         if len(selected) >= MAX_FILES:
             break

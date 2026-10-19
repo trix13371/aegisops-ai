@@ -8,6 +8,7 @@ import os
 import re
 import stat
 import time
+from collections import deque
 from pathlib import Path
 from uuid import uuid4
 
@@ -21,6 +22,7 @@ from aegisops.project_code.models import (
     CodePreview,
     Language,
 )
+from aegisops.project_code.selection import choose_candidates
 from aegisops.projects.models import Project, ProjectError
 from aegisops.projects.repository import plain_path, project_root
 from aegisops.projects.scanner import EXCLUDED, excluded_file
@@ -67,6 +69,15 @@ def _safe_error(message: str = "Не удалось подготовить вы�
 
 def _hidden(name: str) -> bool:
     return name.startswith(".")
+
+
+def _directory_rank(name: str) -> int:
+    lower = name.lower()
+    if lower in ("src", "lib", "app", "test", "tests"):
+        return 0
+    if lower in ("docs", "assets"):
+        return 2
+    return 1
 
 
 def _excluded_name(name: str) -> bool:
@@ -229,21 +240,22 @@ def catalog(project: Project) -> dict[str, object]:
     except Exception:
         raise _safe_error() from None
     deadline = time.monotonic() + CATALOG_DEADLINE_SECONDS
-    files: list[str] = []
+    collected: list[str] = []
     partial = False
     entries = 0
-    pending: list[tuple[Path, int]] = [(root, 0)]
+    pending: deque[tuple[Path, int]] = deque([(root, 0)])
     while pending:
-        if entries >= 4000 or len(files) >= 200 or time.monotonic() > deadline:
+        if entries >= 4000 or time.monotonic() > deadline:
             partial = True
             break
-        directory, depth = pending.pop()
+        directory, depth = pending.popleft()
         try:
             plain_path(directory)
+            children: list[tuple[str, Path, bool]] = []
             with os.scandir(directory) as iterator:
                 for item in iterator:
                     entries += 1
-                    if entries > 4000 or len(files) >= 200 or time.monotonic() > deadline:
+                    if entries > 4000 or time.monotonic() > deadline:
                         partial = True
                         break
                     path = Path(item.path)
@@ -255,7 +267,7 @@ def catalog(project: Project) -> dict[str, object]:
                         if depth >= 12:
                             partial = True
                             continue
-                        pending.append((path, depth + 1))
+                        children.append((item.name, path, True))
                         continue
                     if not item.is_file(follow_symlinks=False):
                         continue
@@ -268,9 +280,14 @@ def catalog(project: Project) -> dict[str, object]:
                         if not _valid_relative(relative):
                             partial = True
                             continue
-                        files.append(relative)
+                        collected.append(relative)
                     except ProjectError:
                         partial = True
+            children.sort(
+                key=lambda entry: (_directory_rank(entry[0]), entry[0].casefold(), entry[0])
+            )
+            for _name, path, _is_dir in children:
+                pending.append((path, depth + 1))
         except ProjectError:
             partial = True
         except OSError:
@@ -282,7 +299,10 @@ def catalog(project: Project) -> dict[str, object]:
         raise
     except Exception:
         raise _safe_error() from None
-    files.sort()
+    chosen = choose_candidates(collected, 200)
+    if len(chosen) < len(collected):
+        partial = True
+    files = sorted(chosen)
     return {"files": files, "partial": partial}
 
 

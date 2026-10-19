@@ -40,6 +40,11 @@ jobs:
       - run: uv run --frozen python scripts/sync-assets.py --check
       - run: uv run --frozen python scripts/prepare-opa-policy.py --check
       - run: uv run --frozen python scripts/export-schemas.py --check
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - run: node --check src/aegisops/dashboard/static/app.js
+      - run: node --test tests/ui/dashboard-flow.test.cjs
       - name: Verify pinned OPA runtime and Rego policies
         run: |
           curl -fsSL https://github.com/open-policy-agent/opa/releases/download/v1.21.2/opa_linux_amd64_static -o /tmp/aegisops-opa
