@@ -1151,10 +1151,52 @@ async function chooseCodeReview(project,origin){
   const suggestNote=node("p","detail-callout","Локальный подбор связанных файлов. Нейросеть не вызывается, оплата не производится.");
   const suggestBox=node("div","detail-panel");
   const prepare=node("button","primary-button","Подготовить предпросмотр");prepare.disabled=true;
+  const recommend=node("button","action-option","Подобрать стартовые файлы");recommend.disabled=true;
+  const recommendNote=node("p","detail-callout","Локальный подбор стартовых файлов. Код никуда не отправляется, нейросеть не вызывается, оплата не производится. Подбор конфигурации и тестов — эвристика, а не полный аудит.");
+  const planBox=node("div","detail-panel");
+  const validateRecommendation=(result)=>{
+    if(!result || typeof result!=="object")return null;
+    if(result.profile!=="project-code-selection-v1")return null;
+    if(!Array.isArray(result.files) || result.files.length>5)return null;
+    const seen=new Set();const files=[];let sum=0;
+    for(const item of result.files){
+      if(!item || typeof item!=="object")return null;
+      const path=item.path;
+      if(typeof path!=="string" || !path || !boxByPath.has(path))return null;
+      const key=path.toLowerCase();
+      if(seen.has(key))return null;
+      seen.add(key);
+      const bytes=item.bytes;
+      if(!Number.isSafeInteger(bytes) || bytes<=0 || bytes>12288)return null;
+      sum+=bytes;
+      if(sum>24576)return null;
+      const sha=item.sha256;
+      if(typeof sha!=="string" || !/^[0-9a-f]{64}$/.test(sha))return null;
+      const reason=item.reason;
+      if(typeof reason!=="string" || !reason.trim())return null;
+      files.push({path,bytes,sha256:sha,reason});
+    }
+    if(result.max_files!==5 || result.max_total_bytes!==24576)return null;
+    if(typeof result.partial!=="boolean")return null;
+    if(!Number.isSafeInteger(result.total_bytes) || result.total_bytes!==sum)return null;
+    let limitations="";
+    if(result.limitations!==undefined && result.limitations!==null){
+      if(!Array.isArray(result.limitations))return null;
+      const parts=[];
+      for(const entry of result.limitations){
+        if(typeof entry!=="string")return null;
+        parts.push(entry);
+        if(parts.length>=10)break;
+      }
+      limitations=parts.join(" ");
+    }
+    return {files,total_bytes:sum,max_files:5,max_total_bytes:24576,partial:result.partial,limitations};
+  };
   const sync=()=>{
     counter.textContent=`Выбрано файлов: ${selected.size} из 5`;
     prepare.disabled=pending || selected.size===0 || !state.registryReady || state.job?.state==="running";
     suggest.disabled=pending || selected.size===0 || !state.registryReady || state.job?.state==="running";
+    recommend.disabled=pending || !state.registryReady || state.job?.state==="running";
   };
   for(const path of files){
     const row=node("label","ai-consent");const box=node("input");box.type="checkbox";boxes.push(box);boxByPath.set(path,box);
@@ -1167,6 +1209,42 @@ async function chooseCodeReview(project,origin){
     });
     row.append(box,document.createTextNode(path));list.append(row);
   }
+  recommend.addEventListener("click",async()=>{
+    if(pending || recommend.disabled)return;
+    pending=true;for(const box of boxes)box.disabled=true;sync();planBox.replaceChildren();
+    try {
+      const result=await api(`/api/project-code-recommendation/${encodeURIComponent(project.id)}`);
+      if(!isCodeCurrent(sequence,panel))return;
+      const plan=validateRecommendation(result);
+      if(!plan){planBox.append(node("p","detail-callout","Подбор стартовых файлов недоступен. Код никуда не отправлялся."));return;}
+      if(!plan.files.length){planBox.append(node("p","detail-callout","Нет доступных файлов для стартового набора."));return;}
+      planBox.append(node("p","detail-subtitle","Стартовые файлы · локальный подбор"));
+      for(const item of plan.files){
+        const card=node("div","ai-action");
+        card.append(node("strong","",item.path),node("p","",item.reason),node("p","",`Размер: ${item.bytes} байт`));
+        planBox.append(card);
+      }
+      planBox.append(node("p","detail-callout",`Итого: ${plan.total_bytes} байт из ${plan.max_total_bytes}. Файлов: ${plan.files.length} из ${plan.max_files}.`));
+      if(plan.partial)planBox.append(node("p","detail-callout","Набор неполный: часть каталога не прочитана."));
+      if(plan.limitations)planBox.append(node("p","detail-callout",plan.limitations));
+      const apply=node("button","action-option","Выбрать эти файлы");
+      apply.addEventListener("click",()=>{
+        if(pending || !state.registryReady || state.job?.state==="running")return;
+        if(!isCodeCurrent(sequence,panel))return;
+        selected.clear();
+        for(const box of boxes)box.checked=false;
+        for(const item of plan.files){
+          const box=boxByPath.get(item.path);
+          if(box && !box.checked){box.checked=true;selected.add(item.path);}
+        }
+        apply.disabled=true;
+        sync();
+      });
+      planBox.append(apply);
+    } catch(problem) {
+      if(isCodeCurrent(sequence,panel))planBox.replaceChildren(node("p","detail-callout","Подбор стартовых файлов недоступен. Код никуда не отправлялся."));
+    } finally {pending=false;if(isCodeCurrent(sequence,panel)){for(const box of boxes)box.disabled=false;sync();}}
+  });
   suggest.addEventListener("click",async()=>{
     if(pending || suggest.disabled || selected.size===0)return;
     pending=true;for(const box of boxes)box.disabled=true;sync();suggestBox.replaceChildren();
@@ -1212,7 +1290,7 @@ async function chooseCodeReview(project,origin){
       }
     } finally {pending=false;if(isCodeCurrent(sequence,panel)){for(const box of boxes)box.disabled=false;sync();}}
   });
-  panel.append(counter,list,suggest,suggestNote,suggestBox,node("p","detail-subtitle","Ограничения: не более 5 файлов, до 12 КиБ на файл и до 24 КиБ суммарно. Точный размер проверяется локально при подготовке предпросмотра, без обращения к нейросети."),prepare);
+  panel.append(counter,list,recommend,recommendNote,planBox,suggest,suggestNote,suggestBox,node("p","detail-subtitle","Ограничения: не более 5 файлов, до 12 КиБ на файл и до 24 КиБ суммарно. Точный размер проверяется локально при подготовке предпросмотра, без обращения к нейросети."),prepare);
   sync();
 }
 async function openCodeMap(project,origin){

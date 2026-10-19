@@ -2048,3 +2048,107 @@ def test_tampered_preview_hash_fails_safely_without_traceback(host, tmp_path):
         assert "Traceback" not in text
         payload = json.loads(text)
         assert isinstance(payload, dict)
+
+
+def test_project_code_recommendation_auth_host_and_method_guards(host, tmp_path):
+    dashboard, request = host
+    project_dir = tmp_path / "proj_guards"
+    project_dir.mkdir()
+    (project_dir / "main.py").write_text("import util\n", encoding="utf-8")
+    (project_dir / "util.py").write_text("def run(): return 1\n", encoding="utf-8")
+    (project_dir / "test_main.py").write_text("import main\n", encoding="utf-8")
+    (project_dir / "pyproject.toml").write_text(
+        "[project]\nname = 'demo'\nversion = '0.1.0'\n", encoding="utf-8"
+    )
+    project = dashboard.projects.add("demo", str(project_dir))
+    endpoint = f"/api/project-code-recommendation/{project.id}"
+
+    status, _, _ = request(endpoint, auth=False)
+    assert status == 401
+
+    status, _, _ = request(endpoint, auth=True, headers={"Host": "evil.com"})
+    assert status == 403
+
+    status, _, _ = request(endpoint, method="POST", auth=True, body=b"{}")
+    assert status == 404
+
+
+def test_project_code_recommendation_success_and_immutability(host, tmp_path, monkeypatch):
+    import hashlib
+
+    dashboard, request = host
+    project_dir = tmp_path / "proj_success"
+    project_dir.mkdir()
+    files = {
+        "main.py": "import util\n",
+        "util.py": "def helper(): return True\n",
+        "test_main.py": "import main\n",
+        "pyproject.toml": "[project]\nname = 'demo'\nversion = '0.1.0'\n",
+    }
+    expected_hashes = {}
+    expected_bytes = {}
+    for rel_path, content in files.items():
+        raw = content.encode("utf-8")
+        (project_dir / rel_path).write_bytes(raw)
+        expected_hashes[rel_path] = hashlib.sha256(raw).hexdigest()
+        expected_bytes[rel_path] = len(raw)
+
+    project = dashboard.projects.add("demo", str(project_dir))
+    endpoint = f"/api/project-code-recommendation/{project.id}"
+
+    def fail_create(*args, **kwargs):
+        raise AssertionError("create must not be called")
+
+    monkeypatch.setattr(dashboard.code_analyses, "create", fail_create)
+
+    status, headers, body = request(endpoint, auth=True)
+    assert status == 200
+    assert "no-store" in headers.get("Cache-Control", "").lower()
+    assert headers.get("X-Content-Type-Options", "").lower() == "nosniff"
+
+    data = json.loads(body.decode("utf-8"))
+    assert data["profile"] == "project-code-selection-v1"
+    assert isinstance(data["files"], list)
+    assert data["total_bytes"] <= 24576
+    assert data["max_files"] == 5
+    assert data["max_total_bytes"] == 24576
+    assert isinstance(data["partial"], bool)
+    assert isinstance(data["limitations"], list)
+
+    returned_files = data["files"]
+    assert len(returned_files) <= 5
+    calculated_total = 0
+    for item in returned_files:
+        assert not item["path"].startswith("/")
+        assert not item["path"].startswith("\\")
+        assert "content" not in item
+        assert "payload" not in item
+        assert item["path"] in expected_hashes
+        assert item["sha256"] == expected_hashes[item["path"]]
+        assert item["bytes"] == expected_bytes[item["path"]]
+        calculated_total += item["bytes"]
+        assert "reason" in item
+    assert data["total_bytes"] == calculated_total
+
+    for rel_path, content in files.items():
+        assert (project_dir / rel_path).read_bytes() == content.encode("utf-8")
+
+    status2, _, body2 = request(endpoint, auth=True)
+    assert status2 == 200
+    assert json.loads(body2.decode("utf-8")) == data
+
+    idx = dashboard.code_analyses.index(project.id)
+    assert getattr(idx, "previews", ()) == ()
+    assert dashboard.current_job() is None
+
+
+def test_project_code_recommendation_malformed_or_missing_project_safe_503(host):
+    dashboard, request = host
+    from uuid import uuid4
+
+    for bad_id in ["not-a-uuid", str(uuid4())]:
+        status, _, body = request(f"/api/project-code-recommendation/{bad_id}", auth=True)
+        assert status == 503
+        data = json.loads(body.decode("utf-8"))
+        assert isinstance(data, dict)
+        assert "error" in data or "message" in data or "safe" in str(data).lower()

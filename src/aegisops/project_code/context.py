@@ -10,7 +10,11 @@ import time
 from pathlib import Path
 from typing import Final, TypedDict, cast
 
-from aegisops.project_code.models import MAX_FILES
+from aegisops.project_code.models import (
+    MAX_FILE_BYTES,
+    MAX_FILES,
+    MAX_TOTAL_BYTES,
+)
 from aegisops.project_code.source import SUFFIX_LANGUAGE, capture, catalog
 from aegisops.projects.models import Project, ProjectError
 
@@ -22,6 +26,11 @@ MAX_IMPORTS: Final[int] = 20
 MAX_RELATED: Final[int] = 20
 MAX_SUGGESTIONS: Final[int] = 10
 MAX_IMPORT_LEN: Final[int] = 128
+RECOMMEND_PROFILE: Final[str] = "project-code-selection-v1"
+RECOMMEND_LIMITATIONS: Final[tuple[str, ...]] = (
+    "Эвристический подбор, а не полный аудит проекта.",
+    "Файлы могут измениться до предпросмотра.",
+)
 
 ENTRYPOINT_STEMS: Final[frozenset[str]] = frozenset(
     {"main", "app", "server", "index", "cli", "__main__"}
@@ -198,6 +207,8 @@ class _Node(TypedDict):
     imports: list[str]
     related: list[str]
     analyzed: bool
+    bytes: int
+    sha256: str | None
 
 
 def _node(path: str) -> _Node:
@@ -209,6 +220,8 @@ def _node(path: str) -> _Node:
         "imports": [],
         "related": [],
         "analyzed": False,
+        "bytes": 0,
+        "sha256": None,
     }
 
 
@@ -256,6 +269,8 @@ def build_map(project: Project) -> dict[str, object]:
             nodes.append(node)
             continue
         budget -= size
+        node["bytes"] = size
+        node["sha256"] = item.sha256
         symbols, imports, ok = _analyze(path, item.content)
         node["symbols"] = symbols[:MAX_SYMBOLS]
         node["imports"] = imports[:MAX_IMPORTS]
@@ -363,3 +378,141 @@ def suggest_context(project: Project, selected: object) -> dict[str, object]:
         for candidate in _test_related(name):
             add(candidate, "Связанный тестовый файл по имени.")
     return {"map": project_map, "suggestions": suggestions, "selected": chosen}
+
+
+def _recommend_rank(node: _Node, inbound: dict[str, int]) -> tuple[int, int, str, str]:
+    role = node["role"]
+    if role == "entrypoint":
+        order = 0
+    elif role == "module":
+        order = 1
+    elif role == "test":
+        order = 2
+    elif role == "config":
+        order = 3
+    else:
+        order = 4
+    return (order, -inbound.get(node["path"], 0), node["path"].casefold(), node["path"])
+
+
+def _recommend_eligible(node: _Node) -> bool:
+    size = node["bytes"]
+    if type(size) is not int or not 1 <= size <= MAX_FILE_BYTES:
+        return False
+    digest = node["sha256"]
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        return False
+    if node["role"] not in ("entrypoint", "module", "test", "config", "docs"):
+        return False
+    if node["language"] not in SUFFIX_LANGUAGE.values():
+        return False
+    return True
+
+
+def recommend_review(project: Project) -> dict[str, object]:
+    """Deterministic bounded starting-file plan; never returns content."""
+    project_map = build_map(project)
+    raw_nodes = cast(list[_Node], project_map["files"])
+    partial = bool(project_map["partial"])
+    limitations = [str(item) for item in cast(list[str], project_map["limitations"])]
+    limitations.extend(RECOMMEND_LIMITATIONS)
+    nodes = [node for node in raw_nodes if _recommend_eligible(node)]
+    by_path = {node["path"]: node for node in nodes}
+    inbound: dict[str, int] = {}
+    for node in nodes:
+        for target in node["imports"]:
+            if target in by_path and target != node["path"]:
+                inbound[target] = inbound.get(target, 0) + 1
+    selected: list[dict[str, object]] = []
+    chosen: set[str] = set()
+    total = 0
+
+    def add(node: _Node, reason: str) -> bool:
+        nonlocal total
+        if len(selected) >= MAX_FILES:
+            return False
+        key = node["path"].casefold()
+        if key in chosen:
+            return False
+        size = node["bytes"]
+        if total + size > MAX_TOTAL_BYTES:
+            return False
+        chosen.add(key)
+        total += size
+        selected.append(
+            {
+                "path": node["path"],
+                "bytes": size,
+                "sha256": node["sha256"],
+                "reason": reason,
+            }
+        )
+        return True
+
+    ranked = sorted(nodes, key=lambda node: _recommend_rank(node, inbound))
+    anchor: _Node | None = None
+    for node in ranked:
+        if node["role"] == "entrypoint":
+            if add(node, "Точка входа проекта."):
+                anchor = node
+                break
+    if anchor is None:
+        for node in ranked:
+            if node["role"] == "module":
+                if add(node, "Центральный модуль проекта."):
+                    anchor = node
+                    break
+    if anchor is not None:
+        for target in anchor["related"]:
+            candidate = by_path.get(target)
+            if candidate is not None and candidate["role"] == "module":
+                if add(candidate, "Импорт относительно опорного файла."):
+                    break
+        for target in anchor["related"]:
+            candidate = by_path.get(target)
+            if candidate is not None and candidate["role"] == "test":
+                if add(candidate, "Связанный тест опорного файла."):
+                    break
+        if not any(item["reason"] == "Связанный тест опорного файла." for item in selected):
+            for candidate in ranked:
+                if candidate["role"] != "test":
+                    continue
+                if (
+                    candidate["path"] in _test_related(anchor["path"])
+                    or anchor["path"] in candidate["imports"]
+                ):
+                    if add(candidate, "Связанный тест опорного файла."):
+                        break
+        for candidate in ranked:
+            if candidate["role"] == "config":
+                if add(candidate, "Конфигурация проекта."):
+                    break
+    for node in ranked:
+        if len(selected) >= MAX_FILES:
+            break
+        if node["role"] in ("entrypoint", "module"):
+            add(node, "Центральный модуль проекта.")
+    for node in ranked:
+        if len(selected) >= MAX_FILES:
+            break
+        if node["role"] == "test":
+            add(node, "Тестовый файл для ручной проверки.")
+    for node in ranked:
+        if len(selected) >= MAX_FILES:
+            break
+        if node["role"] == "config":
+            add(node, "Конфигурация проекта.")
+    for node in ranked:
+        if len(selected) >= MAX_FILES:
+            break
+        if node["role"] == "docs":
+            add(node, "Документация проекта.")
+    return {
+        "profile": RECOMMEND_PROFILE,
+        "files": selected,
+        "total_bytes": total,
+        "max_files": MAX_FILES,
+        "max_total_bytes": MAX_TOTAL_BYTES,
+        "partial": partial,
+        "limitations": limitations,
+    }

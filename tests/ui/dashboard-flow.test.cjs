@@ -2432,3 +2432,219 @@ test('stale late GET response does not append old export link after drawer chang
   const staleExportLink = doc.querySelectorAll('a').find(a => a.textContent === 'Скачать отчёт');
   assert.strictEqual(staleExportLink, undefined, 'Stale delayed response must not inject export link');
 });
+
+test('code review start files recommendation plan flow', async () => {
+  const calls = [];
+  const mockFetch = async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    if (url === '/api/project-code-files/p1') return { ok: true, json: async () => ({ files: ['main.py', 'util.py', 'test_main.py', 'pyproject.toml'] }) };
+    if (url === '/api/project-code-history/p1') return { ok: true, json: async () => ({ reviews: [] }) };
+    if (url === '/api/project-code-recommendation/p1') {
+      return {
+        ok: true,
+        json: async () => ({
+          profile: 'project-code-selection-v1',
+          files: [
+            { path: 'main.py', bytes: 10, sha256: 'a'.repeat(64), reason: 'Entry <script>literal</script>' },
+            { path: 'pyproject.toml', bytes: 20, sha256: 'b'.repeat(64), reason: 'Config' }
+          ],
+          total_bytes: 30,
+          max_files: 5,
+          max_total_bytes: 24576,
+          partial: false,
+          limitations: ['heuristic']
+        })
+      };
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const { ctx, doc } = setupContext(mockFetch);
+  vm.runInContext('state.registryReady=true', ctx);
+  await vm.runInContext('chooseCodeReview({id:"p1",name:"demo"}, null)', ctx);
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(calls.filter(c => c.method === 'GET').length, 2);
+  assert.strictEqual(calls.some(c => c.url.includes('/api/project-code-recommendation/')), false);
+
+  const buttons = Array.from(doc.querySelectorAll('button'));
+  const recBtn = buttons.find(b => b.textContent === 'Подобрать стартовые файлы');
+  const prepBtn = buttons.find(b => b.textContent === 'Подготовить предпросмотр');
+  assert.ok(recBtn && !recBtn.disabled);
+  assert.ok(prepBtn && prepBtn.disabled);
+
+  recBtn.click();
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(calls.filter(c => c.url.includes('/api/project-code-recommendation/')).length, 1);
+  const checkboxes = Array.from(doc.querySelectorAll('input')).filter(i => i.type === 'checkbox');
+  assert.ok(checkboxes.every(b => !b.checked));
+  assert.strictEqual(doc.querySelectorAll('script').length, 0);
+  assert.ok(doc.body.textContent.includes('Entry <script>literal</script>'));
+
+  const applyBtn = Array.from(doc.querySelectorAll('button')).find(b => b.textContent === 'Выбрать эти файлы');
+  assert.ok(applyBtn);
+  applyBtn.click();
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(checkboxes[0].checked, true);
+  assert.strictEqual(checkboxes[1].checked, false);
+  assert.strictEqual(checkboxes[2].checked, false);
+  assert.strictEqual(checkboxes[3].checked, true);
+  assert.ok(doc.body.textContent.includes('Выбрано файлов: 2 из 5'));
+  assert.strictEqual(prepBtn.disabled, false);
+  assert.strictEqual(calls.some(c => c.method === 'POST'), false);
+});
+
+test('delayed recommendation disables controls and restores without preview', async () => {
+  let resolveRec;
+  const mockFetch = async (url) => {
+    if (url === '/api/project-code-files/p1') return { ok: true, json: async () => ({ files: ['main.py', 'util.py', 'test_main.py', 'pyproject.toml'] }) };
+    if (url === '/api/project-code-history/p1') return { ok: true, json: async () => ({ reviews: [] }) };
+    if (url === '/api/project-code-recommendation/p1') {
+      return new Promise(res => {
+        resolveRec = () => res({
+          ok: true,
+          json: async () => ({
+            profile: 'project-code-selection-v1',
+            files: [{ path: 'main.py', bytes: 10, sha256: 'a'.repeat(64), reason: 'main' }],
+            total_bytes: 10,
+            max_files: 5,
+            max_total_bytes: 24576,
+            partial: false,
+            limitations: ['heuristic']
+          })
+        });
+      });
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const { ctx, doc } = setupContext(mockFetch);
+  vm.runInContext('state.registryReady=true', ctx);
+  await vm.runInContext('chooseCodeReview({id:"p1",name:"demo"}, null)', ctx);
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  const recBtn = Array.from(doc.querySelectorAll('button')).find(b => b.textContent === 'Подобрать стартовые файлы');
+  const checkboxes = Array.from(doc.querySelectorAll('input')).filter(i => i.type === 'checkbox');
+  recBtn.click();
+  await new Promise(setImmediate);
+
+  assert.ok(recBtn.disabled);
+  assert.ok(checkboxes.every(b => b.disabled));
+
+  resolveRec();
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(recBtn.disabled, false);
+  assert.ok(checkboxes.every(b => !b.disabled));
+  assert.ok(checkboxes.every(b => !b.checked));
+});
+
+test('malformed recommendation payload rejects and preserves existing selection', async () => {
+  const mockFetch = async (url) => {
+    if (url === '/api/project-code-files/p1') return { ok: true, json: async () => ({ files: ['main.py', 'util.py', 'test_main.py', 'pyproject.toml'] }) };
+    if (url === '/api/project-code-history/p1') return { ok: true, json: async () => ({ reviews: [] }) };
+    if (url === '/api/project-code-recommendation/p1') {
+      return {
+        ok: true,
+        json: async () => ({
+          profile: 'project-code-selection-v1',
+          files: [{ path: 'unknown.py', bytes: 10, sha256: 'a'.repeat(64), reason: 'x' }],
+          total_bytes: 10,
+          max_files: 5,
+          max_total_bytes: 24576,
+          partial: false
+        })
+      };
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const { ctx, doc } = setupContext(mockFetch);
+  vm.runInContext('state.registryReady=true', ctx);
+  await vm.runInContext('chooseCodeReview({id:"p1",name:"demo"}, null)', ctx);
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  const checkboxes = Array.from(doc.querySelectorAll('input')).filter(i => i.type === 'checkbox');
+  checkboxes[0].checked = true;
+  checkboxes[0].dispatchEvent({ type: 'change' });
+  await new Promise(setImmediate);
+  assert.ok(checkboxes[0].checked);
+
+  const recBtn = Array.from(doc.querySelectorAll('button')).find(b => b.textContent === 'Подобрать стартовые файлы');
+  recBtn.click();
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  assert.ok(doc.body.textContent.includes('Подбор стартовых файлов недоступен. Код никуда не отправлялся.'));
+  assert.strictEqual(Array.from(doc.querySelectorAll('button')).some(b => b.textContent === 'Выбрать эти файлы'), false);
+  assert.ok(checkboxes[0].checked);
+});
+
+test('stale recommendation discarded on view switch and guarded when not ready', async () => {
+  let resolveRec;
+  const mockFetch = async (url) => {
+    if (url === '/api/project-code-files/p1') return { ok: true, json: async () => ({ files: ['main.py', 'util.py'] }) };
+    if (url === '/api/project-code-history/p1') return { ok: true, json: async () => ({ reviews: [] }) };
+    if (url === '/api/project-code-map/p1') return { ok: true, json: async () => ({ files: [], partial: false, limitations: [] }) };
+    if (url === '/api/project-code-recommendation/p1') {
+      return new Promise(res => {
+        resolveRec = () => res({
+          ok: true,
+          json: async () => ({
+            profile: 'project-code-selection-v1',
+            files: [{ path: 'main.py', bytes: 10, sha256: 'a'.repeat(64), reason: 'ok' }],
+            total_bytes: 10,
+            max_files: 5,
+            max_total_bytes: 24576,
+            partial: false
+          })
+        });
+      });
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const { ctx, doc } = setupContext(mockFetch);
+  vm.runInContext('state.registryReady=false', ctx);
+  await vm.runInContext('chooseCodeReview({id:"p1",name:"demo"}, null)', ctx);
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  let recBtn = Array.from(doc.querySelectorAll('button')).find(b => b.textContent === 'Подобрать стартовые файлы');
+  assert.strictEqual(recBtn.disabled, true);
+
+  vm.runInContext('state.registryReady=true; state.job={state:"running"}', ctx);
+  await vm.runInContext('chooseCodeReview({id:"p1",name:"demo"}, null)', ctx);
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  recBtn = Array.from(doc.querySelectorAll('button')).find(b => b.textContent === 'Подобрать стартовые файлы');
+  assert.strictEqual(recBtn.disabled, true);
+
+  vm.runInContext('state.job=null', ctx);
+  await vm.runInContext('chooseCodeReview({id:"p1",name:"demo"}, null)', ctx);
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  recBtn = Array.from(doc.querySelectorAll('button')).find(b => b.textContent === 'Подобрать стартовые файлы');
+  recBtn.click();
+  await new Promise(setImmediate);
+
+  await vm.runInContext('openCodeMap({id:"p1",name:"demo"}, null)', ctx);
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  resolveRec();
+  await new Promise(setImmediate);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(Array.from(doc.querySelectorAll('button')).some(b => b.textContent === 'Выбрать эти файлы'), false);
+});

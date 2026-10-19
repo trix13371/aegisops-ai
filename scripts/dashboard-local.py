@@ -43,7 +43,7 @@ from aegisops.project_ai.review_projection import review_summary
 from aegisops.project_ai.review_repository import ReviewAnalysisRepository
 from aegisops.project_checks.comparison import compare_saved_checks
 from aegisops.project_checks.repository import FullCheckRepository
-from aegisops.project_code.context import build_map, suggest_context
+from aegisops.project_code.context import build_map, recommend_review, suggest_context
 from aegisops.project_code.evaluation import cases
 from aegisops.project_code.evaluation_repository import EvalRepository
 from aegisops.project_code.export import proposal_zip, review_markdown
@@ -1070,6 +1070,12 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path.startswith("/api/project-code-map/"):
                     identifier = UUID(self.path[len("/api/project-code-map/") :])
                     return self.send_json(200, build_map(self.dashboard.projects.get(identifier)))
+                if self.path.startswith("/api/project-code-recommendation/"):
+                    identifier = UUID(self.path[len("/api/project-code-recommendation/") :])
+                    return self.send_json(
+                        200,
+                        recommend_review(self.dashboard.projects.get(identifier)),
+                    )
                 if self.path.startswith("/api/project-code-lab/"):
                     identifier = UUID(self.path[len("/api/project-code-lab/") :])
                     preview, result = self.dashboard.code_lab.evidence(identifier)
