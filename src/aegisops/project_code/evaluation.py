@@ -236,6 +236,9 @@ class EvalClaim(DTO):
     id: UUID
     created_at: UTCDateTime
     fixture_sha256: Sha256
+    suite_profile: Literal["synthetic-line-overlap-v1", "synthetic-file-overlap-v2"] = (
+        "synthetic-line-overlap-v1"
+    )
 
 
 class EvalResult(DTO):

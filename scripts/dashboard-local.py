@@ -46,6 +46,21 @@ from aegisops.project_checks.repository import FullCheckRepository
 from aegisops.project_code.context import build_map, recommend_review, suggest_context
 from aegisops.project_code.evaluation import cases
 from aegisops.project_code.evaluation_repository import EvalRepository
+from aegisops.project_code.evaluation_v2 import (
+    LIMITATIONS_RU as LIMITATIONS_RU_V2,
+)
+from aegisops.project_code.evaluation_v2 import (
+    MAX_OUTPUT_TOKENS as MAX_OUTPUT_TOKENS_V2,
+)
+from aegisops.project_code.evaluation_v2 import (
+    MAX_REQUESTS as MAX_REQUESTS_V2,
+)
+from aegisops.project_code.evaluation_v2 import (
+    SCOPE as SCOPE_V2,
+)
+from aegisops.project_code.evaluation_v2 import (
+    cases as cases_v2,
+)
 from aegisops.project_code.export import proposal_zip, review_markdown
 from aegisops.project_code.lab import LabRepository, proposal_payload
 from aegisops.project_code.models import CODE_PROFILE, CodePreview, wire_payload
@@ -264,6 +279,15 @@ class Dashboard:
         runtime_environment = {
             key: value for key, value in role_environment().items() if key.upper() != "PSMODULEPATH"
         }
+        timeout = 80
+        if evaluation:
+            timeout = 160
+            claim = self.code_evaluation.read_claim(UUID(identifier))
+            if (
+                claim is not None
+                and getattr(claim, "suite_profile", None) == "synthetic-file-overlap-v2"
+            ):
+                timeout = 360
         result = subprocess.run(
             command,
             cwd=ROOT,
@@ -271,7 +295,7 @@ class Dashboard:
             stdin=subprocess.DEVNULL,
             capture_output=True,
             encoding="utf-8",
-            timeout=160 if evaluation else 80,
+            timeout=timeout,
             creationflags=subprocess.CREATE_NO_WINDOW,
             check=False,
         )
@@ -451,6 +475,12 @@ class Dashboard:
             and payload.get("consent") == "project-code-evaluation-v1"
         ):
             scenario = None
+        elif (
+            mode == "project_code_evaluation"
+            and set(payload) == {"mode", "consent"}
+            and payload.get("consent") == "project-code-evaluation-v2"
+        ):
+            scenario = None
         else:
             raise ValueError("invalid request")
         with self.lock:
@@ -473,7 +503,12 @@ class Dashboard:
             if mode == "project_code_verify":
                 self.code_lab.verify_claim(UUID(scenario), payload["environment"])
             if mode == "project_code_evaluation":
-                scenario = str(self.code_evaluation.create().id)
+                if payload.get("consent") == "project-code-evaluation-v2":
+                    scenario = str(
+                        self.code_evaluation.create(suite_profile="synthetic-file-overlap-v2").id
+                    )
+                else:
+                    scenario = str(self.code_evaluation.create().id)
             if mode == "project_runner":
                 scenario = str(
                     self.runs.create(UUID(scenario), payload.get("environment", "minimal")).id
@@ -1115,6 +1150,23 @@ class Handler(BaseHTTPRequestHandler):
                                 "00000000-0000-0000-0000-000000000000",
                                 {"status": "not_requested"},
                             ),
+                        },
+                    )
+                if self.path == "/api/project-code-evaluation-v2":
+                    return self.send_json(
+                        200,
+                        {
+                            "scope": SCOPE_V2,
+                            "cases": cases_v2(),
+                            "history": self.dashboard.code_evaluation.history(),
+                            "model": self.dashboard.assistant_model(
+                                "project_code_evaluation",
+                                "00000000-0000-0000-0000-000000000000",
+                                {"status": "not_requested"},
+                            ),
+                            "max_requests": MAX_REQUESTS_V2,
+                            "max_output_tokens": MAX_OUTPUT_TOKENS_V2,
+                            "limitations": LIMITATIONS_RU_V2,
                         },
                     )
                 if self.path.startswith("/api/project-code-files/"):

@@ -2128,27 +2128,65 @@ test('openCodeMap uses GET only and safely renders file paths', async () => {
   assert.ok(body.textContent.includes('<script>alert(1)</script>'));
 });
 
+function createValidV2Catalog() {
+  const langs = ['python', 'javascript', 'typescript'];
+  const kinds = ['bug', 'clean', 'injection'];
+  const cases = [];
+  for (let i = 0; i < 9; i++) {
+    const lang = langs[i % 3];
+    const kind = kinds[Math.floor(i / 3)];
+    const expected = kind === 'bug'
+      ? [{ file_id: 'f1', start_line: 1, end_line: 2, categories: ['correctness'] }]
+      : [];
+    cases.push({
+      id: `case_${i + 1}`,
+      language: lang,
+      kind: kind,
+      files: [{
+        id: 'f1',
+        path: `src/module_${i + 1}.${lang === 'python' ? 'py' : lang === 'javascript' ? 'js' : 'ts'}`,
+        language: lang,
+        content: 'line 1\nline 2\nline 3\n'
+      }],
+      expected: expected
+    });
+  }
+  return {
+    scope: 'synthetic-file-overlap-v2',
+    max_requests: 9,
+    max_output_tokens: 25200,
+    cases: cases,
+    history: []
+  };
+}
+
 test('openCodeEvaluation requires explicit consent before single jobs POST', async () => {
   const calls = [];
   const { ctx, doc } = setupContext(async (url, opts = {}) => {
     calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null });
-    if (url === '/api/project-code-evaluation') return { ok: true, json: async () => ({ cases: [{ id: 'case1', content: 'test code', expected: [{ start_line: 1, end_line: 2 }] }], history: [] }) };
+    if (url === '/api/project-code-evaluation-v2') return { ok: true, json: async () => createValidV2Catalog() };
     return { ok: true, json: async () => ({ job: { id: 'j1', state: 'queued' } }) };
   });
   vm.runInContext('state.registryReady = true;', ctx);
   await vm.runInContext('openCodeEvaluation(null)', ctx);
   await new Promise(setImmediate);
   assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].url, '/api/project-code-evaluation-v2');
   const btn = doc.querySelector('button.project-ai-start');
   assert.ok(btn && btn.disabled);
   const checkbox = doc.querySelectorAll('input').find(i => i.id === 'code-eval-consent');
+  assert.ok(checkbox);
   checkbox.checked = true;
   checkbox.dispatchEvent({ type: 'change' });
   assert.strictEqual(btn.disabled, false);
   btn.click();
   await new Promise(setImmediate);
   assert.strictEqual(calls.length, 2);
-  assert.deepStrictEqual(calls[1], { url: '/api/jobs', method: 'POST', body: { mode: 'project_code_evaluation', consent: 'project-code-evaluation-v1' } });
+  assert.deepStrictEqual(calls[1], {
+    url: '/api/jobs',
+    method: 'POST',
+    body: { mode: 'project_code_evaluation', consent: 'project-code-evaluation-v2' }
+  });
 });
 
 test('openCodeLab displays preview and locks on POST failure preventing second POST', async () => {
@@ -2647,4 +2685,265 @@ test('stale recommendation discarded on view switch and guarded when not ready',
   await new Promise(setImmediate);
 
   assert.strictEqual(Array.from(doc.querySelectorAll('button')).some(b => b.textContent === 'Выбрать эти файлы'), false);
+});
+test('malformed catalog contract prevents consent rendering and POST request', async () => {
+  const calls = [];
+  const malformedCatalog = createValidV2Catalog();
+  malformedCatalog.scope = 'invalid-scope';
+  malformedCatalog.max_requests = 10;
+
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    return { ok: true, json: async () => malformedCatalog };
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeEvaluation(null)', ctx);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(calls.length, 1);
+  const consentCheckbox = doc.getElementById('code-eval-consent');
+  assert.strictEqual(consentCheckbox, null);
+  const startBtn = doc.querySelector('button.project-ai-start');
+  assert.strictEqual(startBtn, null);
+  const text = doc.getElementById('detail-body').textContent;
+  assert.ok(text.includes('Контракт набора не подтверждён'));
+});
+
+test('late catalog response after pane close is ignored', async () => {
+  let resolveCatalog;
+  const catalogPromise = new Promise(r => { resolveCatalog = r; });
+  const { ctx, doc } = setupContext(async (url) => {
+    if (url === '/api/project-code-evaluation-v2') {
+      return catalogPromise.then(cat => ({ ok: true, json: async () => cat }));
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+  const origin = doc.createElement('button');
+  doc.body.append(origin);
+  ctx.evalOrigin = origin;
+  vm.runInContext('state.registryReady = true;', ctx);
+  const openPromise = vm.runInContext('openCodeEvaluation(evalOrigin)', ctx);
+  await new Promise(setImmediate);
+
+  vm.runInContext('closeDetail()', ctx);
+  resolveCatalog(createValidV2Catalog());
+  await openPromise;
+  await new Promise(setImmediate);
+
+  const checkbox = doc.getElementById('code-eval-consent');
+  assert.strictEqual(checkbox, null);
+});
+
+test('unknown POST error locks checkbox and start button without retry', async () => {
+  const calls = [];
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    if (url === '/api/project-code-evaluation-v2') {
+      return { ok: true, json: async () => createValidV2Catalog() };
+    }
+    return { ok: false, json: async () => ({ error: 'Unknown server fault' }) };
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeEvaluation(null)', ctx);
+  await new Promise(setImmediate);
+
+  const btn = doc.querySelector('button.project-ai-start');
+  const checkbox = doc.getElementById('code-eval-consent');
+  assert.ok(btn && checkbox);
+  checkbox.checked = true;
+  checkbox.dispatchEvent({ type: 'change' });
+  assert.strictEqual(btn.disabled, false);
+
+  btn.click();
+  await new Promise(setImmediate);
+
+  assert.strictEqual(calls.filter(c => c.method === 'POST').length, 1);
+  assert.strictEqual(btn.disabled, true);
+  assert.strictEqual(checkbox.disabled, true);
+
+  btn.click();
+  await new Promise(setImmediate);
+  assert.strictEqual(calls.filter(c => c.method === 'POST').length, 1);
+  const bodyText = doc.getElementById('detail-body').textContent;
+  assert.ok(bodyText.includes('Повтор автоматически не выполняется'));
+});
+
+test('history partial masks overall metrics, shows coverage status, literals not scripts, and legacy history via details', async () => {
+  const catalogWithHistory = createValidV2Catalog();
+  const maliciousHtml = '<script>alert("xss")</script>';
+  catalogWithHistory.cases[0].files[0].content = `${maliciousHtml}\nconst safe = true;\n`;
+  catalogWithHistory.cases[0].title = '<b>XSS Title</b>';
+  catalogWithHistory.history = [
+    {
+      claim: {
+        suite_profile: 'synthetic-file-overlap-v2',
+        fixture_sha256: 'a'.repeat(64)
+      },
+      status: 'failed',
+      result: {
+        report: {
+          scope: 'synthetic-file-overlap-v2',
+          complete: false,
+          answered: 4,
+          total: 9,
+          overall_precision: 0.987654321,
+          tp: 1,
+          fp: 2,
+          fn: 3,
+          per_case: {
+            case_1: { answered: true, tp: 1, fp: 0, fn: 0 }
+          },
+          by_language: {
+            python: { answered: 1, total: 3, precision: 0.987654321, tp: 1, fp: 0, fn: 0 }
+          },
+          limitations: 'Тестовые ограничения'
+        },
+        usage: {
+          model_a: { input_tokens: 10, output_tokens: 20 }
+        }
+      }
+    },
+    {
+      claim: {
+        suite_profile: 'synthetic-line-overlap-v1',
+        fixture_sha256: 'b'.repeat(64)
+      },
+      status: 'completed',
+      result: {
+        report: {
+          scope: 'synthetic-line-overlap-v1',
+          complete: true,
+          answered: 3,
+          total: 3
+        }
+      }
+    }
+  ];
+
+  let getCalls = 0;
+  const { ctx, doc } = setupContext(async (url) => {
+    if (url === '/api/project-code-evaluation-v2') {
+      getCalls++;
+      return { ok: true, json: async () => catalogWithHistory };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeEvaluation(null)', ctx);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(getCalls, 1);
+  const body = doc.getElementById('detail-body');
+  const paragraphs = Array.from(body.querySelectorAll('p')).map(p => p.textContent || '');
+  const humanText = paragraphs.join(' ');
+
+  assert.ok(humanText.includes('Отчёт неполный: precision и recall недоступны (недостаточно данных).'));
+  assert.ok(!humanText.includes('0.987654321'));
+  assert.ok(humanText.includes('Статус: failed'));
+  assert.ok(humanText.includes('Отвечено: 4 из 9'));
+  assert.ok(humanText.includes('Итого: TP 1 · FP 2 · FN 3'));
+  assert.ok(humanText.includes('python: отвечено 1 из 3 · precision/recall недоступны'));
+  assert.ok(humanText.includes('Токены: вход 10 · выход 20'));
+  assert.ok(humanText.includes('Тестовые ограничения'));
+  assert.ok(body.textContent.includes(maliciousHtml));
+  assert.strictEqual(doc.querySelectorAll('script').length, 0);
+
+  const detailsElements = Array.from(doc.querySelectorAll('details'));
+  const legacyDetails = detailsElements.find(d => (d.textContent || '').includes('synthetic-line-overlap-v1'));
+  assert.ok(legacyDetails);
+});
+
+test('latest completed v2 history renders metrics, tokens, and coverage without missing data marks', async () => {
+  const catalog = createValidV2Catalog();
+  catalog.history = [
+    {
+      claim: {
+        suite_profile: 'synthetic-file-overlap-v2',
+        fixture_sha256: 'c'.repeat(64)
+      },
+      status: 'completed',
+      result: {
+        report: {
+          scope: 'synthetic-file-overlap-v2',
+          complete: true,
+          answered: 9,
+          total: 9,
+          overall_precision: 0.625,
+          overall_recall: 0.5,
+          tp: 5,
+          fp: 3,
+          fn: 5,
+          per_case: {
+            case_1: { answered: true, tp: 2, fp: 1, fn: 1 }
+          },
+          by_language: {
+            python: { answered: 3, total: 3, precision: 0.75, recall: 0.6, tp: 3, fp: 1, fn: 2 }
+          }
+        },
+        usage: {
+          step1: { input_tokens: 15, output_tokens: 25 }
+        }
+      }
+    }
+  ];
+
+  let getCalls = 0;
+  const { ctx, doc } = setupContext(async (url) => {
+    if (url === '/api/project-code-evaluation-v2') {
+      getCalls++;
+      return { ok: true, json: async () => catalog };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeEvaluation(null)', ctx);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(getCalls, 1);
+  const body = doc.getElementById('detail-body');
+  const humanText = Array.from(body.querySelectorAll('p')).map(p => p.textContent || '').join(' ');
+  assert.ok(humanText.includes('Precision: 0.625 · Recall: 0.5'));
+  assert.ok(humanText.includes('python: отвечено 3 из 3 · precision 0.75 · recall 0.6 · TP 3 · FP 1 · FN 2'));
+  assert.ok(humanText.includes('Токены: вход 15 · выход 25'));
+  assert.ok(!humanText.includes('?'));
+});
+
+test('latest legacy v1 history renders legacy callout and preserves scope without incomplete claim', async () => {
+  const catalog = createValidV2Catalog();
+  catalog.history = [
+    {
+      claim: {
+        suite_profile: 'synthetic-line-overlap-v1',
+        fixture_sha256: 'd'.repeat(64)
+      },
+      status: 'completed',
+      result: {
+        report: {
+          scope: 'synthetic-line-overlap-v1',
+          complete: true,
+          answered: 3,
+          total: 3
+        }
+      }
+    }
+  ];
+
+  let getCalls = 0;
+  const { ctx, doc } = setupContext(async (url) => {
+    if (url === '/api/project-code-evaluation-v2') {
+      getCalls++;
+      return { ok: true, json: async () => catalog };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+  vm.runInContext('state.registryReady = true;', ctx);
+  await vm.runInContext('openCodeEvaluation(null)', ctx);
+  await new Promise(setImmediate);
+
+  assert.strictEqual(getCalls, 1);
+  const body = doc.getElementById('detail-body');
+  const bodyText = body.textContent || '';
+  assert.ok(bodyText.includes('Отчёт формата v1 (устаревший). Метрики v2 недоступны; ниже показан сохранённый отчёт как есть.'));
+  assert.ok(bodyText.includes('synthetic-line-overlap-v1'));
+  assert.ok(!bodyText.includes('Отчёт неполный'));
 });

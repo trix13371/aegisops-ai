@@ -143,7 +143,7 @@ function renderJob(job) {
     : job.mode === "project_code_ai" ? "Разбор выбранного кода · нейропомощник · отправляются исходники выбранных файлов"
     : job.mode === "project_code_fix" ? "Исправление и проверка · нейропомощник · платный запрос только после согласия"
     : job.mode === "project_code_verify" ? "Проверка в Docker · без сети и ключей AegisOps"
-    : job.mode === "project_code_evaluation" ? "Оценка качества AI · синтетические примеры · до 3 платных запросов"
+    : job.mode === "project_code_evaluation" ? "Оценка качества AI · синтетические примеры"
     : job.mode === "project" && job.files_checked !== undefined
     ? `Проверено файлов: ${job.files_checked} · Замечаний: ${job.findings_count} · Статическая проверка`
     : job.snapshot_count !== undefined
@@ -428,7 +428,7 @@ function chooseProjectCheck(project,origin) {
   body.append(node("p","drawer-intro","Выберите, что хотите узнать. На следующем экране будет описание и кнопка запуска."));
   body.append(actionOption("Файлы + тесты","Один общий снимок исходников: сначала статическая проверка файлов, затем тесты в Docker на тех же скопированных файлах. Итог общий.","Нужен Docker","layers",()=>chooseFullCheckLanguage(project,origin)),actionOption("Файлы и настройки","Проверка форматов и настроек контейнеров. Код проекта не запускается.","Без Docker","scan",()=>staticCheck(project,origin)),actionOption("Тесты Python","Проверка Python и запуск существующих тестов в отдельном контейнере.","Нужен Docker","play",()=>projectRuns(project,origin,"python")),actionOption("Тесты JavaScript / TypeScript","Проверка TypeScript и тесты Node.js или Vitest. Окружение подбирается по package.json.","Нужен Docker","play",()=>projectRuns(project,origin,"javascript")));
   body.append(actionOption("Разбор кода нейросетью","Выбранные файлы отправляются внешнему сервису нейропомощника для платного разбора. Исходный код покидает этот компьютер.","нейропомощник · платно","spark",()=>chooseCodeReview(project,origin)));
-  body.append(actionOption("Оценка качества AI","Синтетический контрольный набор из 3 примеров. До 3 платных запросов через нейропомощника; реальный код проекта не отправляется.","нейропомощник · платно","spark",()=>openCodeEvaluation(origin)));
+  body.append(actionOption("Оценка качества AI","Синтетический контрольный набор из 9 примеров. До 9 платных запросов через нейропомощника; реальный код проекта не отправляется.","нейропомощник · платно","spark",()=>openCodeEvaluation(origin)));
   body.append(node("p","check-note","Бесплатные проверки выше не вызывают нейросеть. Пункт «Разбор кода нейросетью» — отдельный платный запрос: внешнему сервису нейропомощника уходит исходный код выбранных файлов."));
 }
 function chooseFullCheckLanguage(project,origin) {
@@ -1529,56 +1529,78 @@ async function openCodeEvaluation(origin){
   body.append(node("p","drawer-intro","Синтетический контрольный набор. Реальный код проекта не отправляется."));
   const panel=node("div","detail-panel");body.append(panel);panel.append(node("p","detail-callout","Загрузка набора…"));
   let data;
-  try {data=await api("/api/project-code-evaluation");}
+  try {data=await api("/api/project-code-evaluation-v2");}
   catch(problem) {if(isCodeCurrent(sequence,panel))panel.replaceChildren(node("p","detail-callout","Набор недоступен. Платный запрос не отправлялся."));return;}
   if(!isCodeCurrent(sequence,panel))return;
   const cases=data && Array.isArray(data.cases) ? data.cases : [],history=data && Array.isArray(data.history) ? data.history : [];
+  const scopeOk=data && data.scope==="synthetic-file-overlap-v2";
+  const countOk=cases.length===9;
+  const maxReqOk=data && data.max_requests===9;
+  const maxTokOk=data && data.max_output_tokens===25200;
+  const LANGS=["python","javascript","typescript"],KINDS=["bug","clean","injection"],CATS=["correctness","security","reliability","maintainability","testing"];
+  const isRelPath=p=>typeof p==="string" && p.length>0 && !p.includes(":") && !p.includes("\\") && !p.startsWith("/") && !p.split("/").some(s=>s===""||s==="."||s==="..") && !/[\u0000-\u001f\u007f]/.test(p);
+  const validCase=item=>{
+    if(!item || typeof item!=="object" || Array.isArray(item))return false;
+    if(typeof item.id!=="string" || !item.id)return false;
+    if(!LANGS.includes(item.language))return false;
+    if(!KINDS.includes(item.kind))return false;
+    const files=Array.isArray(item.files)?item.files:null;
+    if(!files || files.length<1 || files.length>3)return false;
+    const ids=[];
+    const lineCounts=new Map();
+    for(let i=0;i<files.length;i++){
+      const f=files[i];
+      if(!f || typeof f!=="object" || Array.isArray(f))return false;
+      if(f.id!==`f${i+1}`)return false;
+      if(!isRelPath(f.path))return false;
+      if(typeof f.content!=="string" || !f.content || f.content.length>4096)return false;
+      if(f.language!==item.language)return false;
+      const parts=f.content.split(/\r\n|\r|\n|\u2028|\u2029/);
+      if(parts.length>1 && parts[parts.length-1]==="")parts.pop();
+      lineCounts.set(f.id,Math.max(1,parts.length));
+      ids.push(f.id);
+    }
+    const expected=Array.isArray(item.expected)?item.expected:null;
+    if(!expected)return false;
+    if(item.kind==="bug" && expected.length===0)return false;
+    if(item.kind!=="bug" && expected.length!==0)return false;
+    for(const span of expected){
+      if(!span || typeof span!=="object" || Array.isArray(span))return false;
+      if(!ids.includes(span.file_id))return false;
+      if(!Number.isInteger(span.start_line) || span.start_line<1)return false;
+      if(!Number.isInteger(span.end_line) || span.end_line<span.start_line)return false;
+      if(span.end_line-span.start_line+1>20)return false;
+      if(span.end_line>lineCounts.get(span.file_id))return false;
+      const cats=Array.isArray(span.categories)?span.categories:null;
+      if(!cats || cats.length===0)return false;
+      for(const c of cats){if(typeof c!=="string" || !CATS.includes(c))return false;}
+    }
+    return true;
+  };
+  let casesOk=countOk;
+  if(casesOk){const seen=new Set();for(const item of cases){if(!validCase(item) || seen.has(item.id)){casesOk=false;break;}seen.add(item.id);}}
+  const contractOk=scopeOk && casesOk && maxReqOk && maxTokOk;
   panel.replaceChildren();
-  panel.append(node("p","detail-subtitle",`Синтетический контрольный набор · ${cases.length} ${cases.length===1?"пример":cases.length<5?"примера":"примеров"}`));
-  panel.append(node("p","detail-callout","Это не общая точность. Оценка по небольшому набору с эвристикой пересечения строк, а не семантическое доказательство."));
-  const codePre=(text,maxHeight)=>{const pre=node("pre","code-preview",text);pre.style.maxHeight=maxHeight;pre.style.overflow="auto";pre.style.whiteSpace="pre";return pre;};
-  for(const item of cases){
-    const card=node("div","ai-action");card.append(node("strong","",item.title ? `${item.id || "Пример"} · ${item.title}` : (item.id || "Пример")));
-    if(typeof item.content==="string" && item.content){card.append(codePre(item.content,"200px"));}
-    const expected=Array.isArray(item.expected) ? item.expected : [];
-    if(!expected.length){card.append(node("p","detail-callout","Замечаний не ожидается"));}
-    else {const sp=node("div","detail-callout");
-      for(const span of expected){const cats=Array.isArray(span.categories)?span.categories.join(", "):"";sp.append(node("p","",`Строки ${span.start_line ?? "?"}–${span.end_line ?? "?"}${cats?` · ${cats}`:""}`));}
-      card.append(sp);}
-    if(typeof item.description==="string" && item.description){card.append(node("p","detail-callout",item.description));}
-    panel.append(card);
+  if(!contractOk){
+    panel.append(node("p","detail-callout","Контракт набора не подтверждён. Платные запросы недоступны."));
+    return;
   }
-  if(history.length){
-    const latest=history[0];
-    panel.append(node("p","detail-subtitle","Последний отчёт"));
-    const report=latest && latest.result && latest.result.report;
-    if(report && typeof report==="object"){
-      const metric=v=>v===null || v===undefined ? "недостаточно данных" : v;
-      panel.append(node("p","",`Precision: ${metric(report.overall_precision)} · Recall: ${metric(report.overall_recall)}`));
-      panel.append(node("p","",`Отвечено: ${report.answered ?? "?"} из ${report.total ?? "?"} · Полнота отчёта: ${report.complete===false ? "неполный" : "полный"}`));
-      const perCase=report.per_case && typeof report.per_case==="object" ? report.per_case : null;
-      if(perCase){for(const caseId of Object.keys(perCase)){const row=perCase[caseId] && typeof perCase[caseId]==="object" ? perCase[caseId] : {};
-        panel.append(node("p","detail-callout",`${caseId}: отвечено ${row.answered ?? "?"} · TP ${row.tp ?? "?"} · FP ${row.fp ?? "?"} · FN ${row.fn ?? "?"}`));}}
-      if(typeof report.limitations==="string" && report.limitations){
-        const lim=node("div","detail-callout");lim.append(node("p","","Ограничения:"));lim.append(node("p","",report.limitations));panel.append(lim);}
-      else if(Array.isArray(report.limitations) && report.limitations.length){
-        const lim=node("div","detail-callout");lim.append(node("p","","Ограничения:"));
-        for(const line of report.limitations)lim.append(node("p","",String(line)));panel.append(lim);}
-      if(report.complete===false)panel.append(node("p","detail-callout","Отчёт неполный. Итоговые метрики могут быть недостоверны."));
-    } else {panel.append(node("p","detail-callout","Отчёт недоступен."));}
-  } else {panel.append(node("p","detail-callout","Истории оценок нет. После запуска отчёт появится здесь."));}
-  panel.append(node("p","detail-subtitle","До 3 платных запросов через нейропомощника. Отправляются только синтетические примеры."));
+  panel.append(node("p","detail-subtitle",`Синтетический контрольный набор · версия 2 · ${cases.length} ${cases.length===1?"пример":cases.length<5?"примера":"примеров"}`));
+  panel.append(node("p","detail-callout","9 синтетических примеров · 3 языка (Python, JavaScript, TypeScript) · есть многофайловые примеры · только чтение, реальный код проекта не отправляется."));
+  panel.append(node("p","detail-callout","Это не общая точность. Оценка по небольшому набору с эвристикой пересечения строк, а не семантическое доказательство."));
+  panel.append(node("p","detail-callout","Лимит: до 9 платных запросов, до 25200 выходных токенов. Стоимость зависит от выбранного сервиса."));
+  const codePre=(text,maxHeight)=>{const pre=node("pre","code-preview",text);pre.style.maxHeight=maxHeight;pre.style.overflow="auto";pre.style.whiteSpace="pre";return pre;};
   const consent=node("input"),label=node("label","ai-consent");consent.type="checkbox";consent.id="code-eval-consent";
-  label.append(consent,document.createTextNode("Разрешить до 3 платных запросов на синтетических примерах"));
+  label.append(consent,document.createTextNode("Разрешить до 9 платных запросов на синтетических примерах"));
   const run=node("button","primary-button project-ai-start","Запустить оценку");run.dataset.consentId=consent.id;run.disabled=true;
   let submitted=false;
-  const sync=()=>{run.disabled=submitted || !consent.checked || state.job?.state==="running" || !state.registryReady;run.dataset.compatible=(submitted || !state.registryReady) ? "false" : "true";};
+  const sync=()=>{run.disabled=submitted || !consent.checked || state.job?.state==="running" || !state.registryReady || !contractOk;run.dataset.compatible=(submitted || !state.registryReady || !contractOk) ? "false" : "true";};
   consent.addEventListener("change",()=>{if(submitted)return;sync();});
   run.addEventListener("click",async()=>{
-    if(submitted || run.disabled || !consent.checked || !state.registryReady)return;
+    if(submitted || run.disabled || !consent.checked || !state.registryReady || !contractOk)return;
     submitted=true;run.disabled=true;run.dataset.compatible="false";consent.disabled=true;
     try {
-      const result=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_code_evaluation",consent:"project-code-evaluation-v1"})});
+      const result=await api("/api/jobs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"project_code_evaluation",consent:"project-code-evaluation-v2"})});
       if(result.error || !result.job)throw new Error(result.error || "Состояние запроса не подтверждено.");
       renderJob(result.job);
       if(isCodeCurrent(sequence,panel))closeDetail();
@@ -1587,6 +1609,93 @@ async function openCodeEvaluation(origin){
     }
   });
   panel.append(label,run);sync();
+  const metric=v=>v===null || v===undefined ? "недостаточно данных" : v;
+  const renderReport=(report,latest)=>{
+    const profile=latest && latest.claim && typeof latest.claim.suite_profile==="string" && latest.claim.suite_profile ? latest.claim.suite_profile : "legacy-v1";
+    const scope=report && typeof report==="object" && typeof report.scope==="string" && report.scope ? report.scope : null;
+    if(profile==="legacy-v1" || profile==="synthetic-line-overlap-v1" || scope==="synthetic-line-overlap-v1"){
+      panel.append(node("p","detail-callout","Отчёт формата v1 (устаревший). Метрики v2 недоступны; ниже показан сохранённый отчёт как есть."));
+      return;
+    }
+    const complete=report && typeof report==="object" && report.complete===true;
+    if(scope)panel.append(node("p","",`Область: ${scope}`));
+    if(latest && typeof latest.status==="string" && latest.status)panel.append(node("p","",`Статус: ${latest.status}`));
+    if(latest && latest.claim && typeof latest.claim.suite_profile==="string" && latest.claim.suite_profile)panel.append(node("p","",`Профиль набора: ${latest.claim.suite_profile}`));
+    const sha=latest && latest.claim && typeof latest.claim.fixture_sha256==="string" ? latest.claim.fixture_sha256 : null;
+    if(sha)panel.append(node("p","",`Хеш набора: ${sha}`));
+    const answered=report && typeof report==="object" && report.answered!=null ? report.answered : "?";
+    const total=report && typeof report==="object" && report.total!=null ? report.total : "?";
+    panel.append(node("p","",`Отвечено: ${answered} из ${total}`));
+    if(complete){
+      panel.append(node("p","",`Precision: ${metric(report.overall_precision)} · Recall: ${metric(report.overall_recall)}`));
+    }else{
+      panel.append(node("p","detail-callout","Отчёт неполный: precision и recall недоступны (недостаточно данных)."));
+    }
+    const tp=report && typeof report==="object" && report.tp!=null ? report.tp : "?";
+    const fp=report && typeof report==="object" && report.fp!=null ? report.fp : "?";
+    const fn=report && typeof report==="object" && report.fn!=null ? report.fn : "?";
+    panel.append(node("p","detail-callout",`Итого: TP ${tp} · FP ${fp} · FN ${fn}`));
+    const perCase=report && typeof report==="object" && report.per_case && typeof report.per_case==="object" ? report.per_case : null;
+    if(perCase){for(const caseId of Object.keys(perCase)){const row=perCase[caseId] && typeof perCase[caseId]==="object" ? perCase[caseId] : {};
+      const rowAnswered=row.answered===true ? "да" : row.answered===false ? "нет" : "?";
+      panel.append(node("p","detail-callout",`${caseId}: отвечено ${rowAnswered} · TP ${row.tp ?? "?"} · FP ${row.fp ?? "?"} · FN ${row.fn ?? "?"}`));}}
+    const byLang=report && typeof report==="object" && report.by_language && typeof report.by_language==="object" ? report.by_language : null;
+    if(byLang){for(const lang of Object.keys(byLang)){const row=byLang[lang] && typeof byLang[lang]==="object" ? byLang[lang] : {};
+      const rowAnswered=row.answered!=null ? row.answered : "?";
+      const rowTotal=row.total!=null ? row.total : "?";
+      const metrics=complete ? ` · precision ${metric(row.precision)} · recall ${metric(row.recall)}` : " · precision/recall недоступны";
+      panel.append(node("p","detail-callout",`${lang}: отвечено ${rowAnswered} из ${rowTotal}${metrics} · TP ${row.tp ?? "?"} · FP ${row.fp ?? "?"} · FN ${row.fn ?? "?"}`));}}
+    const clean=report && typeof report==="object" && report.clean_cases && typeof report.clean_cases==="object" ? report.clean_cases : null;
+    if(clean)panel.append(node("p","detail-callout",`Чистые примеры: отвечено ${clean.answered ?? "?"} из ${clean.total ?? "?"} · пройдено ${clean.passed ?? "?"} · ложных срабатываний ${clean.false_positive_cases ?? "?"}`));
+    const inj=report && typeof report==="object" && report.injection_cases && typeof report.injection_cases==="object" ? report.injection_cases : null;
+    if(inj)panel.append(node("p","detail-callout",`Примеры с инъекциями: отвечено ${inj.answered ?? "?"} из ${inj.total ?? "?"} · пройдено ${inj.passed ?? "?"} · ложных срабатываний ${inj.false_positive_cases ?? "?"}`));
+    const usage=latest && latest.result && latest.result.usage && typeof latest.result.usage==="object" ? latest.result.usage : null;
+    if(usage){let inTok=0,outTok=0;for(const k of Object.keys(usage)){const u=usage[k] && typeof usage[k]==="object" ? usage[k] : {};if(typeof u.input_tokens==="number")inTok+=u.input_tokens;if(typeof u.output_tokens==="number")outTok+=u.output_tokens;}
+      panel.append(node("p","detail-callout",`Токены: вход ${inTok} · выход ${outTok}`));}
+    if(report && typeof report==="object" && typeof report.limitations==="string" && report.limitations){
+      const lim=node("div","detail-callout");lim.append(node("p","","Ограничения:"));lim.append(node("p","",report.limitations));panel.append(lim);}
+    else if(report && typeof report==="object" && Array.isArray(report.limitations) && report.limitations.length){
+      const lim=node("div","detail-callout");lim.append(node("p","","Ограничения:"));
+      for(const line of report.limitations)lim.append(node("p","",String(line)));panel.append(lim);}
+  };
+  if(history.length){
+    const latest=history[0];
+    panel.append(node("p","detail-subtitle","Последний отчёт"));
+    const report=latest && latest.result && latest.result.report;
+    if(report && typeof report==="object"){
+      renderReport(report,latest);
+      const raw=node("details");raw.append(node("summary","","Сырой отчёт"));raw.append(codePre(JSON.stringify(report,null,2),"240px"));panel.append(raw);
+    } else {panel.append(node("p","detail-callout","Отчёт недоступен."));}
+    if(history.length>1){
+      panel.append(node("p","detail-subtitle","Предыдущие отчёты"));
+      for(let i=1;i<history.length;i++){
+        const entry=history[i];
+        const det=node("details");
+        const status=entry && typeof entry.status==="string" ? entry.status : "?";
+        const version=entry && entry.claim && typeof entry.claim.suite_profile==="string" && entry.claim.suite_profile ? entry.claim.suite_profile : "legacy-v1";
+        det.append(node("summary","",`Отчёт ${i+1} · статус ${status} · версия ${version}`));
+        const prev=entry && entry.result && entry.result.report;
+        if(prev && typeof prev==="object")det.append(codePre(JSON.stringify(prev,null,2),"240px"));
+        else det.append(node("p","detail-callout","Отчёт недоступен."));
+        panel.append(det);
+      }
+    }
+  } else {panel.append(node("p","detail-callout","Истории оценок нет. После запуска отчёт появится здесь."));}
+  panel.append(node("p","detail-subtitle","До 9 платных запросов через нейропомощника. Отправляются только синтетические примеры."));
+  for(const item of cases){
+    const card=node("div","ai-action");card.append(node("strong","",item.title ? `${item.id || "Пример"} · ${item.title}` : (item.id || "Пример")));
+    const files=Array.isArray(item.files) ? item.files : [];
+    for(const file of files){const f=file && typeof file==="object" ? file : {};
+      card.append(node("p","detail-callout",`${f.path ?? "?"} · ${f.language ?? "?"}`));
+      if(typeof f.content==="string" && f.content){const det=node("details");det.append(node("summary","","Исходный код"));det.append(codePre(f.content,"200px"));card.append(det);}}
+    const expected=Array.isArray(item.expected) ? item.expected : [];
+    if(!expected.length){card.append(node("p","detail-callout","Замечаний не ожидается"));}
+    else {const sp=node("div","detail-callout");sp.append(node("p","","Ожидаемые замечания (предварительно, требуется проверка человеком):"));
+      for(const span of expected){const cats=Array.isArray(span.categories)?span.categories.join(", "):"";sp.append(node("p","",`${span.file_id ?? "?"} · строки ${span.start_line ?? "?"}–${span.end_line ?? "?"}${cats?` · ${cats}`:""}`));}
+      card.append(sp);}
+    if(typeof item.description==="string" && item.description){card.append(node("p","detail-callout",item.description));}
+    panel.append(card);
+  }
 }
 async function openAssistantSettings(origin){
   openRunnerDrawer("Нейропомощник",origin);

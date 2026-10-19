@@ -1,0 +1,52 @@
+{
+  "stage": "UI23",
+  "date": "2026-10-19",
+  "feature": "versioned synthetic project code evaluation v2",
+  "suite": {
+    "profile": "synthetic-file-overlap-v2",
+    "cases": 9,
+    "languages": 3,
+    "bug_cases": 5,
+    "clean_cases": 2,
+    "injection_cases": 2,
+    "multi_file_cases": 2,
+    "labels": "provisional; human review still required"
+  },
+  "regression_with_postgresql": {
+    "passed": 1582,
+    "skipped": 4,
+    "deselected": 69,
+    "seconds": 178.3,
+    "excluded_markers": [
+      "llm_live",
+      "kind_live",
+      "opa_live",
+      "runner_live"
+    ]
+  },
+  "new_python_tests_passed": 21,
+  "ui_passed": 53,
+  "mypy_source_files": 149,
+  "import_contracts_kept": 25,
+  "schemas_verified": 57,
+  "max_runtime_requests_per_v2_consent": 9,
+  "max_output_tokens_per_v2_suite": 25200,
+  "legacy_v1_requests_per_consent": 3,
+  "runtime_model_calls_by_verification": 0,
+  "runtime_assistant_credentials_modified": false,
+  "gitleaks_staged": "no leaks found",
+  "review_final": "pass",
+  "fixture_digest_builders_match": true,
+  "wheel_source_byte_matches": 5,
+  "sdist_worker_host_byte_matches": 2,
+  "http_v1": {
+    "status": 200,
+    "cases": 3
+  },
+  "http_v2": {
+    "status": 200,
+    "cases": 9
+  },
+  "github_push_performed": false,
+  "screenshot": ".local/ui23-evaluation.png"
+}

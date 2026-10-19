@@ -2152,3 +2152,145 @@ def test_project_code_recommendation_malformed_or_missing_project_safe_503(host)
         data = json.loads(body.decode("utf-8"))
         assert isinstance(data, dict)
         assert "error" in data or "message" in data or "safe" in str(data).lower()
+
+
+def test_code_evaluation_v2_endpoint_get_metadata_and_boundaries(host, tmp_path):
+    dashboard, request = host
+    folder = tmp_path / "demo_eval_v2"
+    folder.mkdir()
+    (folder / "main.py").write_text("# code content\n")
+    dashboard.projects.add("demo", str(folder))
+
+    assert request("/api/project-code-evaluation-v2")[0] == 401
+    assert (
+        request("/api/project-code-evaluation-v2", auth=True, headers={"Host": "attacker.example"})[
+            0
+        ]
+        == 403
+    )
+    assert request("/api/project-code-evaluation-v2", method="POST", auth=True, body="{}")[0] == 404
+
+    status, _, body = request("/api/project-code-evaluation-v2", auth=True)
+    assert status == 200
+    data = json.loads(body.decode("utf-8"))
+    assert data["history"] == []
+    assert data["scope"] == "synthetic-file-overlap-v2"
+    assert data["max_requests"] == 9
+    assert data["max_output_tokens"] == 25200
+    cases = data.get("cases", [])
+    assert len(cases) == 9
+    languages = set()
+    for case in cases:
+        assert {"id", "title", "files", "expected"}.issubset(case.keys())
+        files = case["files"]
+        assert 1 <= len(files) <= 3
+        for f in files:
+            assert {"id", "path", "language", "content"}.issubset(f.keys())
+            languages.add(f["language"])
+    assert len(languages) == 3
+    assert dashboard.code_evaluation.history() == []
+
+
+def test_code_evaluation_v2_post_consent_binding_and_mutex(host, tmp_path):
+    dashboard, request = host
+    folder = tmp_path / "demo_eval_post_v2"
+    folder.mkdir()
+    (folder / "test.py").write_text("# test post\n")
+    dashboard.projects.add("demo", str(folder))
+
+    eval_path = "/api/project-code-evaluation-v2"
+    wrong_payload = json.dumps(
+        {"mode": "project_code_evaluation", "consent": "project-code-evaluation-v2-wrong"}
+    )
+    status, _, _ = request("/api/jobs", method="POST", auth=True, body=wrong_payload)
+    assert status == 400
+    _, _, get_body_empty = request(eval_path, auth=True)
+    assert json.loads(get_body_empty.decode("utf-8")).get("history") == []
+
+    dashboard.assistant.config_path.parent.mkdir(parents=True, exist_ok=True)
+    dashboard.assistant.config_path.write_text(
+        json.dumps({"provider": "deepseek", "model": "deepseek-flash"})
+    )
+
+    correct_payload = json.dumps(
+        {"mode": "project_code_evaluation", "consent": "project-code-evaluation-v2"}
+    )
+    status_ok, _, post_body = request("/api/jobs", method="POST", auth=True, body=correct_payload)
+    assert status_ok == 202
+    job_resp = json.loads(post_body.decode("utf-8"))
+    eval_id = UUID(job_resp["job"]["evaluation_id"])
+    claim = dashboard.code_evaluation.read_claim(eval_id)
+    assert claim.suite_profile == "synthetic-file-overlap-v2"
+
+    binding = dashboard.assistant.read_binding("project_code_evaluation", eval_id)
+    assert binding.provider == "deepseek" and binding.model == "deepseek-flash"
+    dashboard.assistant.config_path.write_text(
+        json.dumps({"provider": "gemini", "model": "gemini-3.8-flash"})
+    )
+    binding_after = dashboard.assistant.read_binding("project_code_evaluation", eval_id)
+    assert binding_after.provider == "deepseek" and binding_after.model == "deepseek-flash"
+
+    _, _, get_body_after = request(eval_path, auth=True)
+    assert len(json.loads(get_body_after.decode("utf-8")).get("history", [])) == 1
+
+    status_conflict, _, _ = request("/api/jobs", method="POST", auth=True, body=correct_payload)
+    assert status_conflict == 409
+    status_conflict_v1, _, _ = request(
+        "/api/jobs",
+        method="POST",
+        auth=True,
+        body=json.dumps(
+            {"mode": "project_code_evaluation", "consent": "project-code-evaluation-v1"}
+        ),
+    )
+    assert status_conflict_v1 == 409
+
+
+def test_code_evaluation_rejects_extra_case_and_profile_keys(host, tmp_path):
+    dashboard, request = host
+    folder = tmp_path / "demo_eval_extra"
+    folder.mkdir()
+    (folder / "lib.py").write_text("# extra keys\n")
+    dashboard.projects.add("demo", str(folder))
+
+    payload_case = json.dumps(
+        {
+            "mode": "project_code_evaluation",
+            "consent": "project-code-evaluation-v2",
+            "case_id": "case-1",
+        }
+    )
+    status_case, _, _ = request("/api/jobs", method="POST", auth=True, body=payload_case)
+    assert status_case == 400
+
+    payload_profile = json.dumps(
+        {
+            "mode": "project_code_evaluation",
+            "consent": "project-code-evaluation-v2",
+            "profile": "fast",
+        }
+    )
+    status_prof, _, _ = request("/api/jobs", method="POST", auth=True, body=payload_profile)
+    assert status_prof == 400
+
+    payload_query = json.dumps(
+        {"mode": "project_code_evaluation", "consent": "project-code-evaluation-v2", "version": 2}
+    )
+    status_q, _, _ = request("/api/jobs", method="POST", auth=True, body=payload_query)
+    assert status_q == 400
+
+
+def test_code_evaluation_get_does_not_create_claim_or_history(host, tmp_path):
+    dashboard, request = host
+    folder = tmp_path / "demo_eval_noclaim"
+    folder.mkdir()
+    (folder / "test.py").write_text("# harmless\n")
+    dashboard.projects.add("demo", str(folder))
+
+    s1, _, b1 = request("/api/project-code-evaluation", auth=True)
+    assert s1 == 200
+    assert json.loads(b1.decode("utf-8")).get("history") == []
+
+    s2, _, b2 = request("/api/project-code-evaluation-v2", auth=True)
+    assert s2 == 200
+    assert json.loads(b2.decode("utf-8")).get("history") == []
