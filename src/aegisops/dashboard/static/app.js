@@ -558,7 +558,7 @@ async function projectAiSection(report,sequence) {
     } else {
       panel.append(node("p","","Внешнему сервису нейропомощника отправятся только версия правил, статус, число проверенных файлов/пропусков и коды замечаний с их количеством. Названия, пути, строки исходников и значения конфигурации не отправляются."));
       const preview=node("details","ai-preview"); preview.append(node("summary","","Посмотреть отправляемую сводку"),node("pre","",JSON.stringify(data.payload,null,2))); panel.append(preview);
-      panel.append(node("p","detail-subtitle","Один платный запрос, до 1600 выходных токенов. Используется отдельный ключ AegisOps с общим лимитом до $5. Для одного отчёта — одна попытка, без автоматического повтора."));
+      panel.append(node("p","detail-subtitle","Один платный запрос, до 1600 выходных токенов. Лимиты задаются на сервисном аккаунте — см. «Нейропомощник». Для одного отчёта — одна попытка, без автоматического повтора."));
       const label=node("label","ai-consent"), consent=node("input"); consent.type="checkbox"; consent.id=`ai-consent-${report.id}`;
       label.append(consent,document.createTextNode("Отправить эту сводку внешнему сервису нейропомощника и выполнить один платный разбор"));
       const run=node("button","primary-button project-ai-start","Разобрать с нейросетью"); run.dataset.consentId=consent.id; run.disabled=true;
@@ -1286,6 +1286,7 @@ async function openCodeReview(id,origin){
       }
       if(!findings.length)panel.append(node("p","detail-callout","Модель не вернула замечаний. Пустой список не доказывает отсутствие ошибок."));
       if(findings.length){const lab=node("button","action-option","Исправление и проверка");lab.append(node("span","action-option-copy","Предложить исправление и проверить его в Docker. Платный запрос только после отдельного согласия."));lab.addEventListener("click",()=>openCodeLab(id,origin));panel.append(lab);}
+      const exportLink=node("a","secondary-button","Скачать отчёт");exportLink.href=`/api/project-code-export/${encodeURIComponent(id)}`;exportLink.download="aegis-review.md";panel.append(exportLink);
       if(typeof result.response.limitations==="string" && result.response.limitations)panel.append(node("p","detail-callout",`Ограничения ответа: ${result.response.limitations}`));
       panel.append(node("p","detail-subtitle","Это мнение модели. Замечания требуют ручной проверки; код не исполнялся и файлы не изменялись."));
     } else {panel.append(node("p","detail-callout","Результат не подтверждён. Повтор автоматически не выполняется."));}
@@ -1370,6 +1371,7 @@ async function openCodeLab(id,origin){
       const testText=lenientText(proposal.test_code);
       if(testText){panel.append(node("p","detail-subtitle","Сгенерированный тест"),codePre(testText));}
       panel.append(node("p","detail-callout","Код не проверен и не применён. Автоматического применения нет."));
+      const fixLink=node("a","secondary-button","Скачать исправление и тест");fixLink.href=`/api/project-fix-export/${encodeURIComponent(id)}`;fixLink.download="aegis-fix.zip";panel.append(fixLink);
     } else {panel.append(node("p","detail-callout","Результат не подтверждён. Повтор автоматически не выполняется."));}
     const verification=lab.verification;
     if(verification===null || verification===undefined){

@@ -2247,3 +2247,188 @@ test('openAssistantSettings discarded when closeDrawer called before response re
   const body = doc.getElementById('detail-body');
   assert.strictEqual(body.textContent.includes('gpt-5.4-mini'), false);
 });
+
+
+test('completed code review and lab expose download export links with GET-only requests', async () => {
+  const calls = [];
+  const preview = {
+    id: 'p1',
+    project_id: 'proj1',
+    created_at: 1700000000,
+    files: [{ id: 'f1', path: 'index.js', language: 'javascript', lines: 10, content: 'console.log(1);' }]
+  };
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    if (url === '/api/project-code/p1') {
+      return {
+        ok: true,
+        json: async () => ({
+          status: 'completed',
+          preview,
+          result: {
+            response: {
+              summary: 'Summary review',
+              findings: [{
+                file_id: 'f1',
+                title: 'Bug',
+                severity: 'high',
+                category: 'security',
+                evidence: 'bad call',
+                explanation: 'leak',
+                recommendation: 'fix it',
+                start_line: 1,
+                end_line: 2
+              }]
+            }
+          }
+        })
+      };
+    }
+    if (url === '/api/project-code-lab/p1') {
+      return {
+        ok: true,
+        json: async () => ({
+          preview,
+          review: { findings: [{ title: 'Bug' }] },
+          lab: {
+            status: 'completed',
+            diff: '--- a\n+++ b',
+            result: {
+              proposal: {
+                file_id: 'f1',
+                explanation: 'Fixed proposal',
+                test_code: 'test("ok", () => {});'
+              }
+            }
+          },
+          payloads: [{}]
+        })
+      };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+
+  await vm.runInContext('openCodeReview("p1", null)', ctx);
+  await new Promise(setImmediate);
+
+  const reviewExport = doc.querySelectorAll('a').find(a => a.textContent === 'Скачать отчёт');
+  assert.ok(reviewExport, 'Review export link rendered');
+  assert.strictEqual(reviewExport.href, '/api/project-code-export/p1');
+  assert.strictEqual(reviewExport.download, 'aegis-review.md');
+
+  await vm.runInContext('openCodeLab("p1", null)', ctx);
+  await new Promise(setImmediate);
+
+  const labExport = doc.querySelectorAll('a').find(a => a.textContent === 'Скачать исправление и тест');
+  assert.ok(labExport, 'Fix export link rendered');
+  assert.strictEqual(labExport.href, '/api/project-fix-export/p1');
+  assert.strictEqual(labExport.download, 'aegis-fix.zip');
+
+  const diffExport = doc.querySelectorAll('a').find(a => a.textContent === 'Скачать diff');
+  assert.ok(diffExport, 'Existing diff export link still present');
+  assert.strictEqual(diffExport.download, 'aegis-proposal.patch');
+
+  assert.ok(calls.every(c => c.method === 'GET'), 'Only GET requests were dispatched');
+  assert.strictEqual(calls.some(c => c.method === 'POST'), false);
+});
+
+test('non-completed statuses in code review and lab do not render export links', async () => {
+  const nonCompletedCases = [
+    { status: 'pending' },
+    { status: 'failed' },
+    { status: 'not_requested' },
+    { status: 'unknown' }
+  ];
+
+  for (const item of nonCompletedCases) {
+    const calls = [];
+    const preview = {
+      id: 'p_nc',
+      project_id: 'proj1',
+      profile: 'project-code-review-v1',
+      created_at: 1700000000,
+      files: [{ id: 'f1', path: 'index.js', language: 'javascript', lines: 10, content: 'x=1;' }]
+    };
+    const { ctx, doc } = setupContext(async (url, opts = {}) => {
+      calls.push({ url, method: opts.method || 'GET' });
+      if (url === '/api/project-code/p_nc') {
+        return {
+          ok: true,
+          json: async () => ({ status: item.status, preview })
+        };
+      }
+      if (url === '/api/project-code-lab/p_nc') {
+        return {
+          ok: true,
+          json: async () => ({
+            preview,
+            review: { findings: [{ title: 'Finding' }] },
+            lab: { status: item.status },
+            payloads: [{}]
+          })
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+
+    await vm.runInContext('openCodeReview("p_nc", null)', ctx);
+    await new Promise(setImmediate);
+    assert.strictEqual(doc.querySelectorAll('a').find(a => a.textContent === 'Скачать отчёт'), undefined);
+
+    await vm.runInContext('openCodeLab("p_nc", null)', ctx);
+    await new Promise(setImmediate);
+    assert.strictEqual(doc.querySelectorAll('a').find(a => a.textContent === 'Скачать исправление и тест'), undefined);
+  }
+});
+
+test('stale late GET response does not append old export link after drawer changes', async () => {
+  let resolveLateReview;
+  const lateReviewPromise = new Promise(resolve => { resolveLateReview = resolve; });
+  const preview1 = {
+    id: 'p_late',
+    project_id: 'proj1',
+    created_at: 1700000000,
+    files: [{ id: 'f1', path: 'a.js', language: 'javascript', lines: 5, content: 'a' }]
+  };
+  const preview2 = {
+    id: 'p_fast',
+    project_id: 'proj1',
+    created_at: 1700000000,
+    files: [{ id: 'f2', path: 'b.js', language: 'javascript', lines: 5, content: 'b' }]
+  };
+
+  const { ctx, doc } = setupContext(async (url) => {
+    if (url === '/api/project-code/p_late') {
+      await lateReviewPromise;
+      return {
+        ok: true,
+        json: async () => ({
+          status: 'completed',
+          preview: preview1,
+          result: { response: { summary: 'Late summary', findings: [] } }
+        })
+      };
+    }
+    if (url === '/api/project-code/p_fast') {
+      return {
+        ok: true,
+        json: async () => ({
+          status: 'failed',
+          preview: preview2
+        })
+      };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+
+  const firstOpen = vm.runInContext('openCodeReview("p_late", null)', ctx);
+  await vm.runInContext('openCodeReview("p_fast", null)', ctx);
+  await new Promise(setImmediate);
+
+  resolveLateReview();
+  await firstOpen;
+  await new Promise(setImmediate);
+
+  const staleExportLink = doc.querySelectorAll('a').find(a => a.textContent === 'Скачать отчёт');
+  assert.strictEqual(staleExportLink, undefined, 'Stale delayed response must not inject export link');
+});

@@ -1879,3 +1879,172 @@ def test_assistant_model_state_resolution_rules(host):
         dashboard.assistant_model("project_ai", uid, {"status": "pending"})
         == "deepseek/deepseek-v4.1-flash"
     )
+
+
+def _seed_completed_project_export(dashboard, tmp_path):
+    from aegisops.domain.common import utc_now
+    from aegisops.project_code.lab import LabResult, Proposal
+    from aegisops.project_code.models import CodeFinding, CodeResult, CodeReview, preview_digest
+
+    proj_dir = tmp_path / "demo_worktree"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    target_file = proj_dir / "main.py"
+    target_file.write_text("def calc():\n    return 0\n", encoding="utf-8")
+
+    project = dashboard.projects.add("demo", str(proj_dir))
+    preview = dashboard.code_analyses.create(project.id, ["main.py"])
+    dashboard.code_analyses.claim(preview.id)
+
+    finding = CodeFinding(
+        file_id="f1",
+        start_line=2,
+        end_line=2,
+        severity="warning",
+        category="reliability",
+        title="Calculation check",
+        evidence="return 0",
+        explanation="Объяснение дефекта",
+        recommendation="Рекомендация по правке",
+    )
+    review = CodeReview(summary="Обзор решения", findings=(finding,), limitations="None")
+    code_res = CodeResult(
+        preview_id=preview.id,
+        preview_sha256=preview_digest(preview),
+        completed_at=utc_now(),
+        status="completed",
+        model="gemini-3.8-flash",
+        response=review,
+    )
+    dashboard.code_analyses.write(preview.id, "result", code_res.model_dump_json())
+
+    lab_claim = dashboard.code_lab.claim(preview.id, 0)
+    proposal = Proposal(
+        file_id="f1",
+        replacement="def calc():\n    return 1\n",
+        test_language="python",
+        test_code="def test_calc():\n    pass\n",
+        explanation="Исправление дефекта",
+    )
+    lab_res = LabResult(
+        preview_id=preview.id,
+        preview_sha256=lab_claim.preview_sha256,
+        review_sha256=lab_claim.review_sha256,
+        completed_at=utc_now(),
+        status="completed",
+        model="gemini-3.8-flash",
+        proposal=proposal,
+    )
+    dashboard.code_lab._write(preview.id, "result", lab_res.model_dump_json())
+    return preview.id, proj_dir
+
+
+@pytest.mark.parametrize("route_prefix", ["/api/project-code-export/", "/api/project-fix-export/"])
+def test_export_routes_auth_evil_host_and_method_boundaries(host, route_prefix):
+    from uuid import uuid4
+
+    dashboard, request = host
+    target_uuid = str(uuid4())
+    path = f"{route_prefix}{target_uuid}"
+
+    status, headers, body = request(path, method="GET", auth=False)
+    assert status == 401
+
+    status, headers, body = request(
+        path, method="GET", auth=True, headers={"Host": "evil.example.com"}
+    )
+    assert status == 403
+
+    status, headers, body = request(path, method="POST", auth=True, body=b"{}")
+    assert status == 404
+
+
+def test_completed_export_downloads_and_artifacts(host, tmp_path):
+    import io
+    import zipfile
+
+    dashboard, request = host
+    analysis_id, proj_dir = _seed_completed_project_export(dashboard, tmp_path)
+
+    code_path = f"/api/project-code-export/{analysis_id}"
+    status, headers, body_md = request(code_path, method="GET", auth=True)
+    assert status == 200
+    assert "no-store" in headers.get("Cache-Control", "")
+    assert headers.get("X-Content-Type-Options") == "nosniff"
+    assert (
+        headers.get("Content-Disposition")
+        == f'attachment; filename="aegis-review-{analysis_id}.md"'
+    )
+    assert headers.get("Content-Length") == str(len(body_md))
+    assert "Обзор решения" in body_md.decode("utf-8")
+    assert "gemini-3.8-flash" in body_md.decode("utf-8")
+
+    status2, _, repeat_md = request(code_path, method="GET", auth=True)
+    assert status2 == 200
+    assert repeat_md == body_md
+
+    fix_path = f"/api/project-fix-export/{analysis_id}"
+    status, headers, body_zip = request(fix_path, method="GET", auth=True)
+    assert status == 200
+    assert "no-store" in headers.get("Cache-Control", "")
+    assert headers.get("X-Content-Type-Options") == "nosniff"
+    assert (
+        headers.get("Content-Disposition") == f'attachment; filename="aegis-fix-{analysis_id}.zip"'
+    )
+    assert headers.get("Content-Length") == str(len(body_zip))
+
+    with zipfile.ZipFile(io.BytesIO(body_zip), "r") as zf:
+        names = zf.namelist()
+        assert len(names) == 5
+
+    status2, _, repeat_zip = request(fix_path, method="GET", auth=True)
+    assert status2 == 200
+    assert repeat_zip == body_zip
+
+    assert set(p.name for p in proj_dir.iterdir()) == {"main.py"}
+
+
+def test_pending_code_preview_downloads_fail_safely(host, tmp_path):
+    dashboard, request = host
+    proj_dir = tmp_path / "pending_proj"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    (proj_dir / "main.py").write_text("def calc():\n    return 0\n", encoding="utf-8")
+    project = dashboard.projects.add("pending_demo", str(proj_dir))
+    preview = dashboard.code_analyses.create(project.id, ["main.py"])
+
+    status, headers, body = request(
+        f"/api/project-code-export/{preview.id}", method="GET", auth=True
+    )
+    assert status == 503
+    assert "Content-Disposition" not in headers
+    payload = json.loads(body.decode("utf-8"))
+    assert "error" in payload or "detail" in payload or "status" in payload
+
+    status, headers, body = request(
+        f"/api/project-fix-export/{preview.id}", method="GET", auth=True
+    )
+    assert status == 503
+    assert "Content-Disposition" not in headers
+    payload = json.loads(body.decode("utf-8"))
+    assert "error" in payload or "detail" in payload or "status" in payload
+
+
+def test_tampered_preview_hash_fails_safely_without_traceback(host, tmp_path):
+    dashboard, request = host
+    analysis_id, _ = _seed_completed_project_export(dashboard, tmp_path)
+
+    preview_file = dashboard.code_analyses.path(analysis_id, "preview")
+    data = json.loads(preview_file.read_text(encoding="utf-8"))
+    data["files"][0]["sha256"] = "0000000000000000000000000000000000000000000000000000000000000000"
+    preview_file.write_text(json.dumps(data), encoding="utf-8")
+
+    for path in (
+        f"/api/project-code-export/{analysis_id}",
+        f"/api/project-fix-export/{analysis_id}",
+    ):
+        status, headers, body = request(path, method="GET", auth=True)
+        assert status == 503
+        assert "Content-Disposition" not in headers
+        text = body.decode("utf-8")
+        assert "Traceback" not in text
+        payload = json.loads(text)
+        assert isinstance(payload, dict)

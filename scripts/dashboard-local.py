@@ -46,6 +46,7 @@ from aegisops.project_checks.repository import FullCheckRepository
 from aegisops.project_code.context import build_map, suggest_context
 from aegisops.project_code.evaluation import cases
 from aegisops.project_code.evaluation_repository import EvalRepository
+from aegisops.project_code.export import proposal_zip, review_markdown
 from aegisops.project_code.lab import LabRepository, proposal_payload
 from aegisops.project_code.models import CODE_PROFILE, CodePreview, wire_payload
 from aegisops.project_code.repository import CodeRepository
@@ -926,6 +927,32 @@ class Handler(BaseHTTPRequestHandler):
             if not self.authorized():
                 return self.send_json(401, {"error": "Откройте интерфейс через Start-AegisOps.cmd"})
             try:
+                if self.path.startswith("/api/project-code-export/"):
+                    identifier = UUID(self.path[len("/api/project-code-export/") :])
+                    result = review_markdown(self.dashboard.code_analyses, identifier)
+                    return self.response(
+                        200,
+                        result,
+                        "text/markdown; charset=utf-8",
+                        headers={
+                            "Content-Disposition": (
+                                f'attachment; filename="aegis-review-{identifier}.md"'
+                            )
+                        },
+                    )
+                if self.path.startswith("/api/project-fix-export/"):
+                    identifier = UUID(self.path[len("/api/project-fix-export/") :])
+                    result = proposal_zip(self.dashboard.code_lab, identifier)
+                    return self.response(
+                        200,
+                        result,
+                        "application/zip",
+                        headers={
+                            "Content-Disposition": (
+                                f'attachment; filename="aegis-fix-{identifier}.zip"'
+                            )
+                        },
+                    )
                 if self.path == "/api/ping":
                     return self.send_json(200, {"application": "aegisops-local-ui-v1"})
                 if self.path == "/api/assistant":
