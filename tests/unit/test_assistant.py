@@ -517,3 +517,54 @@ def test_invalid_assistant_configurations_raise_error(tmp_path, invalid_content)
     actual_binding_path.write_text(invalid_content, encoding="utf-8")
     with pytest.raises(ProjectError):
         repo.read_binding("project_ai", ident)
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "source_review", "expected_timeout", "expected_max_tokens", "token_key"),
+    [
+        ("deepseek", "deepseek-flash", False, 30, 1600, "max_tokens"),
+        ("deepseek", "deepseek-flash", True, 90, 2800, "max_tokens"),
+        ("openai", "gpt-5.4-mini", False, 30, 1600, "max_completion_tokens"),
+        ("openai", "gpt-5.4-mini", True, 90, 2800, "max_completion_tokens"),
+    ],
+)
+def test_transport_direct_exchange_source_review_timebudgets_and_tokens(
+    provider: str,
+    model: str,
+    source_review: bool,
+    expected_timeout: int,
+    expected_max_tokens: int,
+    token_key: str,
+) -> None:
+    reply_payload = {
+        "model": model,
+        "choices": [
+            {
+                "finish_reason": "stop",
+                "message": {"content": json.dumps({"test": "ok"})},
+            }
+        ],
+        "usage": {"prompt_tokens": 15, "completion_tokens": 25},
+    }
+    FakeHTTPSConnection.next_response = FakeHTTPResponse(
+        200, json.dumps(reply_payload).encode("utf-8")
+    )
+
+    sel = Selection(provider=provider, model=model)  # type: ignore[arg-type]
+    content, inp, outp = exchange(
+        '{"input":"data"}',
+        "system prompt",
+        SecretStr("sk-valid-key"),
+        sel,
+        source_review=source_review,
+    )
+
+    assert content == {"test": "ok"}
+    assert inp == 15
+    assert outp == 25
+    assert len(FakeHTTPSConnection.captured) == 1
+    req = FakeHTTPSConnection.captured[0]
+    assert req["timeout"] == expected_timeout
+
+    body = json.loads(req["body"].decode("utf-8"))
+    assert body[token_key] == expected_max_tokens

@@ -24,6 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from aegisops.assistant.budgets import child_timeout
 from aegisops.assistant.models import CATALOG, LEGACY
 from aegisops.assistant.repository import MODES, AssistantRepository
 from aegisops.audit.reader import PostgresAuditReader
@@ -279,15 +280,19 @@ class Dashboard:
         runtime_environment = {
             key: value for key, value in role_environment().items() if key.upper() != "PSMODULEPATH"
         }
-        timeout = 80
         if evaluation:
-            timeout = 160
             claim = self.code_evaluation.read_claim(UUID(identifier))
-            if (
-                claim is not None
-                and getattr(claim, "suite_profile", None) == "synthetic-file-overlap-v2"
-            ):
-                timeout = 360
+            profile = getattr(claim, "suite_profile", None) if claim is not None else None
+            if profile == "synthetic-file-overlap-v2":
+                timeout = child_timeout(source_review=True, evaluation_cases=9)
+            elif profile == "synthetic-line-overlap-v1":
+                timeout = child_timeout(source_review=True, evaluation_cases=3)
+            else:
+                raise ProjectError("Запрос оценки не найден или повреждён")
+        elif code or fix:
+            timeout = child_timeout(source_review=True)
+        else:
+            timeout = child_timeout()
         result = subprocess.run(
             command,
             cwd=ROOT,

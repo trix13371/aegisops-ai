@@ -16,6 +16,7 @@ from urllib.request import getproxies, proxy_bypass
 
 from pydantic import SecretStr
 
+from aegisops.assistant.budgets import request_timeout
 from aegisops.assistant.models import CATALOG, Selection
 from aegisops.io import unique_object
 
@@ -87,24 +88,26 @@ def _post(
     headers: dict[str, str],
     *,
     max_raw: int = 65536,
+    source_review: bool = False,
 ) -> tuple[int, object]:
-    """Verified-TLS POST with 30s timer, no redirects/retries/streaming."""
+    """Verified-TLS POST with fixed timer, no redirects/retries/streaming."""
     connection: http.client.HTTPSConnection | None = None
     wire_socket: socket.socket | None = None
     timer: threading.Timer | None = None
     try:
+        budget = request_timeout(source_review)
         proxy = _proxy_endpoint(host)
         connect_host = proxy[0] if proxy else host
         connect_port = proxy[1] if proxy else 443
         connection = http.client.HTTPSConnection(
             connect_host,
             connect_port,
-            timeout=30,
+            timeout=budget,
             context=ssl.create_default_context(),
         )
         if proxy:
             connection.set_tunnel(host, 443)
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + budget
 
         def abort() -> None:
             try:
@@ -114,7 +117,7 @@ def _post(
             except OSError:
                 pass
 
-        timer = threading.Timer(30, abort)
+        timer = threading.Timer(budget, abort)
         timer.daemon = True
         timer.start()
         connection.connect()
@@ -363,7 +366,7 @@ def exchange(
                 "User-Agent": "AegisOps/0.1",
             }
         connection_started = True
-        _, reply = _post(entry.host, path, body, headers)
+        _, reply = _post(entry.host, path, body, headers, source_review=source_review)
         if entry.protocol == "gemini-generate":
             return _parse_gemini(reply, entry.model, max_output)
         return _parse_openai(reply, entry.model, selection.provider, max_output)

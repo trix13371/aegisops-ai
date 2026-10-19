@@ -11,6 +11,7 @@ from urllib.request import getproxies, proxy_bypass
 
 from pydantic import SecretStr
 
+from aegisops.assistant.budgets import request_timeout
 from aegisops.assistant.runtime import runtime_selection
 from aegisops.io import unique_object
 from aegisops.project_ai.models import MODEL, Explanation, Summary
@@ -133,15 +134,16 @@ def _exchange(
         proxy_host = endpoint.hostname if endpoint else host
         if proxy_host is None:
             raise AnalysisError("unavailable")
+        budget = request_timeout(source_review)
         connection = http.client.HTTPSConnection(
             proxy_host,
             (endpoint.port or 80) if endpoint else 443,
-            timeout=30,
+            timeout=budget,
             context=ssl.create_default_context(),
         )
         if endpoint:
             connection.set_tunnel(host, 443)
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + budget
 
         def abort() -> None:
             try:
@@ -151,7 +153,7 @@ def _exchange(
             except OSError:
                 pass
 
-        timer = threading.Timer(30, abort)
+        timer = threading.Timer(budget, abort)
         timer.daemon = True
         timer.start()
         try:

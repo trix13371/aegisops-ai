@@ -1,0 +1,65 @@
+{
+  "stage": "UI25",
+  "date": "2026-10-19",
+  "feature": "bounded source-review timeouts and exact unique quote alignment",
+  "request_seconds": {
+    "summary": 30,
+    "source_review": 90
+  },
+  "child_seconds": {
+    "summary": 80,
+    "source_review_single": 135,
+    "evaluation_v1": 315,
+    "evaluation_v2": 855
+  },
+  "live_evaluation": {
+    "id": "abee5b4d-3b8a-4c8f-b4d2-a868b0526d56",
+    "status": "completed",
+    "model": "deepseek/deepseek-v4.1-flash",
+    "elapsed_seconds": 127.14,
+    "accepted_answers": 9,
+    "total": 9,
+    "tp": 5,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "input_tokens": 9623,
+    "output_tokens": 2661,
+    "fixture_sha256": "10fc0928fed0bb440c1ad8e10731f587fb9040c94cf0b517e492c52b83a1ed92",
+    "general_accuracy_claimed": false
+  },
+  "runtime_request_attempts_during_fix": 20,
+  "automatic_retry_added": false,
+  "old_records_rewritten": false,
+  "gold_changed": false,
+  "runtime_credentials_modified": false,
+  "regression": {
+    "passed": 1621,
+    "skipped": 4,
+    "deselected": 69,
+    "seconds": 182.56,
+    "excluded_markers": [
+      "llm_live",
+      "kind_live",
+      "opa_live",
+      "runner_live"
+    ],
+    "before_final_instruction_text_refinement": true
+  },
+  "new_tests": 28,
+  "focused_after_instruction_refinement": {
+    "passed": 36,
+    "skipped": 1
+  },
+  "ui_passed": 56,
+  "mypy_source_files": 151,
+  "import_contracts_kept": 25,
+  "schemas_verified": 57,
+  "independent_reviews": "pass",
+  "gitleaks_staged": "no leaks found",
+  "wheel_source_byte_matches": 5,
+  "sdist_host_byte_matches": 1,
+  "github_push_performed": false,
+  "screenshot": ".local/ui25-evaluation-success.png"
+}

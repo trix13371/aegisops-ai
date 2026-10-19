@@ -447,3 +447,103 @@ def test_eval_failure_and_result_v2_validation() -> None:
     )
     assert failed_result.failure is None
     assert failed_result.status == "failed"
+
+
+def test_exchange_timebudget_deadline_and_connection_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ssl
+
+    current_time = [100.0]
+    monkeypatch.setattr(transport.time, "monotonic", lambda: current_time[0])
+
+    # 1. source_review=False (budget 30s): elapsed 31s times out
+    c_free = FakeHTTPSConnection("dummy")
+    captured_kwargs_free: dict = {}
+
+    def connect_delay_31() -> None:
+        c_free.connect_count += 1
+        current_time[0] = 131.0
+        raise OSError("connect failed after delay")
+
+    c_free.connect = connect_delay_31  # type: ignore[method-assign]
+
+    def factory_free(*args, **kwargs):
+        captured_kwargs_free.update(kwargs)
+        return c_free
+
+    monkeypatch.setattr(transport.http.client, "HTTPSConnection", factory_free)
+
+    with pytest.raises(AnalysisError) as exc_info:
+        _exchange("{}", "instructions", SecretStr("valid_secret_key"), source_review=False)
+    assert exc_info.value.code == "timeout"
+    assert captured_kwargs_free.get("timeout") == 30
+    assert captured_kwargs_free.get("context").check_hostname is True
+    assert captured_kwargs_free.get("context").verify_mode == ssl.CERT_REQUIRED
+    assert c_free.connect_count == 1
+    assert c_free.closed
+    assert FakeTimer.timer_instances[-1].interval == 30
+    assert FakeTimer.timer_instances[-1].canceled
+
+    # 2. source_review=True (budget 90s): elapsed 31s connects successfully
+    FakeHTTPSConnection.connection_instances.clear()
+    FakeTimer.timer_instances.clear()
+    current_time[0] = 100.0
+    c_review = FakeHTTPSConnection("dummy")
+    captured_kwargs_review: dict = {}
+
+    def connect_delay_to_131() -> None:
+        c_review.connect_count += 1
+        current_time[0] = 131.0
+
+    c_review.connect = connect_delay_to_131  # type: ignore[method-assign]
+    c_review.response = FakeHTTPResponse(status=200, chunks=[_valid_payload_bytes()])
+
+    def factory_review(*args, **kwargs):
+        captured_kwargs_review.update(kwargs)
+        return c_review
+
+    monkeypatch.setattr(transport.http.client, "HTTPSConnection", factory_review)
+
+    res = _exchange("{}", "instructions", SecretStr("valid_secret_key"), source_review=True)
+    assert res == ({"summary": "ok", "actions": []}, 10, 10)
+    assert captured_kwargs_review.get("timeout") == 90
+    assert captured_kwargs_review.get("context").check_hostname is True
+    assert captured_kwargs_review.get("context").verify_mode == ssl.CERT_REQUIRED
+    assert c_review.connect_count == 1
+    assert c_review.request_count == 1
+    assert len(FakeHTTPSConnection.connection_instances) == 1
+    assert c_review.closed
+    assert FakeTimer.timer_instances[-1].interval == 90
+    assert FakeTimer.timer_instances[-1].canceled
+
+    # 3. source_review=True: elapsed >90s (91s) times out
+    FakeHTTPSConnection.connection_instances.clear()
+    FakeTimer.timer_instances.clear()
+    current_time[0] = 100.0
+    c_over = FakeHTTPSConnection("dummy")
+    captured_kwargs_over: dict = {}
+
+    def connect_delay_91() -> None:
+        c_over.connect_count += 1
+        current_time[0] = 191.0
+        raise OSError("connect failed after 91s")
+
+    c_over.connect = connect_delay_91  # type: ignore[method-assign]
+
+    def factory_over(*args, **kwargs):
+        captured_kwargs_over.update(kwargs)
+        return c_over
+
+    monkeypatch.setattr(transport.http.client, "HTTPSConnection", factory_over)
+
+    with pytest.raises(AnalysisError) as exc_info:
+        _exchange("{}", "instructions", SecretStr("valid_secret_key"), source_review=True)
+    assert exc_info.value.code == "timeout"
+    assert captured_kwargs_over.get("timeout") == 90
+    assert captured_kwargs_over.get("context").check_hostname is True
+    assert captured_kwargs_over.get("context").verify_mode == ssl.CERT_REQUIRED
+    assert c_over.connect_count == 1
+    assert c_over.closed
+    assert FakeTimer.timer_instances[-1].interval == 90
+    assert FakeTimer.timer_instances[-1].canceled

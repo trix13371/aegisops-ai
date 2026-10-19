@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import threading
+import types
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -2294,3 +2295,95 @@ def test_code_evaluation_get_does_not_create_claim_or_history(host, tmp_path):
     s2, _, b2 = request("/api/project-code-evaluation-v2", auth=True)
     assert s2 == 200
     assert json.loads(b2.decode("utf-8")).get("history") == []
+
+
+@pytest.mark.parametrize(
+    ("method_name", "call_kwargs", "eval_profile", "expected_timeout"),
+    [
+        ("project_ai_child", {}, None, 80),
+        ("project_review_ai_child", {}, None, 80),
+        ("project_code_ai_child", {}, None, 135),
+        ("project_code_fix_child", {}, None, 135),
+        ("project_code_evaluation_child", {}, "synthetic-line-overlap-v1", 315),
+        ("project_code_evaluation_child", {}, "synthetic-file-overlap-v2", 855),
+    ],
+)
+def test_dashboard_host_child_timeouts(
+    operator, monkeypatch, tmp_path, method_name, call_kwargs, eval_profile, expected_timeout
+):
+    import os as real_os
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from aegisops.project_code.evaluation_repository import EvalRepository
+
+    dashboard = operator.Dashboard()
+    dashboard.code_evaluation = EvalRepository(tmp_path / "private-eval", dashboard.projects)
+
+    fake_os = SimpleNamespace(name="nt", environ=real_os.environ)
+    monkeypatch.setattr(operator, "os", fake_os)
+    if not hasattr(operator.subprocess, "CREATE_NO_WINDOW"):
+        monkeypatch.setattr(operator.subprocess, "CREATE_NO_WINDOW", 0, raising=False)
+
+    if eval_profile is not None:
+        claim = dashboard.code_evaluation.create(suite_profile=eval_profile)
+        ident = claim.id
+        stored = dashboard.code_evaluation.read_claim(ident)
+        assert stored is not None
+        assert stored.suite_profile == eval_profile
+    else:
+        ident = uuid4()
+
+    monkeypatch.setattr(dashboard.assistant, "read_binding", lambda mode, i: None)
+
+    captured_calls = []
+
+    def fake_subprocess_run(command, **kwargs):
+        captured_calls.append({"command": command, "kwargs": kwargs})
+        return SimpleNamespace(returncode=0, stdout='{"ok":true}')
+
+    monkeypatch.setattr(operator.subprocess, "run", fake_subprocess_run)
+
+    method = getattr(dashboard, method_name)
+    method(ident, **call_kwargs)
+
+    assert len(captured_calls) == 1
+    assert captured_calls[0]["kwargs"]["timeout"] == expected_timeout
+
+
+@pytest.mark.parametrize(
+    "read_claim_return",
+    [
+        None,
+        types.SimpleNamespace(suite_profile="bad"),
+    ],
+)
+def test_dashboard_code_evaluation_child_invalid_claim_prevents_launch(
+    operator, monkeypatch, read_claim_return
+):
+    import os as real_os
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    dashboard = operator.Dashboard()
+    fake_os = SimpleNamespace(name="nt", environ=real_os.environ)
+    monkeypatch.setattr(operator, "os", fake_os)
+    if not hasattr(operator.subprocess, "CREATE_NO_WINDOW"):
+        monkeypatch.setattr(operator.subprocess, "CREATE_NO_WINDOW", 0, raising=False)
+
+    monkeypatch.setattr(dashboard.code_evaluation, "read_claim", lambda ident: read_claim_return)
+    monkeypatch.setattr(dashboard.assistant, "read_binding", lambda mode, i: None)
+
+    captured_calls = []
+
+    def fake_subprocess_run(command, **kwargs):
+        captured_calls.append({"command": command, "kwargs": kwargs})
+        return SimpleNamespace(returncode=0, stdout='{"ok":true}')
+
+    monkeypatch.setattr(operator.subprocess, "run", fake_subprocess_run)
+
+    ident = uuid4()
+    with pytest.raises(operator.ProjectError):
+        dashboard.project_code_evaluation_child(ident)
+
+    assert len(captured_calls) == 0

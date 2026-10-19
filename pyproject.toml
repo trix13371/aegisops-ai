@@ -184,6 +184,7 @@ source_modules = [
   "aegisops.project_code.context", "aegisops.project_code.lab",
   "aegisops.project_code.reproduction", "aegisops.project_code.evaluation",
   "aegisops.project_code.evaluation_repository",
+  "aegisops.project_code.grounding",
   "aegisops.project_code.export",
 ]
 forbidden_modules = [
