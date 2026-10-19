@@ -1508,5 +1508,38 @@ async function openCodeEvaluation(origin){
   });
   panel.append(label,run);sync();
 }
+async function openAssistantSettings(origin){
+  openRunnerDrawer("Нейропомощник",origin);
+  const sequence=detailSequence;
+  const body=$("detail-body");
+  const panel=node("div","detail-panel");
+  body.append(panel);
+  panel.append(node("p","detail-callout","Загрузка настроек…"));
+  let data;
+  try {data=await api("/api/assistant");}
+  catch(problem) {if(isCodeCurrent(sequence,panel))panel.replaceChildren(node("p","detail-callout","Настройки недоступны."));return;}
+  if(!isCodeCurrent(sequence,panel))return;
+  if(!data || typeof data!=="object"){panel.replaceChildren(node("p","detail-callout","Настройки недоступны."));return;}
+  panel.replaceChildren();
+  const selection=data.selection && typeof data.selection==="object" ? data.selection : {};
+  const provider=typeof selection.provider==="string" ? selection.provider : "";
+  const model=typeof selection.model==="string" ? selection.model : "";
+  panel.append(node("p","detail-subtitle",`Выбранный сервис: ${provider || "не выбран"} · модель: ${model || "не выбрана"}`));
+  panel.append(node("p","detail-subtitle",`Сохранённый ключ: ${data.configured ? "да" : "нет"}`));
+  if(data.legacy && data.configured)panel.append(node("p","detail-callout","Сохранён старый ключ. Он продолжает работать."));
+  const providers=Array.isArray(data.providers) ? data.providers : [];
+  for(const item of providers){
+    if(!item || typeof item!=="object")continue;
+    const label=typeof item.label==="string" ? item.label : (typeof item.provider==="string" ? item.provider : "?");
+    const itemModel=typeof item.model==="string" ? item.model : "";
+    panel.append(node("p","detail-subtitle",`${label}${itemModel ? ` · ${itemModel}` : ""}`));
+  }
+  if(!providers.length)panel.append(node("p","detail-callout","Список сервисов пуст."));
+  const setupCommand=typeof data.setup_command==="string" ? data.setup_command : "Connect-Neuroassistant.cmd";
+  panel.append(node("p","detail-callout",`Запустите мастер ${setupCommand} в папке проекта, выберите сервис и вставьте ключ в скрытое поле.`));
+  panel.append(node("p","detail-callout","Ключ зашифрован Windows DPAPI. Смена ключа влияет только на новые запросы."));
+  if(typeof data.direct_budget_note==="string" && data.direct_budget_note)panel.append(node("p","detail-callout",data.direct_budget_note));
+}
+$("assistant-settings")?.addEventListener("click",event=>openAssistantSettings(event.currentTarget));
 showView("projects");
 refresh();

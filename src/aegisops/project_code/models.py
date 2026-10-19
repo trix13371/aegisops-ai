@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import Field, StrictInt, StrictStr, model_validator
 
+from aegisops.assistant.models import LEGACY_MODEL, ModelName
 from aegisops.domain.common import DTO, Sha256, UTCDateTime
 
 CODE_PROFILE: Final[Literal["project-code-review-v1"]] = "project-code-review-v1"
@@ -170,7 +171,7 @@ class CodeResult(DTO):
     preview_sha256: Sha256
     completed_at: UTCDateTime
     status: Literal["completed", "failed"]
-    model: Literal["deepseek/deepseek-v4.1-flash"] = CODE_MODEL
+    model: ModelName = LEGACY_MODEL
     response: CodeReview | None = None
     input_tokens: Annotated[StrictInt, Field(ge=0, le=100000)] = 0
     output_tokens: Annotated[StrictInt, Field(ge=0, le=2800)] = 0

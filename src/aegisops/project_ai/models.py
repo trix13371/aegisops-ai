@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import AfterValidator, Field, StrictStr, model_validator
 
+from aegisops.assistant.models import LEGACY_MODEL, ModelName
 from aegisops.domain.common import DTO, Sha256, UTCDateTime, nonblank
 from aegisops.projects.models import FindingCode
 
@@ -58,7 +59,7 @@ class Result(DTO):
     report_sha256: Sha256
     completed_at: UTCDateTime
     status: Literal["completed", "failed"]
-    model: Literal["deepseek/deepseek-v4.1-flash"] = "deepseek/deepseek-v4.1-flash"
+    model: ModelName = LEGACY_MODEL
     response: Explanation | None = None
     input_tokens: Annotated[int, Field(strict=True, ge=0, le=100000)] = 0
     output_tokens: Annotated[int, Field(strict=True, ge=0, le=1600)] = 0

@@ -24,12 +24,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
-def operator():
+def operator(monkeypatch, tmp_path):
     spec = importlib.util.spec_from_file_location(
         "local_ui_operator", ROOT / "scripts/dashboard-local.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    from aegisops.assistant.repository import AssistantRepository as RealAssistantRepository
+
+    monkeypatch.setattr(
+        module,
+        "AssistantRepository",
+        lambda *args, **kwargs: RealAssistantRepository(
+            tmp_path / "assistant.json", tmp_path / "attempts"
+        ),
+    )
     return module
 
 
@@ -1789,3 +1798,84 @@ def test_ui17_code_evaluation_post_consent_and_mutex(host, tmp_path):
     assert status_conflict == 409
     _, _, get_body3 = request(eval_path, auth=True)
     assert len(json.loads(get_body3.decode("utf-8")).get("history", [])) == 1
+
+
+def test_assistant_api_auth_defaults_and_file_configuration(host):
+    dashboard, request = host
+    assert request("/api/assistant")[0] == 401
+    status, _, body = request("/api/assistant", auth=True)
+    assert status == 200
+    payload = json.loads(body.decode())
+    assert payload["selection"] == {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4.1-flash",
+    }
+    assert len(payload["providers"]) == 4
+    dashboard.assistant.config_path.parent.mkdir(parents=True, exist_ok=True)
+    (dashboard.assistant.config_path.parent / "deepseek.dpapi").write_bytes(b"opaque-secret-bytes")
+    dashboard.assistant.config_path.write_text(
+        json.dumps({"provider": "deepseek", "model": "deepseek-flash"})
+    )
+    status, _, body = request("/api/assistant", auth=True)
+    assert status == 200
+    assert b"opaque-secret-bytes" not in body
+    data = json.loads(body.decode())
+    assert data["selection"] == {"provider": "deepseek", "model": "deepseek-flash"}
+    assert data["configured"] is True
+    dashboard.assistant.config_path.write_text("{invalid-json")
+    assert request("/api/assistant", auth=True)[0] == 503
+
+
+def test_code_evaluation_job_binds_active_selection_persistently(host):
+    dashboard, request = host
+    dashboard.assistant.config_path.parent.mkdir(parents=True, exist_ok=True)
+    dashboard.assistant.config_path.write_text(
+        json.dumps({"provider": "deepseek", "model": "deepseek-flash"})
+    )
+    status, _, body = request(
+        "/api/jobs",
+        method="POST",
+        auth=True,
+        body=json.dumps(
+            {"mode": "project_code_evaluation", "consent": "project-code-evaluation-v1"}
+        ),
+    )
+    assert status == 202
+    job_resp = json.loads(body.decode())
+    eval_id = UUID(job_resp["job"]["evaluation_id"])
+    binding = dashboard.assistant.read_binding("project_code_evaluation", eval_id)
+    assert binding.provider == "deepseek" and binding.model == "deepseek-flash"
+    dashboard.assistant.config_path.write_text(
+        json.dumps({"provider": "gemini", "model": "gemini-3.8-flash"})
+    )
+    binding_after = dashboard.assistant.read_binding("project_code_evaluation", eval_id)
+    assert binding_after.provider == "deepseek" and binding_after.model == "deepseek-flash"
+
+
+def test_assistant_model_state_resolution_rules(host):
+    dashboard, _ = host
+    from uuid import uuid4
+
+    uid = uuid4()
+    assert (
+        dashboard.assistant_model(
+            "project_ai", uid, {"status": "completed", "model": "gpt-5.4-mini"}
+        )
+        == "gpt-5.4-mini"
+    )
+    assert (
+        dashboard.assistant_model(
+            "project_ai", uid, {"result": {"status": "completed", "model": "gpt-5.4-mini"}}
+        )
+        == "gpt-5.4-mini"
+    )
+    nested_state = {"state": {"result": {"status": "completed", "model": "gemini-3.8-flash"}}}
+    assert dashboard.assistant_model("project_ai", uid, nested_state) == "gemini-3.8-flash"
+    dashboard.assistant.config_path.parent.mkdir(parents=True, exist_ok=True)
+    dashboard.assistant.config_path.write_text(
+        json.dumps({"provider": "deepseek", "model": "deepseek-flash"})
+    )
+    assert (
+        dashboard.assistant_model("project_ai", uid, {"status": "pending"})
+        == "deepseek/deepseek-v4.1-flash"
+    )

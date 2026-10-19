@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from pydantic import model_validator
 
+from aegisops.assistant.models import LEGACY_MODEL, ModelName
 from aegisops.domain.common import DTO, utc_now
 from aegisops.io import read_text, unique_object
 from aegisops.project_code.models import (
@@ -201,7 +202,7 @@ class CodeRepository:
             )
         return entries
 
-    def fail(self, identifier: UUID) -> None:
+    def fail(self, identifier: UUID, model: ModelName = LEGACY_MODEL) -> None:
         claim = self.read_claim(identifier)
         if claim is None or self.read_result(identifier) is not None:
             return
@@ -210,6 +211,7 @@ class CodeRepository:
             preview_sha256=claim.preview_sha256,
             completed_at=utc_now(),
             status="failed",
+            model=model,
         )
         try:
             self.write(identifier, "result", result.model_dump_json())

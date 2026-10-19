@@ -2183,3 +2183,67 @@ test('openCodeLab displays preview and locks on POST failure preventing second P
   await new Promise(setImmediate);
   assert.strictEqual(calls.length, 2);
 });
+
+test('openAssistantSettings performs single GET, renders selection, command and safe labels without input or POST', async () => {
+  const calls = [];
+  const fixtureData = {
+    selection: { provider: 'openai', model: 'gpt-5.4-mini' },
+    configured: true,
+    legacy: false,
+    providers: [
+      { provider: 'openai', label: 'OpenAI Cloud <main>', model: 'gpt-5.4-mini' },
+      { provider: 'anthropic', label: 'Anthropic Claude', model: 'claude-3-opus' },
+      { provider: 'local', label: 'Ollama Local', model: 'llama3' },
+      { provider: 'custom', label: 'Custom Endpoint', model: 'custom-model' }
+    ],
+    setup_command: 'Connect-Neuroassistant.cmd',
+    direct_budget_note: 'limits'
+  };
+  const { ctx, doc } = setupContext(async (url, opts = {}) => {
+    calls.push({ url, method: opts.method || 'GET' });
+    return { ok: true, json: async () => fixtureData };
+  });
+  await vm.runInContext('openAssistantSettings(null)', ctx);
+  await new Promise(setImmediate);
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(calls[0].method, 'GET');
+  assert.strictEqual(calls[0].url, '/api/assistant');
+  const postCalls = calls.filter(c => c.method === 'POST');
+  assert.strictEqual(postCalls.length, 0);
+  const body = doc.getElementById('detail-body');
+  assert.ok(body.textContent.includes('gpt-5.4-mini'));
+  assert.ok(body.textContent.includes('Connect-Neuroassistant.cmd'));
+  assert.ok(body.textContent.includes('OpenAI Cloud <main>'));
+  assert.ok(body.textContent.includes('limits'));
+  const inputs = body.querySelectorAll('input, textarea, select');
+  assert.strictEqual(inputs.length, 0);
+});
+
+test('openAssistantSettings discarded when closeDrawer called before response resolves', async () => {
+  let resolveFetch;
+  const fetchPromise = new Promise(resolve => { resolveFetch = resolve; });
+  const fixtureData = {
+    selection: { provider: 'openai', model: 'gpt-5.4-mini' },
+    configured: true,
+    legacy: false,
+    providers: [],
+    setup_command: 'Connect-Neuroassistant.cmd'
+  };
+  const { ctx, doc } = setupContext(async () => {
+    await fetchPromise;
+    return { ok: true, json: async () => fixtureData };
+  });
+  const originBtn = doc.createElement('button');
+  doc.body.append(originBtn);
+  ctx.settingsOrigin = originBtn;
+  const pending = vm.runInContext('openAssistantSettings(settingsOrigin)', ctx);
+  vm.runInContext('closeDetail()', ctx);
+  const drawer = doc.getElementById('drawer');
+  assert.strictEqual(drawer.hidden, true);
+  resolveFetch();
+  await pending;
+  await new Promise(setImmediate);
+  assert.strictEqual(drawer.hidden, true);
+  const body = doc.getElementById('detail-body');
+  assert.strictEqual(body.textContent.includes('gpt-5.4-mini'), false);
+});

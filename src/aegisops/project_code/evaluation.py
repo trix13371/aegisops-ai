@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from pydantic import Field, StrictStr, model_validator
 
+from aegisops.assistant.models import LEGACY_MODEL, ModelName
 from aegisops.domain.common import DTO, Sha256, UTCDateTime, utc_now
 from aegisops.project_code.models import (
     CodeFile,
@@ -241,6 +242,7 @@ class EvalResult(DTO):
     id: UUID
     completed_at: UTCDateTime
     status: Literal["completed", "failed"]
+    model: ModelName = LEGACY_MODEL
     fixture_sha256: Sha256
     answers: dict[str, CodeReview] = Field(default_factory=dict)
     report: dict[str, object] = Field(default_factory=dict)

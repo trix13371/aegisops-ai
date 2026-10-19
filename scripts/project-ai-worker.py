@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import SecretStr
 
+from aegisops.assistant.runtime import runtime_model
 from aegisops.domain.common import utc_now
 from aegisops.project_ai.models import Result
 from aegisops.project_ai.projection import project_summary, report_digest
@@ -48,6 +49,7 @@ def main():
             report_sha256=claim.report_sha256,
             completed_at=utc_now(),
             status="completed",
+            model=runtime_model(),
             response=response,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -61,7 +63,7 @@ def main():
         # Host handles a preflight failure too. Never overwrite an existing result.
         if identifier is not None and owns_start:
             try:
-                repository.fail(identifier)
+                repository.fail(identifier, model=runtime_model())
             except Exception:  # noqa: S110 -- output must remain fixed, including storage failures
                 pass
         print(json.dumps({"ok": False}))

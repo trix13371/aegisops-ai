@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import Field, model_validator
 
+from aegisops.assistant.models import LEGACY_MODEL, ModelName
 from aegisops.domain.common import DTO, Sha256, UTCDateTime, utc_now
 from aegisops.io import read_text, unique_object
 from aegisops.project_ai.repository import AnalysisRepository
@@ -29,7 +30,7 @@ class ReviewResult(DTO):
     review_sha256: Sha256
     completed_at: UTCDateTime
     status: Literal["completed", "failed"]
-    model: Literal["deepseek/deepseek-v4.1-flash"] = "deepseek/deepseek-v4.1-flash"
+    model: ModelName = LEGACY_MODEL
     response: ReviewExplanation | None = None
     input_tokens: Annotated[int, Field(strict=True, ge=0, le=100000)] = 0
     output_tokens: Annotated[int, Field(strict=True, ge=0, le=1600)] = 0
@@ -117,7 +118,7 @@ class ReviewAnalysisRepository:
             else {"status": "pending", "created_at": claim.created_at.isoformat()}
         )
 
-    def fail(self, identifier: UUID) -> None:
+    def fail(self, identifier: UUID, model: ModelName = LEGACY_MODEL) -> None:
         claim = self.read_claim(identifier)
         if claim is None or self.read_result(identifier) is not None:
             return
@@ -126,6 +127,7 @@ class ReviewAnalysisRepository:
             review_sha256=claim.review_sha256,
             completed_at=utc_now(),
             status="failed",
+            model=model,
         )
         try:
             self.write(identifier, "result", result.model_dump_json())

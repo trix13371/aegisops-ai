@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from uuid import UUID
 
+from aegisops.assistant.models import LEGACY_MODEL, ModelName
 from aegisops.domain.common import utc_now
 from aegisops.io import read_text, unique_object
 from aegisops.project_ai.models import Claim, Result
@@ -88,7 +89,7 @@ class AnalysisRepository:
             return result.model_dump(mode="json")
         return {"status": "pending", "created_at": claim.created_at.isoformat()}
 
-    def fail(self, identifier: UUID) -> None:
+    def fail(self, identifier: UUID, model: ModelName = LEGACY_MODEL) -> None:
         claim = self.read_claim(identifier)
         if claim is None or self.read_result(identifier) is not None:
             return
@@ -97,6 +98,7 @@ class AnalysisRepository:
             report_sha256=claim.report_sha256,
             completed_at=utc_now(),
             status="failed",
+            model=model,
         )
         try:
             self.write(identifier, "result", result.model_dump_json())

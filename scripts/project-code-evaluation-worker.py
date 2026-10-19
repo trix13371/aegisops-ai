@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import SecretStr
 
+from aegisops.assistant.runtime import runtime_model
 from aegisops.domain.common import utc_now
 from aegisops.project_code.evaluation import (
     CASES,
@@ -58,6 +59,7 @@ def main():
             id=identifier,
             completed_at=utc_now(),
             status="completed",
+            model=runtime_model(),
             fixture_sha256=claim.fixture_sha256,
             answers=answers,
             report=score_answers(answers),
@@ -74,6 +76,7 @@ def main():
                         id=identifier,
                         completed_at=utc_now(),
                         status="failed",
+                        model=runtime_model(),
                         fixture_sha256=claim.fixture_sha256,
                         answers=answers,
                         report=score_answers(answers),

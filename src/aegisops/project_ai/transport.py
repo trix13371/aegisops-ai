@@ -11,6 +11,7 @@ from urllib.request import getproxies, proxy_bypass
 
 from pydantic import SecretStr
 
+from aegisops.assistant.runtime import runtime_selection
 from aegisops.io import unique_object
 from aegisops.project_ai.models import MODEL, Explanation, Summary
 
@@ -61,6 +62,20 @@ def _exchange(
     source_review: bool = False,
 ) -> tuple[object, int, int]:
     """Private wire boundary for fixed, locally validated explanation profiles only."""
+    selection = runtime_selection()
+    if selection.provider != "openrouter":
+        from aegisops.assistant.transport import exchange
+
+        try:
+            return exchange(
+                summary_json,
+                instructions,
+                key,
+                selection,
+                source_review=source_review,
+            )
+        except Exception:
+            raise AnalysisError() from None
     max_request = 65536 if source_review else 16384
     max_output = 2800 if source_review else 1600
     connection: http.client.HTTPSConnection | None = None

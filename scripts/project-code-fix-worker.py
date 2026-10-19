@@ -13,6 +13,7 @@ from uuid import UUID
 
 from pydantic import SecretStr
 
+from aegisops.assistant.runtime import runtime_model
 from aegisops.domain.common import utc_now
 from aegisops.project_code.lab import LabRepository, LabResult
 from aegisops.project_code.lab_transport import ProposalError, explain_proposal
@@ -64,6 +65,7 @@ def main() -> int:
             review_sha256=claim.review_sha256,
             completed_at=utc_now(),
             status="completed",
+            model=runtime_model(),
             proposal=proposal,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -77,7 +79,7 @@ def main() -> int:
         # Never overwrite another worker's result, nor finalize a start we do not own.
         if identifier is not None and owns_start:
             try:
-                lab.fail(identifier, failure_code=error.reason)
+                lab.fail(identifier, failure_code=error.reason, model=runtime_model())
             except Exception:  # noqa: S110 -- fixed output even if private storage is corrupt
                 pass
         print(json.dumps({"ok": False}))
@@ -86,7 +88,7 @@ def main() -> int:
         # Never overwrite another worker's result, nor finalize a start we do not own.
         if identifier is not None and owns_start:
             try:
-                lab.fail(identifier)
+                lab.fail(identifier, model=runtime_model())
             except Exception:  # noqa: S110 -- fixed output even if private storage is corrupt
                 pass
         print(json.dumps({"ok": False}))

@@ -24,6 +24,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from aegisops.assistant.models import CATALOG, LEGACY
+from aegisops.assistant.repository import MODES, AssistantRepository
 from aegisops.audit.reader import PostgresAuditReader
 from aegisops.authorization.bundle import load_config
 from aegisops.authorization.control import load_control
@@ -33,7 +35,7 @@ from aegisops.io import read_text, unique_object
 from aegisops.pipeline.models import PipelineResult
 from aegisops.project_ai.full_models import FULL_PROFILE
 from aegisops.project_ai.full_repository import FullAnalysisRepository
-from aegisops.project_ai.models import MODEL, PROFILE
+from aegisops.project_ai.models import PROFILE
 from aegisops.project_ai.projection import project_summary
 from aegisops.project_ai.repository import AnalysisRepository
 from aegisops.project_ai.review_models import REVIEW_PROFILE
@@ -55,7 +57,7 @@ from aegisops.project_runner.models import ENVIRONMENTS, profile_for
 from aegisops.project_runner.repository import RunRepository
 from aegisops.projects.comparison import compare_reports
 from aegisops.projects.models import ProjectError
-from aegisops.projects.repository import ProjectRepository
+from aegisops.projects.repository import ProjectRepository, plain_path
 from aegisops.projects.scanner import scan_project
 from aegisops.telemetry.contracts import DeliveryResult
 from aegisops.telemetry.files import load_trust, read_object, safe_path
@@ -105,6 +107,10 @@ class Dashboard:
         self.code_analyses = CodeRepository(ROOT / ".local/project-code-ai", self.projects)
         self.code_lab = LabRepository(ROOT / ".local/project-code-lab", self.code_analyses)
         self.code_evaluation = EvalRepository(ROOT / ".local/project-code-eval", self.projects)
+        self.assistant = AssistantRepository(
+            ROOT.parent.parent / "work/aegisops-runtime-credentials/assistant.json",
+            ROOT / ".local/assistant-attempts",
+        )
         self.python = str(ROOT / ".venv/Scripts/python.exe")
         if os.name != "nt":
             self.python = sys.executable
@@ -194,13 +200,38 @@ class Dashboard:
         identifier = str(UUID(str(identifier)))
         if os.name != "nt":
             raise ProjectError("Защищённое подключение нейропомощника настроено для Windows")
-        # PowerShell 7's inherited module path breaks Windows PowerShell 5.1's
-        # Security module autoload in a Python background process. Rebuild its defaults.
-        runtime_environment = {
-            key: value for key, value in role_environment().items() if key.upper() != "PSMODULEPATH"
-        }
-        result = subprocess.run(
-            [
+        mode = (
+            "project_check_ai"
+            if full
+            else (
+                "project_code_fix"
+                if fix
+                else (
+                    "project_code_evaluation"
+                    if evaluation
+                    else (
+                        "project_code_ai"
+                        if code
+                        else ("project_review_ai" if review else "project_ai")
+                    )
+                )
+            )
+        )
+        binding = self.assistant.read_binding(mode, identifier)
+        if binding is not None:
+            command = [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-File",
+                str(ROOT / "scripts/assistant-local.ps1"),
+                "-Mode",
+                mode,
+                "-Id",
+                identifier,
+            ]
+        else:
+            command = [
                 "powershell.exe",
                 "-NoProfile",
                 "-NonInteractive",
@@ -226,7 +257,14 @@ class Dashboard:
                 if full
                 else ("-CodeId" if code else ("-ReviewId" if review else "-ReportId")),
                 identifier,
-            ],
+            ]
+        # PowerShell 7's inherited module path breaks Windows PowerShell 5.1's
+        # Security module autoload in a Python background process. Rebuild its defaults.
+        runtime_environment = {
+            key: value for key, value in role_environment().items() if key.upper() != "PSMODULEPATH"
+        }
+        result = subprocess.run(
+            command,
             cwd=ROOT,
             env=runtime_environment,
             stdin=subprocess.DEVNULL,
@@ -238,6 +276,31 @@ class Dashboard:
         )
         if result.returncode != 0 or json.loads(result.stdout) != {"ok": True}:
             raise ProjectError("Не удалось получить подтверждённый ответ модели")
+
+    def assistant_status(self):
+        active = self.assistant.active()
+        selection = active if active is not None else LEGACY
+        configured = False
+        try:
+            configured = plain_path(
+                self.assistant.config_path.parent / f"{selection.provider}.dpapi"
+            ).is_file()
+        except Exception:
+            configured = False
+        return {
+            "selection": {"provider": selection.provider, "model": selection.model},
+            "legacy": active is None,
+            "configured": configured,
+            "providers": [
+                {"provider": provider, "label": entry.label, "model": entry.model}
+                for provider, entry in CATALOG.items()
+            ],
+            "setup_command": "Connect-Neuroassistant.cmd",
+            "direct_budget_note": (
+                "Прямой бюджет: запросы идут напрямую к выбранному провайдеру "
+                "с вашим ключом; лимиты и оплата — на стороне провайдера."
+            ),
+        }
 
     def overview(self):
         records, omitted, database_error = [], 0, False
@@ -394,6 +457,8 @@ class Dashboard:
                 raise ValueError("dashboard is closing")
             if self.job and self.job["state"] == "running":
                 return dict(self.job), False
+            if mode in MODES:
+                self.assistant.active()
             if mode == "project_ai":
                 self.analyses.claim(report)
             if mode == "project_review_ai":
@@ -416,6 +481,8 @@ class Dashboard:
                 scenario = str(
                     self.checks.create(UUID(scenario), payload.get("environment", "minimal")).id
                 )
+            if mode in MODES:
+                self.assistant.bind(mode, scenario)
             self.job = {
                 "id": str(uuid4()),
                 "mode": mode,
@@ -473,6 +540,34 @@ class Dashboard:
         with self.lock:
             self.job.update(fields)
 
+    def assistant_model(self, mode, identifier, state):
+        """Return the model actually recorded for a job, else its planned selection."""
+        if (
+            isinstance(state, dict)
+            and state.get("status") == "completed"
+            and isinstance(state.get("model"), str)
+        ):
+            return state["model"]
+        result = state.get("result") if isinstance(state, dict) else None
+        if not isinstance(result, dict) and isinstance(state, dict):
+            nested = state.get("state")
+            if isinstance(nested, dict) and isinstance(nested.get("result"), dict):
+                result = nested["result"]
+        if isinstance(result, dict) and result.get("status") == "completed":
+            model = result.get("model")
+            if isinstance(model, str):
+                return model
+        status = state.get("status") if isinstance(state, dict) else None
+        if status == "not_requested":
+            active = self.assistant.active()
+            return active.model if active is not None else LEGACY.model
+        if status in ("pending", "failed"):
+            binding = self.assistant.resolve(mode, identifier)
+            if binding is not None:
+                return binding.model
+            return LEGACY.model
+        return self.assistant.resolve(mode, identifier).model
+
     def run_job(self, mode, scenario):
         try:
             if mode == "project_code_fix":
@@ -481,7 +576,9 @@ class Dashboard:
                     self.project_code_fix_child(identifier)
                 except Exception:  # noqa: S110 -- never expose credential or provider details
                     pass
-                self.code_lab.fail(identifier)
+                self.code_lab.fail(
+                    identifier, model=self.assistant.resolve("project_code_fix", identifier).model
+                )
                 state = self.code_lab.state(identifier)
                 completed = state["status"] == "completed"
                 self.update(
@@ -546,7 +643,9 @@ class Dashboard:
                     self.project_code_ai_child(identifier)
                 except Exception:  # noqa: S110 -- never expose credential or provider details
                     pass
-                self.code_analyses.fail(identifier)
+                self.code_analyses.fail(
+                    identifier, model=self.assistant.resolve("project_code_ai", identifier).model
+                )
                 completed = self.code_analyses.state(identifier)["status"] == "completed"
                 self.update(
                     state="completed" if completed else "failed",
@@ -563,7 +662,9 @@ class Dashboard:
                     self.project_check_ai_child(identifier)
                 except Exception:  # noqa: S110 -- never expose credential or provider details
                     pass
-                self.full_analyses.fail(identifier)
+                self.full_analyses.fail(
+                    identifier, model=self.assistant.resolve("project_check_ai", identifier).model
+                )
                 completed = self.full_analyses.state(identifier)["status"] == "completed"
                 self.update(
                     state="completed" if completed else "failed",
@@ -580,7 +681,9 @@ class Dashboard:
                     self.project_review_ai_child(identifier)
                 except Exception:  # noqa: S110 -- do not expose provider or credential details
                     pass
-                self.review_analyses.fail(identifier)
+                self.review_analyses.fail(
+                    identifier, model=self.assistant.resolve("project_review_ai", identifier).model
+                )
                 review = self.reviews.get(identifier)
                 completed = self.review_analyses.state(review)["status"] == "completed"
                 self.update(
@@ -649,7 +752,9 @@ class Dashboard:
                     self.project_ai_child(identifier)
                 except Exception:  # noqa: S110 -- never expose credential-bearing provider errors
                     pass  # Fixed failure record below, never raw PowerShell/provider details.
-                self.analyses.fail(identifier)
+                self.analyses.fail(
+                    identifier, model=self.assistant.resolve("project_ai", identifier).model
+                )
                 report = self.projects.read_report(identifier)
                 analysis = self.analyses.state(report)
                 completed = analysis["status"] == "completed"
@@ -823,6 +928,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if self.path == "/api/ping":
                     return self.send_json(200, {"application": "aegisops-local-ui-v1"})
+                if self.path == "/api/assistant":
+                    return self.send_json(200, self.dashboard.assistant_status())
                 if self.path == "/api/overview":
                     return self.send_json(200, self.dashboard.overview())
                 if self.path == "/api/job":
@@ -844,7 +951,11 @@ class Handler(BaseHTTPRequestHandler):
                             "check_id": str(check.id),
                             "analysis": self.dashboard.full_analyses.state(identifier),
                             "profile": FULL_PROFILE,
-                            "model": MODEL,
+                            "model": self.dashboard.assistant_model(
+                                "project_check_ai",
+                                identifier,
+                                self.dashboard.full_analyses.state(identifier),
+                            ),
                             "payload": summary.model_dump(mode="json"),
                         },
                     )
@@ -857,7 +968,11 @@ class Handler(BaseHTTPRequestHandler):
                             "review": review.model_dump(mode="json"),
                             "analysis": self.dashboard.review_analyses.state(review),
                             "ai_profile": REVIEW_PROFILE,
-                            "model": MODEL,
+                            "model": self.dashboard.assistant_model(
+                                "project_review_ai",
+                                identifier,
+                                self.dashboard.review_analyses.state(review),
+                            ),
                             "payload": review_summary(review).model_dump(mode="json"),
                         },
                     )
@@ -886,7 +1001,11 @@ class Handler(BaseHTTPRequestHandler):
                         200,
                         {
                             "profile": PROFILE,
-                            "model": MODEL,
+                            "model": self.dashboard.assistant_model(
+                                "project_ai",
+                                identifier,
+                                self.dashboard.analyses.state(report),
+                            ),
                             "payload": project_summary(report).model_dump(mode="json"),
                             "analysis": self.dashboard.analyses.state(report),
                         },
@@ -944,6 +1063,11 @@ class Handler(BaseHTTPRequestHandler):
                             if review is not None
                             else None,
                             "lab": self.dashboard.code_lab.state(identifier),
+                            "model": self.dashboard.assistant_model(
+                                "project_code_fix",
+                                identifier,
+                                self.dashboard.code_lab.state(identifier),
+                            ),
                             "payloads": payloads,
                         },
                     )
@@ -953,6 +1077,11 @@ class Handler(BaseHTTPRequestHandler):
                         {
                             "cases": cases(),
                             "history": self.dashboard.code_evaluation.history(),
+                            "model": self.dashboard.assistant_model(
+                                "project_code_evaluation",
+                                "00000000-0000-0000-0000-000000000000",
+                                {"status": "not_requested"},
+                            ),
                         },
                     )
                 if self.path.startswith("/api/project-code-files/"):
@@ -972,6 +1101,9 @@ class Handler(BaseHTTPRequestHandler):
                             "preview": state["preview"],
                             "status": state["status"],
                             "result": state["result"],
+                            "model": self.dashboard.assistant_model(
+                                "project_code_ai", identifier, state
+                            ),
                             "wire_payload": wire_payload(
                                 CodePreview.model_validate(state["preview"])
                             ),

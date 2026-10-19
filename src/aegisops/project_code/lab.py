@@ -17,6 +17,7 @@ from uuid import UUID
 
 from pydantic import Field, StrictInt, StrictStr, model_validator
 
+from aegisops.assistant.models import LEGACY_MODEL, ModelName
 from aegisops.domain.common import DTO, Sha256, UTCDateTime, utc_now
 from aegisops.io import read_text, unique_object
 from aegisops.project_code.models import (
@@ -269,6 +270,7 @@ class LabResult(DTO):
     review_sha256: Sha256
     completed_at: UTCDateTime
     status: Literal["completed", "failed"]
+    model: ModelName = LEGACY_MODEL
     proposal: Proposal | None = None
     input_tokens: Annotated[StrictInt, Field(ge=0, le=100000)] = 0
     output_tokens: Annotated[StrictInt, Field(ge=0, le=2800)] = 0
@@ -304,7 +306,11 @@ def _review_digest(review: CodeReview) -> str:
 
 
 def _result_digest(result: LabResult) -> str:
-    return _digest(LabResult.model_validate(result).model_dump(mode="json"))
+    checked = LabResult.model_validate(result)
+    payload = checked.model_dump(mode="json")
+    if checked.model == LEGACY_MODEL:
+        payload.pop("model", None)
+    return _digest(payload)
 
 
 def _environment_allowed(target: TargetLanguage, environment: Environment) -> bool:
@@ -459,7 +465,12 @@ class LabRepository:
             validate_proposal(preview, result.proposal, claim.finding_index, review)
         return result
 
-    def fail(self, identifier: UUID, failure_code: FailureCode = "unknown") -> None:
+    def fail(
+        self,
+        identifier: UUID,
+        failure_code: FailureCode = "unknown",
+        model: ModelName = LEGACY_MODEL,
+    ) -> None:
         claim = self.read_claim(identifier)
         if claim is None or self.result(identifier) is not None:
             return
@@ -470,6 +481,7 @@ class LabRepository:
             completed_at=utc_now(),
             status="failed",
             failure_code=failure_code,
+            model=model,
         )
         try:
             self._write(identifier, "result", result.model_dump_json())
