@@ -137,11 +137,11 @@ function renderJob(job) {
   $("job-message").textContent = job.message;
   $("job-caption").textContent = job.mode === "project_full_check" ? "Файлы + тесты · один общий снимок исходников · без сети и ключей AegisOps"
     : job.mode === "project_runner" ? "Проверка кода в контейнере · без сети и ключей AegisOps"
-    : job.mode === "project_review_ai" ? "Разбор сводного отчёта через OpenRouter · без исходников и логов"
-    : job.mode === "project_ai" ? "Разбор сводки через OpenRouter · без передачи исходников"
-    : job.mode === "project_check_ai" ? "Объяснение файлов и тестов · OpenRouter · без исходников и логов"
-    : job.mode === "project_code_ai" ? "Разбор выбранного кода · OpenRouter · отправляются исходники выбранных файлов"
-    : job.mode === "project_code_fix" ? "Исправление и проверка · OpenRouter · платный запрос только после согласия"
+    : job.mode === "project_review_ai" ? "Разбор сводного отчёта через нейропомощника · без исходников и логов"
+    : job.mode === "project_ai" ? "Разбор сводки через нейропомощника · без передачи исходников"
+    : job.mode === "project_check_ai" ? "Объяснение файлов и тестов · нейропомощник · без исходников и логов"
+    : job.mode === "project_code_ai" ? "Разбор выбранного кода · нейропомощник · отправляются исходники выбранных файлов"
+    : job.mode === "project_code_fix" ? "Исправление и проверка · нейропомощник · платный запрос только после согласия"
     : job.mode === "project_code_verify" ? "Проверка в Docker · без сети и ключей AegisOps"
     : job.mode === "project_code_evaluation" ? "Оценка качества AI · синтетические примеры · до 3 платных запросов"
     : job.mode === "project" && job.files_checked !== undefined
@@ -150,7 +150,7 @@ function renderJob(job) {
     ? `Наблюдений: ${job.snapshot_count} · Инцидентов: ${job.incident_count} · ${sourceLabel(job.mode === "synthetic" ? "synthetic_fixture" : "local_kind")}`
     : "Результат появится здесь. Можно оставить эту страницу открытой.";
   $("job-detail").hidden = !job.check_id && !job.audit_ids?.length && !job.report_id && !job.run_id && !job.review_id && !job.preview_id && !job.lab_id && !job.evaluation_id;
-  $("job-detail").replaceChildren(document.createTextNode(job.preview_id ? "Разбор выбранного кода · OpenRouter " : job.check_id ? "Открыть проверку файлов и тестов " : job.review_id ? "Открыть сводный отчёт " : job.run_id ? "Результаты запуска " : job.report_id ? "Открыть отчёт " : "Открыть результат "), icon("arrow"));
+  $("job-detail").replaceChildren(document.createTextNode(job.preview_id ? "Разбор выбранного кода · нейропомощник " : job.check_id ? "Открыть проверку файлов и тестов " : job.review_id ? "Открыть сводный отчёт " : job.run_id ? "Результаты запуска " : job.report_id ? "Открыть отчёт " : "Открыть результат "), icon("arrow"));
   if (running && state.polling === null) state.polling = setTimeout(pollJob, 1500);
 }
 async function pollJob() {
@@ -427,9 +427,9 @@ function chooseProjectCheck(project,origin) {
   openRunnerDrawer(`Как проверить «${project.name}»?`,origin);const body=$("detail-body");
   body.append(node("p","drawer-intro","Выберите, что хотите узнать. На следующем экране будет описание и кнопка запуска."));
   body.append(actionOption("Файлы + тесты","Один общий снимок исходников: сначала статическая проверка файлов, затем тесты в Docker на тех же скопированных файлах. Итог общий.","Нужен Docker","layers",()=>chooseFullCheckLanguage(project,origin)),actionOption("Файлы и настройки","Проверка форматов и настроек контейнеров. Код проекта не запускается.","Без Docker","scan",()=>staticCheck(project,origin)),actionOption("Тесты Python","Проверка Python и запуск существующих тестов в отдельном контейнере.","Нужен Docker","play",()=>projectRuns(project,origin,"python")),actionOption("Тесты JavaScript / TypeScript","Проверка TypeScript и тесты Node.js или Vitest. Окружение подбирается по package.json.","Нужен Docker","play",()=>projectRuns(project,origin,"javascript")));
-  body.append(actionOption("Разбор кода нейросетью","Выбранные файлы отправляются в OpenRouter для платного разбора. Исходный код покидает этот компьютер.","OpenRouter · платно","spark",()=>chooseCodeReview(project,origin)));
-  body.append(actionOption("Оценка качества AI","Синтетический контрольный набор из 3 примеров. До 3 платных запросов в OpenRouter; реальный код проекта не отправляется.","OpenRouter · платно","spark",()=>openCodeEvaluation(origin)));
-  body.append(node("p","check-note","Бесплатные проверки выше не вызывают нейросеть. Пункт «Разбор кода нейросетью» — отдельный платный запрос: в OpenRouter уходит исходный код выбранных файлов."));
+  body.append(actionOption("Разбор кода нейросетью","Выбранные файлы отправляются внешнему сервису нейропомощника для платного разбора. Исходный код покидает этот компьютер.","нейропомощник · платно","spark",()=>chooseCodeReview(project,origin)));
+  body.append(actionOption("Оценка качества AI","Синтетический контрольный набор из 3 примеров. До 3 платных запросов через нейропомощника; реальный код проекта не отправляется.","нейропомощник · платно","spark",()=>openCodeEvaluation(origin)));
+  body.append(node("p","check-note","Бесплатные проверки выше не вызывают нейросеть. Пункт «Разбор кода нейросетью» — отдельный платный запрос: внешнему сервису нейропомощника уходит исходный код выбранных файлов."));
 }
 function chooseFullCheckLanguage(project,origin) {
   openRunnerDrawer(`Файлы + тесты · ${project.name}`,origin);const body=$("detail-body");
@@ -540,7 +540,7 @@ async function projectAiSection(report,sequence) {
   panel.append(node("p","","Модель объясняет сводку найденных замечаний. Исходники она не читает; это не ревью кода и не запуск тестов."));
   try {
     const data=await api(`/api/project-ai/${report.id}`), analysis=data.analysis;
-    pair(panel,"Провайдер / модель",`OpenRouter · ${data.model}`);
+    pair(panel,"Модель нейропомощника",`${data.model}`);
     if (analysis.status === "completed") {
       panel.append(node("span","status passed","Ответ модели получен"),node("p","ai-summary",analysis.response.summary));
       const priorities={high:"Высокий",medium:"Средний",low:"Низкий"};
@@ -556,11 +556,11 @@ async function projectAiSection(report,sequence) {
     } else if (analysis.status === "failed") {
       panel.append(node("p","detail-callout","Ответ модели не подтверждён. Возможны ошибка подключения, лимит ключа или неподдержанный ответ. Статический отчёт сохранён. Повтора нет: при обрыве запрос мог быть оплачен. Проверьте отдельный ключ проекта и его лимит; для новой попытки создайте новый статический отчёт."));
     } else {
-      panel.append(node("p","","В OpenRouter отправятся только версия правил, статус, число проверенных файлов/пропусков и коды замечаний с их количеством. Названия, пути, строки исходников и значения конфигурации не отправляются."));
+      panel.append(node("p","","Внешнему сервису нейропомощника отправятся только версия правил, статус, число проверенных файлов/пропусков и коды замечаний с их количеством. Названия, пути, строки исходников и значения конфигурации не отправляются."));
       const preview=node("details","ai-preview"); preview.append(node("summary","","Посмотреть отправляемую сводку"),node("pre","",JSON.stringify(data.payload,null,2))); panel.append(preview);
       panel.append(node("p","detail-subtitle","Один платный запрос, до 1600 выходных токенов. Используется отдельный ключ AegisOps с общим лимитом до $5. Для одного отчёта — одна попытка, без автоматического повтора."));
       const label=node("label","ai-consent"), consent=node("input"); consent.type="checkbox"; consent.id=`ai-consent-${report.id}`;
-      label.append(consent,document.createTextNode("Отправить эту сводку в OpenRouter и выполнить один платный разбор"));
+      label.append(consent,document.createTextNode("Отправить эту сводку внешнему сервису нейропомощника и выполнить один платный разбор"));
       const run=node("button","primary-button project-ai-start","Разобрать с нейросетью"); run.dataset.consentId=consent.id; run.disabled=true;
       consent.addEventListener("change",()=>{run.disabled=!consent.checked || state.job?.state === "running";});
       run.addEventListener("click",async()=>{
@@ -885,7 +885,7 @@ async function loadFullAiSection(id,sequence,panel) {
     }
   }
   panel.append(node("p","","Модель объясняет только сводку сохранённых проверок файлов и тестов. Она не читает исходники или логи и не проверяет рекомендации исполнением."));
-  pair(panel,"Провайдер / модель",`OpenRouter · ${data.model}`);
+  pair(panel,"Модель нейропомощника",`${data.model}`);
   if(analysis.status==="completed") {
     panel.append(node("span","status passed","Ответ модели получен"),node("p","ai-summary",analysis.response.summary));
     const actions=Array.isArray(analysis.response.actions) ? analysis.response.actions.slice(0,5) : [];
@@ -899,11 +899,11 @@ async function loadFullAiSection(id,sequence,panel) {
   } else if(analysis.status==="failed") {
     panel.append(node("p","detail-callout","Результат не подтверждён. Сводка сохранена; повторного запроса для этого набора результатов нет, поскольку попытка могла быть оплачена. Логи и проверки доступны ниже."));
   } else if(analysis.status==="not_requested") {
-    panel.append(node("p","","В OpenRouter отправятся только количества, коды категорий, статусы инструментов и ограничения проверки. Исходники, логи, пути, названия проектов, UUID, хеши и имена пакетов не отправляются."));
+    panel.append(node("p","","Внешнему сервису нейропомощника отправятся только количества, коды категорий, статусы инструментов и ограничения проверки. Исходники, логи, пути, названия проектов, UUID, хеши и имена пакетов не отправляются."));
     const preview=node("details","ai-preview");preview.append(node("summary","","Посмотреть отправляемую сводку"),node("pre","",JSON.stringify(data.payload,null,2)));panel.append(preview);
     panel.append(node("p","detail-subtitle","Один платный запрос, до 1600 выходных токенов. Используется отдельный ключ AegisOps. Для одного набора результатов — одна попытка без автоматического повтора."));
     const consent=node("input"),label=node("label","ai-consent");consent.type="checkbox";consent.id=`full-ai-consent-${id}`;
-    label.append(consent,document.createTextNode("Отправить сводку в OpenRouter для одного платного разбора"));
+    label.append(consent,document.createTextNode("Отправить сводку внешнему сервису нейропомощника для одного платного разбора"));
     const run=node("button","primary-button project-ai-start","Объяснить результаты");run.dataset.consentId=consent.id;run.disabled=true;
     let submitted=false;
     const sync=()=>{run.disabled=submitted || !consent.checked || state.job?.state==="running";};
@@ -928,7 +928,7 @@ async function loadFullAiSection(id,sequence,panel) {
 function reviewAiSection(data,sequence) {
   const panel=section("Нейросетевой разбор сводки"),analysis=data.analysis,review=data.review;panel.classList.add("project-ai-panel");
   panel.append(node("p","","Модель объясняет только сводку сохранённых проверок. Она не читает исходники или логи и не проверяет рекомендации исполнением."));
-  pair(panel,"Провайдер / модель",`OpenRouter · ${data.model}`);
+  pair(panel,"Модель нейропомощника",`${data.model}`);
   if(analysis.status==="completed") {
     panel.append(node("span","status passed","Ответ модели получен"),node("p","ai-summary",analysis.response.summary));
     const priorities={high:"Высокий",medium:"Средний",low:"Низкий"};
@@ -942,11 +942,11 @@ function reviewAiSection(data,sequence) {
   } else if(analysis.status==="failed") {
     panel.append(node("p","detail-callout","Ответ модели не подтверждён. Сводка сохранена; повторного запроса для этого набора результатов нет, поскольку попытка могла быть оплачена. Повторное создание такой же сводки не сбрасывает состояние разбора."));
   } else if(analysis.status==="not_requested") {
-    panel.append(node("p","","В OpenRouter отправятся только количества, коды категорий, статусы инструментов и ограничения проверки. Исходники, логи, пути, названия проектов, UUID, хеши и имена пакетов не отправляются."));
+    panel.append(node("p","","Внешнему сервису нейропомощника отправятся только количества, коды категорий, статусы инструментов и ограничения проверки. Исходники, логи, пути, названия проектов, UUID, хеши и имена пакетов не отправляются."));
     const preview=node("details","ai-preview");preview.append(node("summary","","Посмотреть отправляемую сводку"),node("pre","",JSON.stringify(data.payload,null,2)));panel.append(preview);
     panel.append(node("p","detail-subtitle","Один платный запрос, до 1600 выходных токенов. Используется отдельный ключ AegisOps. Для одного набора результатов — одна попытка без автоматического повтора."));
     const consent=node("input"),label=node("label","ai-consent");consent.type="checkbox";consent.id=`review-ai-consent-${review.id}`;
-    label.append(consent,document.createTextNode("Отправить показанную сводку в OpenRouter и выполнить один платный разбор"));
+    label.append(consent,document.createTextNode("Отправить показанную сводку внешнему сервису нейропомощника и выполнить один платный разбор"));
     const run=node("button","primary-button project-ai-start","Разобрать сводку с нейросетью");run.dataset.consentId=consent.id;run.disabled=true;
     consent.addEventListener("change",()=>{run.disabled=!consent.checked || state.job?.state==="running";});
     run.addEventListener("click",async()=>{
@@ -1116,7 +1116,7 @@ function isCodeCurrent(sequence,panel){return sequence===detailSequence && !$("d
 async function chooseCodeReview(project,origin){
   openRunnerDrawer(`Разбор кода · ${project.name}`,origin);const sequence=detailSequence;const body=$("detail-body");
   drawerBack(body,"К выбору проверки",()=>chooseProjectCheck(project,origin));
-  body.append(node("p","drawer-intro","Выберите до 5 файлов. В OpenRouter уйдёт исходный код выбранных файлов; пути и названия отдельно не отправляются, но могут встречаться внутри кода."));
+  body.append(node("p","drawer-intro","Выберите до 5 файлов. Внешнему сервису нейропомощника уйдёт исходный код выбранных файлов; пути и названия отдельно не отправляются, но могут встречаться внутри кода."));
   const mapButton=node("button","action-option");mapButton.append(node("span","action-option-copy","Карта проекта"),node("small","","Локальный разбор связей файлов. Без нейросети и без оплаты."));mapButton.addEventListener("click",()=>openCodeMap(project,origin));body.append(mapButton);
   const panel=node("div","detail-panel");body.append(panel);
   panel.append(node("p","detail-callout","Загрузка списка файлов…"));
@@ -1241,7 +1241,7 @@ async function openCodeMap(project,origin){
   if(!data.files.length)panel.append(node("p","detail-callout","Файлы не найдены."));
 }
 async function openCodeReview(id,origin){
-  openRunnerDrawer("Разбор кода · OpenRouter",origin);const sequence=detailSequence;const body=$("detail-body");
+  openRunnerDrawer("Разбор кода · нейропомощник",origin);const sequence=detailSequence;const body=$("detail-body");
   const panel=node("div","detail-panel");body.append(panel);panel.append(node("p","detail-callout","Загрузка предпросмотра…"));
   let data;
   try {data=await api(`/api/project-code/${encodeURIComponent(id)}`);}
@@ -1255,7 +1255,7 @@ async function openCodeReview(id,origin){
   const project=state.projects?.find(item=>item.id===preview.project_id);
   if(project)drawerBack(body,"К выбору файлов",()=>chooseCodeReview(project,origin));
   panel.append(node("p","detail-subtitle",`Снимок создан: ${formatTime(preview.created_at)}`));
-  panel.append(node("p","detail-callout","В OpenRouter отправится исходный код выбранных файлов. Пути и названия отдельно не отправляются, но могут встречаться внутри кода. Проверьте весь текст: фильтр секретов не гарантирует их отсутствия."));
+  panel.append(node("p","detail-callout","Внешнему сервису нейропомощника отправится исходный код выбранных файлов. Пути и названия отдельно не отправляются, но могут встречаться внутри кода. Проверьте весь текст: фильтр секретов не гарантирует их отсутствия."));
   panel.append(node("p","detail-subtitle","Предпросмотр сохранён локально и содержит код. Живая папка проекта могла измениться после снимка."));
   for(const file of preview.files){
     const details=node("details","ai-preview");details.append(node("summary","",`${file.id || "?"} · ${file.path} · ${file.language || "текст"} · ${file.lines ?? "?"} строк`));
@@ -1297,7 +1297,7 @@ async function openCodeReview(id,origin){
     if(preview.profile!==CODE_AI_PROFILE){panel.append(node("p","detail-callout","Профиль предпросмотра неизвестен. Новый запрос не отправлен."));return;}
     panel.append(node("p","detail-subtitle","Один платный запрос, до 2800 выходных токенов. Для одного предпросмотра — одна попытка без автоматического повтора."));
     const consent=node("input"),label=node("label","ai-consent");consent.type="checkbox";consent.id=`code-ai-consent-${id}`;
-    label.append(consent,document.createTextNode("Отправить исходный код выбранных файлов в OpenRouter для одного платного разбора"));
+    label.append(consent,document.createTextNode("Отправить исходный код выбранных файлов внешнему сервису нейропомощника для одного платного разбора"));
     const run=node("button","primary-button project-ai-start","Отправить код на анализ");run.dataset.consentId=consent.id;run.disabled=true;
     let submitted=false;
     const sync=()=>{run.disabled=submitted || !consent.checked || state.job?.state==="running" || !state.registryReady;run.dataset.compatible=(submitted || !state.registryReady)?"false":"true";};
@@ -1321,7 +1321,7 @@ async function openCodeReview(id,origin){
 }
 
 async function openCodeLab(id,origin){
-  openRunnerDrawer("Исправление и проверка · OpenRouter",origin);const sequence=detailSequence;const body=$("detail-body");
+  openRunnerDrawer("Исправление и проверка · нейропомощник",origin);const sequence=detailSequence;const body=$("detail-body");
   const panel=node("div","detail-panel");body.append(panel);panel.append(node("p","detail-callout","Загрузка лаборатории…"));
   let data;
   try {data=await api(`/api/project-code-lab/${encodeURIComponent(id)}`);}
@@ -1351,7 +1351,7 @@ async function openCodeLab(id,origin){
     detail.replaceChildren();
     const index=Number(select.value)||0;const payload=payloads[index];
     if(!payload){detail.append(node("p","detail-callout","Для этого замечания предложение недоступно."));return;}
-    detail.append(node("p","detail-callout","Внимание: в отличие от разбора, здесь в OpenRouter отправляются относительные пути файлов вместе с исходным кодом."));
+    detail.append(node("p","detail-callout","Внимание: в отличие от разбора, здесь внешнему сервису нейропомощника отправляются относительные пути файлов вместе с исходным кодом."));
     const pre=node("pre","code-preview",JSON.stringify(payload,null,2));pre.style.maxHeight="360px";pre.style.overflow="auto";pre.style.whiteSpace="pre";
     const wrap=node("details","ai-preview");wrap.append(node("summary","","Точные данные запроса"),pre);detail.append(wrap);
   };
@@ -1487,7 +1487,7 @@ async function openCodeEvaluation(origin){
       if(report.complete===false)panel.append(node("p","detail-callout","Отчёт неполный. Итоговые метрики могут быть недостоверны."));
     } else {panel.append(node("p","detail-callout","Отчёт недоступен."));}
   } else {panel.append(node("p","detail-callout","Истории оценок нет. После запуска отчёт появится здесь."));}
-  panel.append(node("p","detail-subtitle","До 3 платных запросов в OpenRouter. Отправляются только синтетические примеры."));
+  panel.append(node("p","detail-subtitle","До 3 платных запросов через нейропомощника. Отправляются только синтетические примеры."));
   const consent=node("input"),label=node("label","ai-consent");consent.type="checkbox";consent.id="code-eval-consent";
   label.append(consent,document.createTextNode("Разрешить до 3 платных запросов на синтетических примерах"));
   const run=node("button","primary-button project-ai-start","Запустить оценку");run.dataset.consentId=consent.id;run.disabled=true;

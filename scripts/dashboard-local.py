@@ -193,7 +193,7 @@ class Dashboard:
     ):
         identifier = str(UUID(str(identifier)))
         if os.name != "nt":
-            raise ProjectError("Защищённое подключение OpenRouter настроено для Windows")
+            raise ProjectError("Защищённое подключение нейропомощника настроено для Windows")
         # PowerShell 7's inherited module path breaks Windows PowerShell 5.1's
         # Security module autoload in a Python background process. Rebuild its defaults.
         runtime_environment = {
@@ -434,24 +434,27 @@ class Dashboard:
                 )
             if mode == "project_ai":
                 self.job.update(
-                    report_id=scenario, message="Запрошен разбор сводки через OpenRouter…"
+                    report_id=scenario, message="Запрошен разбор сводки через нейропомощника…"
                 )
             if mode == "project_review_ai":
                 self.job.update(
-                    review_id=scenario, message="Запрошен разбор сводного отчёта через OpenRouter…"
+                    review_id=scenario,
+                    message="Запрошен разбор сводного отчёта через нейропомощника…",
                 )
             if mode == "project_check_ai":
                 self.job.update(
                     check_id=scenario,
-                    message="Запрошен разбор совместной проверки через OpenRouter…",
+                    message="Запрошен разбор совместной проверки через нейропомощника…",
                 )
             if mode == "project_code_ai":
                 self.job.update(
-                    preview_id=scenario, message="Запрошен разбор кода проекта через OpenRouter…"
+                    preview_id=scenario,
+                    message="Запрошен разбор кода проекта через нейропомощника…",
                 )
             if mode == "project_code_fix":
                 self.job.update(
-                    lab_id=scenario, message="Запрошено предложение исправления через OpenRouter…"
+                    lab_id=scenario,
+                    message="Запрошено предложение исправления через нейропомощника…",
                 )
             if mode == "project_code_verify":
                 self.job.update(
@@ -460,7 +463,7 @@ class Dashboard:
             if mode == "project_code_evaluation":
                 self.job.update(
                     evaluation_id=scenario,
-                    message="Запускаем синтетическую оценку через OpenRouter…",
+                    message="Запускаем синтетическую оценку через нейропомощника…",
                 )
             job = dict(self.job)
         threading.Thread(target=self.run_job, args=(mode, scenario), daemon=True).start()

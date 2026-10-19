@@ -16,8 +16,8 @@ try {
         Write-Output 'A project credential already exists; it was not overwritten.'
     } else {
         Write-Host 'AegisOps PROJECT runtime key (separate from the coding assistants).'
-        Write-Host 'Paste a NEW OpenRouter key. Input is hidden. No model request will be made.'
-        $connectionInput = Read-Host 'Project OpenRouter API key' -AsSecureString
+        Write-Host 'Paste a NEW neuroassistant key. Input is hidden. No model request will be made.'
+        $connectionInput = Read-Host 'Project neuroassistant API key' -AsSecureString
         $connectionPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($connectionInput)
         try { $connectionPlain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($connectionPointer) }
         finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($connectionPointer) }

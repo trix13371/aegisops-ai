@@ -23,7 +23,7 @@ $openRouterOldEncoding = $env:PYTHONIOENCODING
 $openRouterConsoleEncoding = [Console]::OutputEncoding
 $openRouterSecret = $null
 $openRouterExit = 1
-$openRouterFailure = 'OpenRouter launch rejected; provider details were not displayed.'
+$openRouterFailure = 'Neuroassistant launch rejected; provider details were not displayed.'
 function Stop-OpenRouterLaunch([string]$Reason) {
     $script:openRouterFailure = $Reason
     throw 'Launch rejected'
@@ -76,7 +76,7 @@ try {
     try {
         $openRouterStatus = Invoke-RestMethod -Uri 'https://openrouter.ai/api/v1/key' `
             -Headers @{ Authorization = 'Bearer ' + $openRouterSecret } -TimeoutSec 30 -MaximumRedirection 0
-    } catch { Stop-OpenRouterLaunch 'OpenRouter key verification failed; no model request was made.' }
+    } catch { Stop-OpenRouterLaunch 'Neuroassistant key verification failed; no model request was made.' }
     $openRouterAllowance = $openRouterStatus.data
     if ($openRouterAllowance.limit -isnot [ValueType] -or $openRouterAllowance.limit -is [bool] -or
         [double]::IsNaN([double]$openRouterAllowance.limit) -or
@@ -91,7 +91,7 @@ try {
         Stop-OpenRouterLaunch 'Insufficient key allowance; no model request was made.'
     }
     if ($CheckOnly) {
-        Write-Output 'OpenRouter credential ready; total key limit checked; no model request was made.'
+        Write-Output 'Neuroassistant credential ready; total key limit checked; no model request was made.'
         $openRouterExit = 0
     } elseif ($Mode -eq 'project-code') {
         $env:AEGISOPS_LLM_API_KEY = $openRouterSecret
